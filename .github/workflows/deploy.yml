@@ -42,8 +42,10 @@ jobs:
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
           port: ${{ secrets.EC2_SSH_PORT || 22 }}
-          timeout: 60s
-          command_timeout: 10m
+          timeout: 180s
+          command_timeout: 15m
+          debug: true
+          script_stop: true
           script: |
             echo "CONNECTED FROM GITHUB ACTIONS"
             hostname
