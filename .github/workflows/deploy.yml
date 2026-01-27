@@ -14,6 +14,7 @@ jobs:
   build-and-deploy:
     name: Build and Deploy
     runs-on: ubuntu-latest
+    environment: EC2_HOST
     
     steps:
       - name: Checkout code
