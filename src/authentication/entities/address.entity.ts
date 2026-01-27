@@ -1,25 +1,37 @@
-import { Entity, Column, PrimaryGeneratedColumn } from 'typeorm';
+import {
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  CreateDateColumn,
+  UpdateDateColumn,
+} from 'typeorm';
 
 @Entity({ name: 'addresses' })
 export class Address {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column('street')
+  @Column({ type: 'varchar', length: 255 })
   street: string;
 
-  @Column('city')
+  @Column({ type: 'varchar', length: 100 })
   city: string;
 
-  @Column('state')
+  @Column({ type: 'varchar', length: 100 })
   state: string;
 
-  @Column('zip_code')
+  @Column({ type: 'varchar', length: 20, name: 'zip_code' })
   zipCode: string;
 
-  @Column('country')
+  @Column({ type: 'varchar', length: 100 })
   country: string;
 
-  @Column('user_id')
+  @Column({ type: 'uuid', name: 'user_id' })
   userId: string;
+
+  @CreateDateColumn({ type: 'timestamp' })
+  createdAt: Date;
+
+  @UpdateDateColumn({ type: 'timestamp' })
+  updatedAt: Date;
 }

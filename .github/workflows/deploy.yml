@@ -47,12 +47,7 @@ jobs:
           debug: true
           script_stop: true
           script: |
-            echo "CONNECTED FROM GITHUB ACTIONS"
-            hostname
-            whoami
-
             set -e
-            
             # Navigate to application directory
             cd /var/www/hh-backend
             
