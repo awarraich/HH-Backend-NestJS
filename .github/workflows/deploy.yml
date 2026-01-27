@@ -45,6 +45,10 @@ jobs:
           timeout: 60s
           command_timeout: 10m
           script: |
+            echo "CONNECTED FROM GITHUB ACTIONS"
+            hostname
+            whoami
+
             set -e
             
             # Navigate to application directory
