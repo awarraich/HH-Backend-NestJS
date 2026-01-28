@@ -20,7 +20,7 @@ import { Authenticate2FADto } from './dto/authenticate-2fa.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { SuccessHelper } from '../common/helpers/responses/success.helper';
 
-@Controller('v1/api/auth')
+@Controller('auth')
 export class AuthenticationController {
   constructor(private readonly authService: AuthService) {}
 

@@ -13,7 +13,6 @@ import * as crypto from 'crypto';
 import { UserRepository } from '../repositories/user.repository';
 import { RoleRepository } from '../repositories/role.repository';
 import { User } from '../entities/user.entity';
-import { UserRole } from '../entities/user-role.entity';
 import { EmailService } from '../../common/services/email/email.service';
 import { TwoFactorService } from './two-factor.service';
 import { RegisterDto } from '../dto/register.dto';
@@ -22,7 +21,6 @@ import { VerifyEmailDto } from '../dto/verify-email.dto';
 import { ForgotPasswordDto } from '../dto/forgot-password.dto';
 import { ResetPasswordDto } from '../dto/reset-password.dto';
 import { Verify2FADto } from '../dto/verify-2fa.dto';
-import { Authenticate2FADto } from '../dto/authenticate-2fa.dto';
 import { AuthResponseInterface } from '../interfaces/auth-response.interface';
 import { JwtPayload } from '../interfaces/jwt-payload.interface';
 import { DataSource } from 'typeorm';
@@ -59,6 +57,8 @@ export class AuthService {
 
     // Create user
     const user = this.userRepository.create({
+      firstName: registerDto.firstName,
+      lastName: registerDto.lastName,
       email: registerDto.email,
       password: hashedPassword,
       email_verification_token: verificationToken,
