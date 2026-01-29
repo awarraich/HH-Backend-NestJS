@@ -1,4 +1,4 @@
-import { IsEmail, IsNotEmpty, IsString, MinLength, Matches } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString, MinLength, Matches, IsOptional } from 'class-validator';
 
 export class RegisterDto {
   @IsString()
@@ -21,4 +21,8 @@ export class RegisterDto {
       'Password must contain at least one uppercase letter, one lowercase letter, and one number',
   })
   password: string;
+
+  @IsString()
+  @IsOptional()
+  recaptchaToken?: string;
 }

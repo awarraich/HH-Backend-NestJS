@@ -15,6 +15,7 @@ import { RoleRepository } from '../repositories/role.repository';
 import { User } from '../entities/user.entity';
 import { EmailService } from '../../common/services/email/email.service';
 import { TwoFactorService } from './two-factor.service';
+import { RecaptchaService } from '../../common/services/recaptcha/recaptcha.service';
 import { RegisterDto } from '../dto/register.dto';
 import { LoginDto } from '../dto/login.dto';
 import { VerifyEmailDto } from '../dto/verify-email.dto';
@@ -35,6 +36,7 @@ export class AuthService {
     private jwtService: JwtService,
     private emailService: EmailService,
     private twoFactorService: TwoFactorService,
+    private recaptchaService: RecaptchaService,
     private configService: ConfigService,
     private dataSource: DataSource,
   ) {}
@@ -42,20 +44,30 @@ export class AuthService {
   /**
    * Register a new user with email verification
    */
-  async register(registerDto: RegisterDto): Promise<{ message: string }> {
+  async register(registerDto: RegisterDto, clientIp?: string): Promise<{ message: string }> {
+    if (registerDto.recaptchaToken) {
+      const isValid = await this.recaptchaService.verifyToken(
+        registerDto.recaptchaToken,
+        clientIp,
+      );
+      if (!isValid) {
+        throw new BadRequestException('reCAPTCHA verification failed');
+      }
+    } else if (this.recaptchaService.isEnabled()) {
+      throw new BadRequestException('reCAPTCHA token is required');
+    }
+
     // Check if user already exists
     const existingUser = await this.userRepository.findByEmail(registerDto.email);
     if (existingUser) {
       throw new ConflictException('User with this email already exists');
     }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(registerDto.password, 10);
 
-    // Generate email verification token
     const verificationToken = crypto.randomBytes(32).toString('hex');
+    this.logger.log(`Generated verification token for ${this.maskEmail(registerDto.email)}: ${verificationToken.substring(0, 8)}... (length: ${verificationToken.length})`);
 
-    // Create user
     const user = this.userRepository.create({
       firstName: registerDto.firstName,
       lastName: registerDto.lastName,
@@ -67,14 +79,36 @@ export class AuthService {
       is_active: true,
     });
 
-    await this.userRepository.save(user);
+    const savedUser = await this.userRepository.save(user);
+    
+    // Verify the token was saved correctly
+    const verifySaved = await this.userRepository.findOne({
+      where: { id: savedUser.id },
+      select: ['id', 'email', 'email_verification_token'],
+    });
+    
+    if (verifySaved && verifySaved.email_verification_token !== verificationToken) {
+      this.logger.error(`Token mismatch! Saved: ${verifySaved.email_verification_token?.substring(0, 8)}..., Expected: ${verificationToken.substring(0, 8)}...`);
+    } else if (verifySaved) {
+      this.logger.log(`Token saved correctly for user: ${this.maskEmail(registerDto.email)}`);
+    }
+
+    // Extract user name for email template
+    const userName =
+      registerDto.firstName && registerDto.lastName
+        ? `${registerDto.firstName} ${registerDto.lastName}`
+        : registerDto.firstName || registerDto.email;
 
     // Send verification email
     try {
-      await this.emailService.sendVerificationEmail(registerDto.email, verificationToken);
+      await this.emailService.sendVerificationEmail(
+        registerDto.email,
+        verificationToken,
+        userName,
+        registerDto.email,
+      );
     } catch (error) {
       this.logger.error('Failed to send verification email', error);
-      // Don't throw - user is created, they can request resend
     }
 
     this.logger.log(`User registered: ${this.maskEmail(registerDto.email)}`);
@@ -87,28 +121,47 @@ export class AuthService {
   /**
    * Login user with optional 2FA
    */
-  async login(loginDto: LoginDto, twoFactorToken?: string): Promise<AuthResponseInterface> {
-    // Find user with password
+  async login(
+    loginDto: LoginDto,
+    twoFactorToken?: string,
+    clientIp?: string,
+  ): Promise<AuthResponseInterface> {
+    // Verify reCAPTCHA if enabled
+    if (loginDto.recaptchaToken) {
+      const isValid = await this.recaptchaService.verifyToken(
+        loginDto.recaptchaToken,
+        clientIp,
+      );
+      if (!isValid) {
+        throw new BadRequestException('reCAPTCHA verification failed');
+      }
+    } else if (this.recaptchaService.isEnabled()) {
+      throw new BadRequestException('reCAPTCHA token is required');
+    }
+
     const user = await this.userRepository.findByEmailWithPassword(loginDto.email);
 
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    // Verify password
-    const isPasswordValid = await bcrypt.compare(loginDto.password, user.password);
+    if (!user.password) {
+      throw new UnauthorizedException(
+        'This account was created with Google. Please use Google Sign-In.',
+      );
+    }
+
+    const isPasswordValid = await bcrypt.compare(loginDto.password, user.password!);
 
     if (!isPasswordValid) {
       this.logger.warn(`Failed login attempt for: ${this.maskEmail(loginDto.email)}`);
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    // Check if user is active
     if (!user.is_active) {
       throw new UnauthorizedException('Account is inactive');
     }
 
-    // Check if email is verified
     if (!user.email_verified) {
       throw new UnauthorizedException('Please verify your email before logging in');
     }
@@ -116,7 +169,6 @@ export class AuthService {
     // Check if 2FA is enabled
     if (user.is_two_fa_enabled) {
       if (!twoFactorToken) {
-        // Return that 2FA is required
         return {
           accessToken: '',
           refreshToken: '',
@@ -131,7 +183,6 @@ export class AuthService {
         };
       }
 
-      // Verify 2FA token
       if (!user.totp_secret) {
         throw new BadRequestException('2FA is enabled but secret is missing');
       }
@@ -142,22 +193,28 @@ export class AuthService {
         throw new UnauthorizedException('Invalid 2FA token');
       }
 
-      // Update last 2FA verification time
       user.last_2fa_verified_at = new Date();
     }
 
-    // Update last login
     user.last_login = new Date();
     await this.userRepository.save(user);
 
-    // Get user roles
     const userWithRoles = await this.userRepository.findByIdWithRoles(user.id);
     const roles = userWithRoles?.userRoles?.map((ur) => ur.role.name) || [];
 
-    // Generate tokens
     const tokens = await this.generateTokens(user, roles);
 
-    this.logger.log(`User logged in: ${this.maskEmail(user.email)}`);
+    let redirectPath = '/home';
+    
+    const hasAdminRole = roles.some(role => role.toLowerCase() === 'admin');
+    
+    if (hasAdminRole) {
+      redirectPath = '/admin';
+    } else if (!user.is_two_fa_enabled) {
+      redirectPath = '/settings/2fa';
+    }
+
+    this.logger.log(`User logged in: ${this.maskEmail(user.email)} (Roles: ${roles.join(', ')})`);
 
     return {
       ...tokens,
@@ -168,6 +225,7 @@ export class AuthService {
         isTwoFaEnabled: user.is_two_fa_enabled,
         roles,
       },
+      redirectPath,
     };
   }
 
@@ -177,10 +235,36 @@ export class AuthService {
   async verifyEmail(verifyEmailDto: VerifyEmailDto): Promise<{
     message: string;
   }> {
+    this.logger.log(`Attempting to verify email with token: ${verifyEmailDto.token.substring(0, 8)}...`);
+    
     const user = await this.userRepository.findByVerificationToken(verifyEmailDto.token);
 
     if (!user) {
-      throw new NotFoundException('Invalid or expired verification token');
+      this.logger.warn(`Verification token not found in database: ${verifyEmailDto.token.substring(0, 8)}...`);
+      
+      // Check if there are any users with this token pattern (for debugging)
+      const allUsers = await this.userRepository.find({
+        where: {},
+        select: ['id', 'email', 'email_verified', 'email_verification_token'],
+      });
+      
+      // Check if any user is already verified (token might have been cleared)
+      const verifiedUsers = allUsers.filter(u => u.email_verified);
+      this.logger.debug(`Found ${verifiedUsers.length} verified users in database`);
+      
+      // Check if token might match a user's email (shouldn't happen, but for debugging)
+      const tokenLength = verifyEmailDto.token.length;
+      this.logger.debug(`Token length: ${tokenLength} (expected: 64 for 32 bytes hex)`);
+      
+      throw new NotFoundException('Invalid or expired verification token. The link may have already been used or expired.');
+    }
+    
+    this.logger.log(`Found user for verification token: ${this.maskEmail(user.email)} (User ID: ${user.id})`);
+    
+    // Check if email is already verified
+    if (user.email_verified) {
+      this.logger.log(`Email already verified for: ${this.maskEmail(user.email)}`);
+      return { message: 'Email is already verified' };
     }
 
     // Check if token is expired (24 hours)
@@ -201,7 +285,18 @@ export class AuthService {
 
     await this.userRepository.save(user);
 
-    this.logger.log(`Email verified for: ${this.maskEmail(user.email)}`);
+    // Verify the save was successful
+    const verifiedUser = await this.userRepository.findOne({
+      where: { id: user.id },
+      select: ['id', 'email', 'email_verified'],
+    });
+
+    if (!verifiedUser || !verifiedUser.email_verified) {
+      this.logger.error(`Email verification save failed for: ${this.maskEmail(user.email)}`);
+      throw new Error('Failed to save email verification status');
+    }
+
+    this.logger.log(`Email verified successfully for: ${this.maskEmail(user.email)} (User ID: ${user.id})`);
 
     return { message: 'Email verified successfully' };
   }
@@ -230,9 +325,20 @@ export class AuthService {
 
     await this.userRepository.save(user);
 
+    // Extract user name for email template
+    const userName =
+      user.firstName && user.lastName
+        ? `${user.firstName} ${user.lastName}`
+        : user.firstName || email;
+
     // Send email
     try {
-      await this.emailService.sendVerificationEmail(email, verificationToken);
+      await this.emailService.sendVerificationEmail(
+        email,
+        verificationToken,
+        userName,
+        email,
+      );
     } catch (error) {
       this.logger.error('Failed to send verification email', error);
       throw new BadRequestException('Failed to send verification email');
@@ -263,9 +369,20 @@ export class AuthService {
 
     await this.userRepository.save(user);
 
+    // Extract user name for email template
+    const userName =
+      user.firstName && user.lastName
+        ? `${user.firstName} ${user.lastName}`
+        : user.firstName || forgotPasswordDto.email;
+
     // Send email
     try {
-      await this.emailService.sendPasswordResetEmail(forgotPasswordDto.email, resetToken);
+      await this.emailService.sendPasswordResetEmail(
+        forgotPasswordDto.email,
+        resetToken,
+        userName,
+        forgotPasswordDto.email,
+      );
     } catch (error) {
       this.logger.error('Failed to send password reset email', error);
       throw new BadRequestException('Failed to send password reset email');
@@ -432,6 +549,65 @@ export class AuthService {
     } as Parameters<typeof this.jwtService.sign>[1]);
 
     return { accessToken, refreshToken };
+  }
+
+  /**
+   * Google OAuth login/register
+   */
+  async googleLogin(googleProfile: {
+    googleId: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    picture?: string;
+  }): Promise<AuthResponseInterface> {
+    // Check if user exists by Google ID
+    let user = await this.userRepository.findByGoogleId(googleProfile.googleId);
+
+    if (!user) {
+      // Check if user exists by email
+      const existingUser = await this.userRepository.findByEmail(googleProfile.email);
+      if (existingUser) {
+        // Link Google account to existing user
+        existingUser.google_id = googleProfile.googleId;
+        user = existingUser;
+      } else {
+        // Create new user
+        user = this.userRepository.create({
+          firstName: googleProfile.firstName,
+          lastName: googleProfile.lastName,
+          email: googleProfile.email,
+          google_id: googleProfile.googleId,
+          email_verified: true, // Google emails are pre-verified
+          is_active: true,
+          password: null, // No password for OAuth users
+        });
+      }
+    }
+
+    // Update last login
+    user.last_login = new Date();
+    await this.userRepository.save(user);
+
+    // Get user roles
+    const userWithRoles = await this.userRepository.findByIdWithRoles(user.id);
+    const roles = userWithRoles?.userRoles?.map((ur) => ur.role.name) || [];
+
+    // Generate tokens
+    const tokens = await this.generateTokens(user, roles);
+
+    this.logger.log(`Google OAuth login: ${this.maskEmail(user.email)}`);
+
+    return {
+      ...tokens,
+      user: {
+        id: user.id,
+        email: user.email,
+        emailVerified: user.email_verified,
+        isTwoFaEnabled: user.is_two_fa_enabled,
+        roles,
+      },
+    };
   }
 
   /**

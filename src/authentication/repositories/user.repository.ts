@@ -33,14 +33,24 @@ export class UserRepository extends Repository<User> {
   }
 
   async findByVerificationToken(token: string): Promise<User | null> {
-    return this.findOne({
-      where: { email_verification_token: token },
-    });
+    // Use query builder to ensure we get the token field (it might be excluded by select: false)
+    const user = await this.createQueryBuilder('user')
+      .where('user.email_verification_token = :token', { token })
+      .getOne();
+    
+    return user;
   }
 
   async findByPasswordResetToken(token: string): Promise<User | null> {
     return this.findOne({
       where: { password_reset_token: token },
+    });
+  }
+
+  async findByGoogleId(googleId: string): Promise<User | null> {
+    return this.findOne({
+      where: { google_id: googleId },
+      relations: ['userRoles', 'userRoles.role'],
     });
   }
 }

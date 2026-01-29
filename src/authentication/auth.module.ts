@@ -14,6 +14,9 @@ import { RoleRepository } from './repositories/role.repository';
 import { TwoFactorService } from './services/two-factor.service';
 import { TwoFactorModule } from './services/two-factor.module';
 import { EmailModule } from '../common/services/email/email.module';
+import { RecaptchaModule } from '../common/services/recaptcha/recaptcha.module';
+import { GoogleOAuthStrategy } from './strategies/google-oauth.strategy';
+import { GoogleOAuthConfigModule } from '../config/google-oauth/config.module';
 
 @Module({
   imports: [
@@ -28,9 +31,11 @@ import { EmailModule } from '../common/services/email/email.module';
     }),
     TwoFactorModule,
     EmailModule,
+    RecaptchaModule,
+    GoogleOAuthConfigModule,
   ],
   controllers: [AuthenticationController],
-  providers: [AuthService, JwtStrategy, UserRepository, RoleRepository],
+  providers: [AuthService, JwtStrategy, GoogleOAuthStrategy, UserRepository, RoleRepository],
   exports: [
     AuthService,
     JwtStrategy,

@@ -9,4 +9,5 @@ export interface AuthResponseInterface {
     roles: string[];
   };
   requiresTwoFactor?: boolean;
+  redirectPath?: string; // Suggested redirect path based on role and 2FA status
 }

@@ -1,11 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 import { EmailConfigService } from '../../../config/email/config.service';
 import { VerificationEmailTemplate } from './templates/verification-email.template';
 import { PasswordResetEmailTemplate } from './templates/password-reset-email.template';
 
 @Injectable()
-export class EmailService {
+export class EmailService implements OnModuleInit {
   private readonly logger = new Logger(EmailService.name);
   private transporter: nodemailer.Transporter;
 
@@ -18,47 +18,133 @@ export class EmailService {
     });
   }
 
-  async sendVerificationEmail(email: string, token: string): Promise<void> {
+  async onModuleInit(): Promise<void> {
+    await this.verifyConnection();
+  }
+
+  /**
+   * Verify SMTP connection on startup
+   */
+  private async verifyConnection(): Promise<void> {
     try {
-      const template = VerificationEmailTemplate.generate(
-        this.emailConfigService.verificationUrl,
-        token,
+      const auth = this.emailConfigService.auth;
+      
+      // Check if credentials are provided
+      if (!auth.user || !auth.pass) {
+        this.logger.warn(
+          'Email credentials not configured. Email sending will fail. ' +
+          'Please set EMAIL_USER and EMAIL_PASSWORD environment variables.',
+        );
+        return;
+      }
+
+      // Verify connection
+      await this.transporter.verify();
+      this.logger.log(
+        `SMTP connection verified successfully. Host: ${this.emailConfigService.host}:${this.emailConfigService.port}`,
       );
-
-      await this.transporter.sendMail({
-        from: `"${this.emailConfigService.fromName}" <${this.emailConfigService.from}>`,
-        to: email,
-        subject: template.subject,
-        html: template.html,
-        text: template.text,
-      });
-
-      this.logger.log(`Verification email sent to: ${this.maskEmail(email)}`);
     } catch (error) {
-      this.logger.error(`Failed to send verification email to: ${this.maskEmail(email)}`, error);
-      throw error;
+      this.logger.error(
+        `Failed to verify SMTP connection. Email sending may fail. ` +
+        `Please check your EMAIL_HOST, EMAIL_PORT, EMAIL_USER, and EMAIL_PASSWORD configuration.`,
+        error instanceof Error ? error.stack : String(error),
+      );
     }
   }
 
-  async sendPasswordResetEmail(email: string, token: string): Promise<void> {
+  async sendVerificationEmail(
+    email: string,
+    token: string,
+    userName: string,
+    userEmail: string,
+  ): Promise<void> {
     try {
-      const template = PasswordResetEmailTemplate.generate(
-        this.emailConfigService.passwordResetUrl,
+      // Validate email configuration
+      const auth = this.emailConfigService.auth;
+      if (!auth.user || !auth.pass) {
+        throw new Error(
+          'Email service not configured. Please set EMAIL_USER and EMAIL_PASSWORD environment variables.',
+        );
+      }
+
+      const template = VerificationEmailTemplate.generate(
+        this.emailConfigService.verificationUrl,
         token,
+        userName,
+        userEmail,
       );
 
-      await this.transporter.sendMail({
+      const mailOptions = {
         from: `"${this.emailConfigService.fromName}" <${this.emailConfigService.from}>`,
         to: email,
         subject: template.subject,
         html: template.html,
         text: template.text,
-      });
+      };
 
-      this.logger.log(`Password reset email sent to: ${this.maskEmail(email)}`);
+      const info = await this.transporter.sendMail(mailOptions);
+
+      this.logger.log(
+        `Verification email sent to: ${this.maskEmail(email)}. MessageId: ${info.messageId}`,
+      );
     } catch (error) {
-      this.logger.error(`Failed to send password reset email to: ${this.maskEmail(email)}`, error);
-      throw error;
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Failed to send verification email to: ${this.maskEmail(email)}. Error: ${errorMessage}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw new Error(
+        `Failed to send verification email: ${errorMessage}. Please check your email configuration.`,
+      );
+    }
+  }
+
+  async sendPasswordResetEmail(
+    email: string,
+    token: string,
+    userName: string,
+    userEmail: string,
+  ): Promise<void> {
+    try {
+      // Validate email configuration
+      const auth = this.emailConfigService.auth;
+      if (!auth.user || !auth.pass) {
+        throw new Error(
+          'Email service not configured. Please set EMAIL_USER and EMAIL_PASSWORD environment variables.',
+        );
+      }
+
+      const template = PasswordResetEmailTemplate.generate(
+        this.emailConfigService.passwordResetUrl,
+        token,
+        userName,
+        userEmail,
+      );
+
+      const mailOptions = {
+        from: `"${this.emailConfigService.fromName}" <${this.emailConfigService.from}>`,
+        to: email,
+        subject: template.subject,
+        html: template.html,
+        text: template.text,
+      };
+
+      const info = await this.transporter.sendMail(mailOptions);
+
+      this.logger.log(
+        `Password reset email sent to: ${this.maskEmail(email)}. MessageId: ${info.messageId}`,
+      );
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Failed to send password reset email to: ${this.maskEmail(email)}. Error: ${errorMessage}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw new Error(
+        `Failed to send password reset email: ${errorMessage}. Please check your email configuration.`,
+      );
     }
   }
 

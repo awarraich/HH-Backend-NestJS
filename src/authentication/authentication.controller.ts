@@ -7,6 +7,11 @@ import {
   Request,
   HttpCode,
   HttpStatus,
+  Req,
+  Res,
+  BadRequestException,
+  Logger,
+  Redirect,
 } from '@nestjs/common';
 import { AuthService } from './services/auth.service';
 import { RegisterDto } from './dto/register.dto';
@@ -18,24 +23,79 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { Verify2FADto } from './dto/verify-2fa.dto';
 import { Authenticate2FADto } from './dto/authenticate-2fa.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { GoogleOAuthGuard } from '../common/guards/google-oauth.guard';
 import { SuccessHelper } from '../common/helpers/responses/success.helper';
+import { RecaptchaService } from '../common/services/recaptcha/recaptcha.service';
 
-@Controller('auth')
+@Controller('v1/api/auth')
 export class AuthenticationController {
-  constructor(private readonly authService: AuthService) {}
+  private readonly logger = new Logger(AuthenticationController.name);
+
+  constructor(
+    private readonly authService: AuthService,
+    private readonly recaptchaService: RecaptchaService,
+  ) {}
 
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
-  async register(@Body() registerDto: RegisterDto) {
-    const result = await this.authService.register(registerDto);
+  async register(@Body() registerDto: RegisterDto, @Req() req: any) {
+    const clientIp = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    const result = await this.authService.register(registerDto, clientIp);
     return SuccessHelper.createSuccessResponse(result);
   }
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  async login(@Body() loginDto: LoginDto) {
-    const result = await this.authService.login(loginDto);
+  async login(@Body() loginDto: LoginDto, @Req() req: any) {
+    const clientIp = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    const result = await this.authService.login(loginDto, undefined, clientIp);
     return SuccessHelper.createSuccessResponse(result);
+  }
+
+  @Get('recaptcha/site-key')
+  @HttpCode(HttpStatus.OK)
+  async getRecaptchaSiteKey() {
+    try {
+      const siteKey = this.recaptchaService.getSiteKey();
+      const enabled = this.recaptchaService.isEnabled();
+      return SuccessHelper.createSuccessResponse({
+        siteKey: siteKey || '',
+        enabled: enabled,
+      });
+    } catch (error) {
+      throw new BadRequestException(
+        `Failed to get reCAPTCHA site key: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  @Get('google')
+  @UseGuards(GoogleOAuthGuard)
+  async googleAuth() {
+    // Initiates Google OAuth flow
+  }
+
+  @Get('google/callback')
+  @UseGuards(GoogleOAuthGuard)
+  async googleAuthCallback(@Req() req: any, @Res() res: any) {
+    const googleProfile = req.user;
+    const result = await this.authService.googleLogin(googleProfile);
+
+    // Redirect to frontend with tokens
+    const frontendUrl = process.env.HOME_HEALTH_AI_URL || process.env.FRONTEND_URL;
+    if (!frontendUrl) {
+      throw new Error('HOME_HEALTH_AI_URL or FRONTEND_URL environment variable is required');
+    }
+    const redirectUrl = `${frontendUrl}/auth/callback?accessToken=${result.accessToken}&refreshToken=${result.refreshToken}`;
+    
+    res.redirect(redirectUrl);
+  }
+
+  // Alternative route path for compatibility: /accounts/google/login/callback/
+  @Get('accounts/google/login/callback')
+  @UseGuards(GoogleOAuthGuard)
+  async googleAuthCallbackAlt(@Req() req: any, @Res() res: any) {
+    return this.googleAuthCallback(req, res);
   }
 
   @Post('login/2fa')
@@ -51,6 +111,41 @@ export class AuthenticationController {
     const result = await this.authService.verifyEmail(verifyEmailDto);
     return SuccessHelper.createSuccessResponse(result);
   }
+
+  @Get('verify-email')
+  @Redirect()
+  async verifyEmailGet(@Req() req: any) {
+    const token = req.query.token;
+    const frontendUrl =
+      process.env.HOME_HEALTH_AI_URL ||
+      process.env.FRONTEND_URL ||
+      'http://127.0.0.1:5173';
+  
+    if (!token) {
+      return {
+        url: `${frontendUrl}/login?error=${encodeURIComponent(
+          'Verification link is invalid'
+        )}`,
+      };
+    }
+  
+    try {
+      const result = await this.authService.verifyEmail({ token });
+  
+      return {
+        url: `${frontendUrl}/login?verified=true&message=${encodeURIComponent(
+          result.message
+        )}`,
+      };
+    } catch (err) {
+      return {
+        url: `${frontendUrl}/login?error=${encodeURIComponent(
+          err instanceof Error ? err.message : 'Verification failed'
+        )}`,
+      };
+    }
+  }
+  
 
   @Post('resend-verification')
   @HttpCode(HttpStatus.OK)

@@ -15,6 +15,7 @@ import { UserRole } from './user-role.entity';
 @Index(['password_reset_token'])
 @Index(['is_active'])
 @Index(['email_verified'])
+@Index(['google_id'], { unique: true, where: '"google_id" IS NOT NULL' })
 export class User {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -28,8 +29,11 @@ export class User {
   @Column({ type: 'varchar', length: 254, unique: true })
   email: string;
 
-  @Column({ type: 'varchar', length: 128, select: false })
-  password: string;
+  @Column({ type: 'varchar', length: 128, select: false, nullable: true })
+  password: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true, unique: true })
+  google_id: string | null;
 
   @Column({ type: 'boolean', default: true })
   is_active: boolean;

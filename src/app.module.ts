@@ -8,6 +8,7 @@ import { PatientsModule } from './models/patients/patients.module';
 import { ProvidersModule } from './models/providers/providers.module';
 import { EmployeesModule } from './models/employees/employees.module';
 import { AdminsModule } from './models/admins/admins.module';
+import { CreditPackagesModule } from './models/credit-packages/credit-packages.module';
 import { AuditLogModule } from './common/services/audit/audit-log.module';
 
 @Module({
@@ -21,6 +22,7 @@ import { AuditLogModule } from './common/services/audit/audit-log.module';
     ProvidersModule,
     EmployeesModule,
     AdminsModule,
+    CreditPackagesModule,
     AuditLogModule,
   ],
   controllers: [],

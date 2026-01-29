@@ -33,16 +33,28 @@ export class EmailConfigService {
   }
 
   get verificationUrl(): string {
-    return this.configService.get<string>(
-      'email.verificationUrl',
-      'http://localhost:3000/verify-email',
-    );
+    return this.configService.get<string>('email.verificationUrl', '');
   }
 
   get passwordResetUrl(): string {
-    return this.configService.get<string>(
-      'email.passwordResetUrl',
-      'http://localhost:3000/reset-password',
-    );
+    return this.configService.get<string>('email.passwordResetUrl', '');
+  }
+
+  get mailersend() {
+    return {
+      apiKey: this.configService.get<string>('email.mailersend.apiKey', ''),
+      fromEmail: this.configService.get<string>('email.mailersend.fromEmail', ''),
+      fromName: this.configService.get<string>('email.mailersend.fromName', ''),
+    };
+  }
+
+  get sendgrid() {
+    return {
+      apiKey: this.configService.get<string>('email.sendgrid.apiKey', ''),
+    };
+  }
+
+  get supportEmail(): string {
+    return this.configService.get<string>('email.supportEmail', 'support@homehealth.ai');
   }
 }
