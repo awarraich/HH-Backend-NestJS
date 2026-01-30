@@ -23,6 +23,7 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { Verify2FADto } from './dto/verify-2fa.dto';
 import { Authenticate2FADto } from './dto/authenticate-2fa.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { Jwt2FAPendingGuard } from '../common/guards/jwt-2fa-pending.guard';
 import { GoogleOAuthGuard } from '../common/guards/google-oauth.guard';
 import { SuccessHelper } from '../common/helpers/responses/success.helper';
 import { RecaptchaService } from '../common/services/recaptcha/recaptcha.service';
@@ -36,6 +37,35 @@ export class AuthenticationController {
     private readonly recaptchaService: RecaptchaService,
   ) {}
 
+  private setAuthCookies(res: any, accessToken: string, refreshToken?: string): void {
+    const isProduction = process.env.NODE_ENV === 'production';
+    
+    if (accessToken) {
+      res.cookie('accessToken', accessToken, {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: 'strict',
+        maxAge: 3600000,
+        path: '/',
+      });
+    }
+
+    if (refreshToken) {
+      res.cookie('refreshToken', refreshToken, {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: 'strict',
+        maxAge: 604800000,
+        path: '/',
+      });
+    }
+  }
+
+  private clearAuthCookies(res: any): void {
+    res.clearCookie('accessToken', { path: '/' });
+    res.clearCookie('refreshToken', { path: '/' });
+  }
+
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
   async register(@Body() registerDto: RegisterDto, @Req() req: any) {
@@ -46,10 +76,19 @@ export class AuthenticationController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  async login(@Body() loginDto: LoginDto, @Req() req: any) {
+  async login(@Body() loginDto: LoginDto, @Req() req: any, @Res() res: any) {
     const clientIp = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
     const result = await this.authService.login(loginDto, undefined, clientIp);
-    return SuccessHelper.createSuccessResponse(result);
+    
+    this.setAuthCookies(res, result.accessToken, result.refreshToken);
+    
+    return res.send(SuccessHelper.createSuccessResponse({
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      user: result.user,
+      requiresTwoFactor: result.requiresTwoFactor,
+      redirectPath: result.redirectPath,
+    }));
   }
 
   @Get('recaptcha/site-key')
@@ -81,12 +120,13 @@ export class AuthenticationController {
     const googleProfile = req.user;
     const result = await this.authService.googleLogin(googleProfile);
 
-    // Redirect to frontend with tokens
+    this.setAuthCookies(res, result.accessToken, result.refreshToken);
+
     const frontendUrl = process.env.HOME_HEALTH_AI_URL || process.env.FRONTEND_URL;
     if (!frontendUrl) {
       throw new Error('HOME_HEALTH_AI_URL or FRONTEND_URL environment variable is required');
     }
-    const redirectUrl = `${frontendUrl}/auth/callback?accessToken=${result.accessToken}&refreshToken=${result.refreshToken}`;
+    const redirectUrl = `${frontendUrl}/auth/callback`;
     
     res.redirect(redirectUrl);
   }
@@ -100,9 +140,33 @@ export class AuthenticationController {
 
   @Post('login/2fa')
   @HttpCode(HttpStatus.OK)
-  async loginWith2FA(@Body() loginDto: LoginDto & Authenticate2FADto) {
+  async loginWith2FA(@Body() loginDto: LoginDto & Authenticate2FADto, @Res() res: any) {
     const result = await this.authService.login(loginDto, loginDto.token);
-    return SuccessHelper.createSuccessResponse(result);
+    
+    this.setAuthCookies(res, result.accessToken, result.refreshToken);
+    
+    return res.send(SuccessHelper.createSuccessResponse({
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      user: result.user,
+      redirectPath: result.redirectPath,
+    }));
+  }
+
+  @Post('login/2fa/verify')
+  @UseGuards(Jwt2FAPendingGuard)
+  @HttpCode(HttpStatus.OK)
+  async verify2FALogin(@Request() req: any, @Body() authenticate2FADto: Authenticate2FADto, @Res() res: any) {
+    const result = await this.authService.verify2FALogin(req.user.userId, authenticate2FADto.token);
+    
+    this.setAuthCookies(res, result.accessToken, result.refreshToken);
+    
+    return res.send(SuccessHelper.createSuccessResponse({
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      user: result.user,
+      redirectPath: result.redirectPath,
+    }));
   }
 
   @Post('verify-email')
@@ -170,9 +234,21 @@ export class AuthenticationController {
 
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
-  async refreshToken(@Body() refreshTokenDto: RefreshTokenDto) {
-    const result = await this.authService.refreshToken(refreshTokenDto.refreshToken);
-    return SuccessHelper.createSuccessResponse(result);
+  async refreshToken(@Body() refreshTokenDto: RefreshTokenDto, @Req() req: any, @Res() res: any) {
+    const token = refreshTokenDto.refreshToken || req.cookies?.refreshToken;
+    if (!token) {
+      throw new BadRequestException('Refresh token is required');
+    }
+    
+    const result = await this.authService.refreshToken(token);
+    
+    this.setAuthCookies(res, result.accessToken, result.refreshToken);
+    
+    return res.send(SuccessHelper.createSuccessResponse({
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      user: result.user,
+    }));
   }
 
   @Post('2fa/enable')
@@ -197,6 +273,13 @@ export class AuthenticationController {
   async disable2FA(@Request() req: any) {
     const result = await this.authService.disable2FA(req.user.userId);
     return SuccessHelper.createSuccessResponse(result);
+  }
+
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  async logout(@Res() res: any) {
+    this.clearAuthCookies(res);
+    return res.send(SuccessHelper.createSuccessResponse({ message: 'Logged out successfully' }));
   }
 
   @Get('status')

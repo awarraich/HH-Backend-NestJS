@@ -13,6 +13,7 @@ import * as crypto from 'crypto';
 import { UserRepository } from '../repositories/user.repository';
 import { RoleRepository } from '../repositories/role.repository';
 import { User } from '../entities/user.entity';
+import { UserRole } from '../entities/user-role.entity';
 import { EmailService } from '../../common/services/email/email.service';
 import { TwoFactorService } from './two-factor.service';
 import { RecaptchaService } from '../../common/services/recaptcha/recaptcha.service';
@@ -24,7 +25,8 @@ import { ResetPasswordDto } from '../dto/reset-password.dto';
 import { Verify2FADto } from '../dto/verify-2fa.dto';
 import { AuthResponseInterface } from '../interfaces/auth-response.interface';
 import { JwtPayload } from '../interfaces/jwt-payload.interface';
-import { DataSource } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
+import { InjectRepository } from '@nestjs/typeorm';
 
 @Injectable()
 export class AuthService {
@@ -39,6 +41,8 @@ export class AuthService {
     private recaptchaService: RecaptchaService,
     private configService: ConfigService,
     private dataSource: DataSource,
+    @InjectRepository(UserRole)
+    private userRoleRepository: Repository<UserRole>,
   ) {}
 
   /**
@@ -166,11 +170,21 @@ export class AuthService {
       throw new UnauthorizedException('Please verify your email before logging in');
     }
 
-    // Check if 2FA is enabled
     if (user.is_two_fa_enabled) {
       if (!twoFactorToken) {
+        const tempTokenPayload: JwtPayload = {
+          sub: user.id,
+          email: user.email,
+          roles: [],
+          is2FAPending: true,
+        };
+
+        const tempToken = this.jwtService.sign(tempTokenPayload, {
+          expiresIn: '5m',
+        } as Parameters<typeof this.jwtService.sign>[1]);
+
         return {
-          accessToken: '',
+          accessToken: tempToken,
           refreshToken: '',
           user: {
             id: user.id,
@@ -501,9 +515,61 @@ export class AuthService {
     return { message: '2FA enabled successfully' };
   }
 
-  /**
-   * Disable 2FA for user
-   */
+  async verify2FALogin(userId: string, twoFactorToken: string): Promise<AuthResponseInterface> {
+    const user = await this.userRepository.findOne({ 
+      where: { id: userId },
+      select: ['id', 'email', 'email_verified', 'is_two_fa_enabled', 'totp_secret', 'is_active'],
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (!user.is_two_fa_enabled) {
+      throw new BadRequestException('2FA is not enabled for this user');
+    }
+
+    if (!user.totp_secret) {
+      throw new BadRequestException('2FA is enabled but secret is missing');
+    }
+
+    const isValid2FA = this.twoFactorService.verifyToken(twoFactorToken, user.totp_secret);
+
+    if (!isValid2FA) {
+      throw new UnauthorizedException('Invalid 2FA token');
+    }
+
+    user.last_2fa_verified_at = new Date();
+    user.last_login = new Date();
+    await this.userRepository.save(user);
+
+    const userWithRoles = await this.userRepository.findByIdWithRoles(user.id);
+    const roles = userWithRoles?.userRoles?.map((ur) => ur.role.name) || [];
+
+    const tokens = await this.generateTokens(user, roles);
+
+    let redirectPath = '/home';
+    const hasAdminRole = roles.some(role => role.toLowerCase() === 'admin');
+    
+    if (hasAdminRole) {
+      redirectPath = '/admin';
+    }
+
+    this.logger.log(`User logged in with 2FA: ${this.maskEmail(user.email)} (Roles: ${roles.join(', ')})`);
+
+    return {
+      ...tokens,
+      user: {
+        id: user.id,
+        email: user.email,
+        emailVerified: user.email_verified,
+        isTwoFaEnabled: user.is_two_fa_enabled,
+        roles,
+      },
+      redirectPath,
+    };
+  }
+
   async disable2FA(userId: string): Promise<{ message: string }> {
     const user = await this.userRepository.findOne({ where: { id: userId } });
 
@@ -613,10 +679,7 @@ export class AuthService {
   /**
    * Refresh access token
    */
-  async refreshToken(refreshToken: string): Promise<{
-    accessToken: string;
-    refreshToken: string;
-  }> {
+  async refreshToken(refreshToken: string): Promise<AuthResponseInterface> {
     try {
       const payload = this.jwtService.verify<JwtPayload>(refreshToken);
 
@@ -627,10 +690,395 @@ export class AuthService {
       }
 
       const roles = user.userRoles?.map((ur) => ur.role.name) || [];
+      const tokens = await this.generateTokens(user, roles);
 
-      return await this.generateTokens(user, roles);
+      return {
+        ...tokens,
+        user: {
+          id: user.id,
+          email: user.email,
+          emailVerified: user.email_verified,
+          isTwoFaEnabled: user.is_two_fa_enabled,
+          roles,
+        },
+      };
     } catch (error) {
       throw new UnauthorizedException('Invalid refresh token');
+    }
+  }
+
+  /**
+   * Create user by admin
+   */
+  async createUserByAdmin(
+    createUserDto: {
+      firstName: string;
+      lastName: string;
+      email: string;
+      password: string;
+      confirmPassword: string;
+      roleId: number;
+    },
+    adminUserId: string,
+  ): Promise<{ message: string }> {
+    // Validate password matches confirmPassword
+    if (createUserDto.password !== createUserDto.confirmPassword) {
+      throw new BadRequestException('Passwords do not match');
+    }
+
+    // Check if email already exists
+    const existingUser = await this.userRepository.findByEmail(createUserDto.email);
+    if (existingUser) {
+      throw new ConflictException('User with this email already exists');
+    }
+
+    // Check if role exists
+    const role = await this.roleRepository.findOne({
+      where: { id: createUserDto.roleId },
+    });
+    if (!role) {
+      throw new NotFoundException(`Role with ID ${createUserDto.roleId} not found`);
+    }
+
+    // Use transaction for atomicity
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // Hash password
+      const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
+
+      // Generate verification token
+      const verificationToken = crypto.randomBytes(32).toString('hex');
+
+      // Create user
+      const user = this.userRepository.create({
+        firstName: createUserDto.firstName,
+        lastName: createUserDto.lastName,
+        email: createUserDto.email,
+        password: hashedPassword,
+        email_verification_token: verificationToken,
+        email_verification_sent_at: new Date(),
+        email_verified: false,
+        is_active: true,
+      });
+
+      const savedUser = await queryRunner.manager.save(User, user);
+
+      // Create UserRole record
+      const userRole = queryRunner.manager.create(UserRole, {
+        user_id: savedUser.id,
+        role_id: createUserDto.roleId,
+      });
+
+      await queryRunner.manager.save(UserRole, userRole);
+
+      // Commit transaction
+      await queryRunner.commitTransaction();
+
+      // Extract user name for email template
+      const userName =
+        createUserDto.firstName && createUserDto.lastName
+          ? `${createUserDto.firstName} ${createUserDto.lastName}`
+          : createUserDto.firstName || createUserDto.email;
+
+      // Get login URL from config
+      const frontendUrl =
+        this.configService.get<string>('HOME_HEALTH_AI_URL') ||
+        this.configService.get<string>('FRONTEND_URL') ||
+        'http://127.0.0.1:5173';
+      const loginUrl = `${frontendUrl}/login`;
+
+      // Send email with password and verification link
+      try {
+        await this.emailService.sendAdminCreatedUserEmail(
+          createUserDto.email,
+          createUserDto.password, // Plain text password as requested
+          verificationToken,
+          userName,
+          createUserDto.email,
+          loginUrl,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Failed to send admin-created user email to: ${this.maskEmail(createUserDto.email)}`,
+          error,
+        );
+        // Don't throw - user is created, email failure is logged
+      }
+
+      this.logger.log(
+        `User created by admin ${this.maskEmail(adminUserId)}: ${this.maskEmail(createUserDto.email)} (Role: ${role.name})`,
+      );
+
+      return {
+        message: 'User created successfully. An email with login credentials has been sent.',
+      };
+    } catch (error) {
+      // Rollback transaction on error
+      await queryRunner.rollbackTransaction();
+      this.logger.error(
+        `Failed to create user by admin: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw error;
+    } finally {
+      // Release query runner
+      await queryRunner.release();
+    }
+  }
+
+  /**
+   * Get all users with their roles (paginated)
+   * Excludes the current admin user
+   */
+  async getAllUsersWithRoles(
+    page: number = 1,
+    limit: number = 20,
+    search?: string,
+    roleId?: number,
+    excludeUserId?: string,
+  ): Promise<{ users: any[]; total: number; page: number; limit: number }> {
+    const skip = (page - 1) * limit;
+    const queryBuilder = this.userRepository
+      .createQueryBuilder('user')
+      .leftJoinAndSelect('user.userRoles', 'userRoles')
+      .leftJoinAndSelect('userRoles.role', 'role');
+
+    // Exclude current admin user
+    if (excludeUserId) {
+      queryBuilder.where('user.id != :excludeUserId', { excludeUserId });
+    }
+
+    if (search) {
+      const searchCondition = '(user.firstName ILIKE :search OR user.lastName ILIKE :search OR user.email ILIKE :search)';
+      if (excludeUserId) {
+        queryBuilder.andWhere(searchCondition, { search: `%${search}%` });
+      } else {
+        queryBuilder.where(searchCondition, { search: `%${search}%` });
+      }
+    }
+
+    if (roleId) {
+      const roleCondition = 'role.id = :roleId';
+      if (excludeUserId || search) {
+        queryBuilder.andWhere(roleCondition, { roleId });
+      } else {
+        queryBuilder.where(roleCondition, { roleId });
+      }
+    }
+
+    const [users, total] = await queryBuilder
+      .orderBy('user.created_at', 'DESC')
+      .skip(skip)
+      .take(limit)
+      .getManyAndCount();
+
+    const usersWithRoles = users.map((user) => ({
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      is_active: user.is_active,
+      email_verified: user.email_verified,
+      is_two_fa_enabled: user.is_two_fa_enabled,
+      last_login: user.last_login,
+      created_at: user.created_at,
+      updated_at: user.updated_at,
+      roles: user.userRoles?.map((ur) => ({
+        id: ur.role.id,
+        name: ur.role.name,
+        description: ur.role.description,
+      })) || [],
+    }));
+
+    return {
+      users: usersWithRoles,
+      total,
+      page,
+      limit,
+    };
+  }
+
+  /**
+   * Get user by ID with roles
+   */
+  async getUserByIdWithRoles(userId: string): Promise<any> {
+    const user = await this.userRepository.findByIdWithRoles(userId);
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    return {
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      is_active: user.is_active,
+      email_verified: user.email_verified,
+      is_two_fa_enabled: user.is_two_fa_enabled,
+      last_login: user.last_login,
+      created_at: user.created_at,
+      updated_at: user.updated_at,
+      roles: user.userRoles?.map((ur) => ({
+        id: ur.role.id,
+        name: ur.role.name,
+        description: ur.role.description,
+      })) || [],
+    };
+  }
+
+  /**
+   * Update user by admin
+   */
+  async updateUserByAdmin(
+    userId: string,
+    updateDto: {
+      firstName?: string;
+      lastName?: string;
+      email?: string;
+      password?: string;
+      is_active?: boolean;
+      email_verified?: boolean;
+      roleId?: number;
+    },
+    adminUserId: string,
+  ): Promise<{ message: string }> {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Check if email is being changed and if it's already taken
+    if (updateDto.email && updateDto.email !== user.email) {
+      const existingUser = await this.userRepository.findByEmail(updateDto.email);
+      if (existingUser) {
+        throw new ConflictException('Email is already taken by another user');
+      }
+    }
+
+    // Use transaction for atomicity
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // Update user fields
+      if (updateDto.firstName !== undefined) {
+        user.firstName = updateDto.firstName;
+      }
+      if (updateDto.lastName !== undefined) {
+        user.lastName = updateDto.lastName;
+      }
+      if (updateDto.email !== undefined) {
+        user.email = updateDto.email;
+      }
+      if (updateDto.is_active !== undefined) {
+        user.is_active = updateDto.is_active;
+      }
+      if (updateDto.email_verified !== undefined) {
+        user.email_verified = updateDto.email_verified;
+      }
+
+      // Update password if provided
+      if (updateDto.password) {
+        user.password = await bcrypt.hash(updateDto.password, 10);
+      }
+
+      await queryRunner.manager.save(User, user);
+
+      // Update role if provided
+      if (updateDto.roleId !== undefined) {
+        // Verify role exists
+        const role = await this.roleRepository.findOne({
+          where: { id: updateDto.roleId },
+        });
+        if (!role) {
+          throw new NotFoundException(`Role with ID ${updateDto.roleId} not found`);
+        }
+
+        // Delete existing user roles
+        await queryRunner.manager.delete(UserRole, { user_id: userId });
+
+        // Create new user role
+        const userRole = queryRunner.manager.create(UserRole, {
+          user_id: userId,
+          role_id: updateDto.roleId,
+        });
+        await queryRunner.manager.save(UserRole, userRole);
+      }
+
+      await queryRunner.commitTransaction();
+
+      this.logger.log(
+        `User updated by admin ${this.maskEmail(adminUserId)}: ${this.maskEmail(user.email)}`,
+      );
+
+      return {
+        message: 'User updated successfully',
+      };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      this.logger.error(
+        `Failed to update user by admin: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  /**
+   * Delete user by admin
+   */
+  async deleteUserByAdmin(
+    userId: string,
+    adminUserId: string,
+  ): Promise<{ message: string }> {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Prevent admin from deleting themselves
+    if (userId === adminUserId) {
+      throw new BadRequestException('You cannot delete your own account');
+    }
+
+    // Use transaction for atomicity
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const userEmail = user.email;
+
+      // Delete user (cascade will handle user_roles deletion automatically)
+      await queryRunner.manager.remove(User, user);
+
+      await queryRunner.commitTransaction();
+
+      this.logger.log(
+        `User deleted by admin ${this.maskEmail(adminUserId)}: ${this.maskEmail(userEmail)}`,
+      );
+
+      return {
+        message: 'User deleted successfully',
+      };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      this.logger.error(
+        `Failed to delete user by admin: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw error;
+    } finally {
+      await queryRunner.release();
     }
   }
 

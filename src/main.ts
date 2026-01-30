@@ -94,6 +94,10 @@ async function bootstrap() {
     (process.env.HOME_HEALTH_AI_URL ? [process.env.HOME_HEALTH_AI_URL] : []) ||
     (process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []);
   
+  await app.register(require('@fastify/cookie'), {
+    secret: process.env.COOKIE_SECRET || 'your-cookie-secret-key',
+  });
+
   await app.register(require('@fastify/cors'), {
     origin: allowedOrigins.length > 0 ? allowedOrigins : false,
     credentials: true,

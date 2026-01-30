@@ -1,7 +1,8 @@
 export interface JwtPayload {
-  sub: string; // user id
+  sub: string;
   email: string;
-  roles: string[]; // User roles
+  roles: string[];
+  is2FAPending?: boolean;
   iat?: number;
   exp?: number;
 }
