@@ -68,6 +68,18 @@ export class User {
   @Column({ type: 'timestamp', nullable: true })
   last_login: Date | null;
 
+  @Column({ type: 'timestamp', nullable: true })
+  password_changed_at: Date | null;
+
+  @Column({ type: 'varchar', length: 128, select: false, nullable: true })
+  temporary_password: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  temporary_password_expires_at: Date | null;
+
+  @Column({ type: 'boolean', default: false })
+  must_change_password: boolean;
+
   // HIPAA Compliance: Audit fields
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;

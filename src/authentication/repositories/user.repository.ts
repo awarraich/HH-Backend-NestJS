@@ -18,6 +18,7 @@ export class UserRepository extends Repository<User> {
   async findByEmailWithPassword(email: string): Promise<User | null> {
     return this.createQueryBuilder('user')
       .addSelect('user.password')
+      .addSelect('user.temporary_password')
       .addSelect('user.totp_secret')
       .where('user.email = :email', { email })
       .leftJoinAndSelect('user.userRoles', 'userRoles')

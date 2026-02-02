@@ -4,6 +4,7 @@ import { EmailConfigService } from '../../../config/email/config.service';
 import { VerificationEmailTemplate } from './templates/verification-email.template';
 import { PasswordResetEmailTemplate } from './templates/password-reset-email.template';
 import { AdminCreatedUserEmailTemplate } from './templates/admin-created-user-email.template';
+import { AdminUpdatedUserEmailTemplate } from './templates/admin-updated-user-email.template';
 
 @Injectable()
 export class EmailService implements OnModuleInit {
@@ -197,6 +198,61 @@ export class EmailService implements OnModuleInit {
       );
       throw new Error(
         `Failed to send admin-created user email: ${errorMessage}. Please check your email configuration.`,
+      );
+    }
+  }
+
+  async sendAdminUpdatedUserEmail(
+    email: string,
+    userName: string,
+    userEmail: string,
+    changes: {
+      password?: boolean;
+      email?: { old: string; new: string };
+      firstName?: { old: string; new: string };
+      lastName?: { old: string; new: string };
+      role?: { old: string; new: string };
+    },
+    loginUrl: string,
+  ): Promise<void> {
+    try {
+      // Validate email configuration
+      const auth = this.emailConfigService.auth;
+      if (!auth.user || !auth.pass) {
+        throw new Error(
+          'Email service not configured. Please set EMAIL_USER and EMAIL_PASSWORD environment variables.',
+        );
+      }
+
+      const template = AdminUpdatedUserEmailTemplate.generate(
+        userName,
+        userEmail,
+        changes,
+        loginUrl,
+      );
+
+      const mailOptions = {
+        from: `"${this.emailConfigService.fromName}" <${this.emailConfigService.from}>`,
+        to: email,
+        subject: template.subject,
+        html: template.html,
+        text: template.text,
+      };
+
+      const info = await this.transporter.sendMail(mailOptions);
+
+      this.logger.log(
+        `Admin-updated user email sent to: ${this.maskEmail(email)}. MessageId: ${info.messageId}`,
+      );
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Failed to send admin-updated user email to: ${this.maskEmail(email)}. Error: ${errorMessage}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw new Error(
+        `Failed to send admin-updated user email: ${errorMessage}. Please check your email configuration.`,
       );
     }
   }
