@@ -34,7 +34,6 @@ export class UserRepository extends Repository<User> {
   }
 
   async findByVerificationToken(token: string): Promise<User | null> {
-    // Use query builder to ensure we get the token field (it might be excluded by select: false)
     const user = await this.createQueryBuilder('user')
       .where('user.email_verification_token = :token', { token })
       .getOne();

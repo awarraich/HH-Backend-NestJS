@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthenticationController } from './authentication.controller';
+import { RolesController } from './controllers/roles.controller';
 import { AuthService } from './services/auth.service';
 import { JwtStrategy } from './jwt.strategy';
 import { User } from './entities/user.entity';
@@ -34,11 +35,12 @@ import { GoogleOAuthConfigModule } from '../config/google-oauth/config.module';
     RecaptchaModule,
     GoogleOAuthConfigModule,
   ],
-  controllers: [AuthenticationController],
+  controllers: [AuthenticationController, RolesController],
   providers: [AuthService, JwtStrategy, GoogleOAuthStrategy, UserRepository, RoleRepository],
   exports: [
     AuthService,
     JwtStrategy,
+    JwtModule,
     PassportModule,
     UserRepository,
     RoleRepository,

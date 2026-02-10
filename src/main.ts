@@ -7,9 +7,17 @@ import { AppConfigService } from './config/app/config.service';
 import { HttpExceptionFilter } from './common/exceptions/http-exception.filter';
 import { AuthService } from './authentication/services/auth.service';
 import { GoogleOAuthGuard } from './common/guards/google-oauth.guard';
+import { SocketIoAdapter } from './common/adapters/socket-io.adapter';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter());
+
+  const httpPort = parseInt(process.env.PORT || '3000', 10);
+  const wsPort = parseInt(process.env.WS_PORT || String(httpPort + 1), 10);
+  const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') ||
+    (process.env.HOME_HEALTH_AI_URL ? [process.env.HOME_HEALTH_AI_URL] : []) ||
+    (process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []);
+  app.useWebSocketAdapter(new SocketIoAdapter(app, wsPort, allowedOrigins.length > 0 ? allowedOrigins : false));
 
   const appConfigService = app.get(AppConfigService);
 
@@ -90,10 +98,6 @@ async function bootstrap() {
 
   app.useGlobalFilters(new HttpExceptionFilter());
 
-  const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || 
-    (process.env.HOME_HEALTH_AI_URL ? [process.env.HOME_HEALTH_AI_URL] : []) ||
-    (process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []);
-  
   await app.register(require('@fastify/cookie'), {
     secret: process.env.COOKIE_SECRET || 'your-cookie-secret-key',
   });
@@ -109,6 +113,10 @@ async function bootstrap() {
     (process.env.HOST && process.env.PORT
       ? `http://${process.env.HOST === '0.0.0.0' ? 'localhost' : process.env.HOST}:${process.env.PORT}`
       : `http://localhost:${appConfigService.port}`);
+  const wsUrl = process.env.WS_PORT
+    ? `http://localhost:${process.env.WS_PORT}`
+    : `http://localhost:${wsPort}`;
   console.log(`Application is running on: ${appUrl}`);
+  console.log(`Referral WebSocket server on: ${wsUrl}/referrals`);
 }
 bootstrap();

@@ -13,6 +13,7 @@ import * as crypto from 'crypto';
 import { UserRepository } from '../repositories/user.repository';
 import { RoleRepository } from '../repositories/role.repository';
 import { User } from '../entities/user.entity';
+import { Role } from '../entities/role.entity';
 import { UserRole } from '../entities/user-role.entity';
 import { EmailService } from '../../common/services/email/email.service';
 import { TwoFactorService } from './two-factor.service';
@@ -1275,6 +1276,60 @@ export class AuthService {
     }
 
     return password.split('').sort(() => Math.random() - 0.5).join('');
+  }
+
+  async getPublicRoles(): Promise<Role[]> {
+    const roleNames = ['ORGANIZATION', 'PATIENT', 'EMPLOYEE'];
+    const roles = await this.roleRepository
+      .createQueryBuilder('role')
+      .where('role.name IN (:...roleNames)', { roleNames })
+      .orderBy('role.id', 'ASC')
+      .getMany();
+
+    return roles;
+  }
+
+  async assignRoleToUser(userId: string, roleId: number): Promise<any> {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException(`User with ID ${userId} not found`);
+    }
+
+    const role = await this.roleRepository.findOne({ where: { id: roleId } });
+    if (!role) {
+      throw new NotFoundException(`Role with ID ${roleId} not found`);
+    }
+
+    const existingUserRole = await this.userRoleRepository.findOne({
+      where: { user_id: userId, role_id: roleId },
+    });
+
+    if (existingUserRole) {
+      throw new ConflictException(`User already has role ${role.name}`);
+    }
+
+    const userRole = this.userRoleRepository.create({
+      user_id: userId,
+      role_id: roleId,
+    });
+
+    await this.userRoleRepository.save(userRole);
+
+    this.logger.log(
+      `Role assigned: User ${this.maskEmail(user.email)} assigned role ${role.name}`,
+    );
+
+    return {
+      id: userRole.id,
+      user_id: userRole.user_id,
+      role_id: userRole.role_id,
+      role: {
+        id: role.id,
+        name: role.name,
+        description: role.description,
+      },
+      created_at: userRole.created_at,
+    };
   }
 
   private maskEmail(email: string): string {

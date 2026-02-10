@@ -38,10 +38,10 @@ export class Employee {
   status: string; // ACTIVE | INVITED | INACTIVE | TERMINATED
 
   @Column({ type: 'date', nullable: true })
-  start_date: Date;
+  start_date: Date | null;
 
   @Column({ type: 'date', nullable: true })
-  end_date: Date;
+  end_date: Date | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
   department: string;
