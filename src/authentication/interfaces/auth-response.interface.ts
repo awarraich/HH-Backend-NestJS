@@ -7,7 +7,9 @@ export interface AuthResponseInterface {
     emailVerified: boolean;
     isTwoFaEnabled: boolean;
     roles: string[];
+    mustChangePassword?: boolean;
   };
   requiresTwoFactor?: boolean;
-  redirectPath?: string; // Suggested redirect path based on role and 2FA status
+  redirectPath?: string;
+  mustChangePassword?: boolean;
 }

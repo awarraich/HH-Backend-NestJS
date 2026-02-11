@@ -19,14 +19,33 @@ export class OrganizationRoleService {
   ) {}
 
   /**
+   * Check if user is organization owner
+   */
+  async isOrganizationOwner(userId: string, organizationId: string): Promise<boolean> {
+    const organization = await this.organizationRepository.findOne({
+      where: { id: organizationId },
+    });
+
+    return organization?.user_id === userId;
+  }
+
+  /**
    * Get user's role in an organization
+   * Returns 'OWNER' if user owns the organization, otherwise returns employee role
    */
   async getUserRoleInOrganization(userId: string, organizationId: string): Promise<string | null> {
+    // First check if user is the organization owner
+    const isOwner = await this.isOrganizationOwner(userId, organizationId);
+    if (isOwner) {
+      return 'OWNER';
+    }
+
+    // Otherwise check if user is an employee
     const employee = await this.employeeRepository.findOne({
       where: {
         user_id: userId,
         organization_id: organizationId,
-        status: 'active',
+        status: 'ACTIVE',
       },
     });
 
@@ -54,6 +73,13 @@ export class OrganizationRoleService {
     roles: string[],
   ): Promise<boolean> {
     const userRole = await this.getUserRoleInOrganization(userId, organizationId);
+    // OWNER has access to everything, so if OWNER is in required roles, check ownership
+    if (roles.includes('OWNER')) {
+      const isOwner = await this.isOrganizationOwner(userId, organizationId);
+      if (isOwner) {
+        return true;
+      }
+    }
     return userRole ? roles.includes(userRole) : false;
   }
 

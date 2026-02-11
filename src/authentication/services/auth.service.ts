@@ -13,6 +13,7 @@ import * as crypto from 'crypto';
 import { UserRepository } from '../repositories/user.repository';
 import { RoleRepository } from '../repositories/role.repository';
 import { User } from '../entities/user.entity';
+import { Role } from '../entities/role.entity';
 import { UserRole } from '../entities/user-role.entity';
 import { EmailService } from '../../common/services/email/email.service';
 import { TwoFactorService } from './two-factor.service';
@@ -149,13 +150,35 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    if (!user.password) {
+    if (!user.password && !user.temporary_password) {
       throw new UnauthorizedException(
         'This account was created with Google. Please use Google Sign-In.',
       );
     }
 
-    const isPasswordValid = await bcrypt.compare(loginDto.password, user.password!);
+    let isPasswordValid = false;
+    let usedTemporaryPassword = false;
+
+    if (user.temporary_password && user.temporary_password_expires_at) {
+      const now = new Date();
+      const expiresAt = new Date(user.temporary_password_expires_at);
+      
+      if (now > expiresAt) {
+        throw new UnauthorizedException('Temporary password has expired. Please use password reset.');
+      }
+      
+      const isTemporaryPassword = await bcrypt.compare(loginDto.password, user.temporary_password);
+      
+      if (isTemporaryPassword) {
+        isPasswordValid = true;
+        usedTemporaryPassword = true;
+        user.must_change_password = true;
+      } else {
+        throw new UnauthorizedException('Invalid credentials. Please use your temporary password.');
+      }
+    } else if (user.password) {
+      isPasswordValid = await bcrypt.compare(loginDto.password, user.password);
+    }
 
     if (!isPasswordValid) {
       this.logger.warn(`Failed login attempt for: ${this.maskEmail(loginDto.email)}`);
@@ -211,6 +234,9 @@ export class AuthService {
     }
 
     user.last_login = new Date();
+    if (usedTemporaryPassword) {
+      user.must_change_password = true;
+    }
     await this.userRepository.save(user);
 
     const userWithRoles = await this.userRepository.findByIdWithRoles(user.id);
@@ -238,8 +264,10 @@ export class AuthService {
         emailVerified: user.email_verified,
         isTwoFaEnabled: user.is_two_fa_enabled,
         roles,
+        mustChangePassword: user.must_change_password,
       },
       redirectPath,
+      mustChangePassword: user.must_change_password,
     };
   }
 
@@ -409,9 +437,6 @@ export class AuthService {
     };
   }
 
-  /**
-   * Reset password with token
-   */
   async resetPassword(resetPasswordDto: ResetPasswordDto): Promise<{ message: string }> {
     const user = await this.userRepository.findByPasswordResetToken(resetPasswordDto.token);
 
@@ -419,10 +444,10 @@ export class AuthService {
       throw new NotFoundException('Invalid or expired reset token');
     }
 
-    // Check if token is expired (1 hour)
     if (!user.password_reset_sent_at) {
       throw new BadRequestException('Reset token has expired');
     }
+
     const tokenAge = Date.now() - new Date(user.password_reset_sent_at).getTime();
     const oneHour = 60 * 60 * 1000;
 
@@ -430,13 +455,15 @@ export class AuthService {
       throw new BadRequestException('Reset token has expired');
     }
 
-    // Hash new password
     const hashedPassword = await bcrypt.hash(resetPasswordDto.newPassword, 10);
 
-    // Update password and clear reset token
     user.password = hashedPassword;
     user.password_reset_token = null;
     user.password_reset_sent_at = null;
+    user.temporary_password = null;
+    user.temporary_password_expires_at = null;
+    user.must_change_password = false;
+    user.password_changed_at = new Date();
 
     await this.userRepository.save(user);
 
@@ -518,7 +545,7 @@ export class AuthService {
   async verify2FALogin(userId: string, twoFactorToken: string): Promise<AuthResponseInterface> {
     const user = await this.userRepository.findOne({ 
       where: { id: userId },
-      select: ['id', 'email', 'email_verified', 'is_two_fa_enabled', 'totp_secret', 'is_active'],
+      select: ['id', 'email', 'email_verified', 'is_two_fa_enabled', 'totp_secret', 'is_active', 'must_change_password'],
     });
 
     if (!user) {
@@ -565,8 +592,10 @@ export class AuthService {
         emailVerified: user.email_verified,
         isTwoFaEnabled: user.is_two_fa_enabled,
         roles,
+        mustChangePassword: user.must_change_password,
       },
       redirectPath,
+      mustChangePassword: user.must_change_password,
     };
   }
 
@@ -600,6 +629,7 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       roles,
+      passwordChangedAt: user.password_changed_at?.toISOString(),
     };
 
     const accessTokenExpiresIn = this.configService.get<string>('JWT_EXPIRES_IN') || '1h';
@@ -672,7 +702,9 @@ export class AuthService {
         emailVerified: user.email_verified,
         isTwoFaEnabled: user.is_two_fa_enabled,
         roles,
+        mustChangePassword: user.must_change_password,
       },
+      mustChangePassword: user.must_change_password,
     };
   }
 
@@ -700,7 +732,9 @@ export class AuthService {
           emailVerified: user.email_verified,
           isTwoFaEnabled: user.is_two_fa_enabled,
           roles,
+          mustChangePassword: user.must_change_password,
         },
+        mustChangePassword: user.must_change_password,
       };
     } catch (error) {
       throw new UnauthorizedException('Invalid refresh token');
@@ -960,12 +994,43 @@ export class AuthService {
       }
     }
 
+    // Track changes for email notification
+    const changes: {
+      password?: boolean;
+      temporaryPassword?: string;
+      email?: { old: string; new: string };
+      firstName?: { old: string; new: string };
+      lastName?: { old: string; new: string };
+      role?: { old: string; new: string };
+    } = {};
+
+    // Get old role name if role is being changed
+    let oldRoleName: string | undefined;
+    if (updateDto.roleId !== undefined) {
+      const userWithRoles = await this.userRepository.findByIdWithRoles(userId);
+      oldRoleName = userWithRoles?.userRoles?.[0]?.role?.name;
+    }
+
     // Use transaction for atomicity
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
+      // Track changes before updating
+      if (updateDto.firstName !== undefined && updateDto.firstName !== user.firstName) {
+        changes.firstName = { old: user.firstName, new: updateDto.firstName };
+      }
+      if (updateDto.lastName !== undefined && updateDto.lastName !== user.lastName) {
+        changes.lastName = { old: user.lastName, new: updateDto.lastName };
+      }
+      if (updateDto.email !== undefined && updateDto.email !== user.email) {
+        changes.email = { old: user.email, new: updateDto.email };
+      }
+      if (updateDto.password) {
+        changes.password = true;
+      }
+
       // Update user fields
       if (updateDto.firstName !== undefined) {
         user.firstName = updateDto.firstName;
@@ -983,14 +1048,24 @@ export class AuthService {
         user.email_verified = updateDto.email_verified;
       }
 
-      // Update password if provided
       if (updateDto.password) {
+        const temporaryPassword = this.generateTemporaryPassword();
+        const hashedTemporaryPassword = await bcrypt.hash(temporaryPassword, 10);
+        
+        user.temporary_password = hashedTemporaryPassword;
+        user.temporary_password_expires_at = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        user.must_change_password = true;
+        
         user.password = await bcrypt.hash(updateDto.password, 10);
+        user.password_changed_at = new Date();
+        
+        changes.temporaryPassword = temporaryPassword;
       }
 
       await queryRunner.manager.save(User, user);
 
       // Update role if provided
+      let newRoleName: string | undefined;
       if (updateDto.roleId !== undefined) {
         // Verify role exists
         const role = await this.roleRepository.findOne({
@@ -999,6 +1074,8 @@ export class AuthService {
         if (!role) {
           throw new NotFoundException(`Role with ID ${updateDto.roleId} not found`);
         }
+
+        newRoleName = role.name;
 
         // Delete existing user roles
         await queryRunner.manager.delete(UserRole, { user_id: userId });
@@ -1009,16 +1086,57 @@ export class AuthService {
           role_id: updateDto.roleId,
         });
         await queryRunner.manager.save(UserRole, userRole);
+
+        if (oldRoleName !== newRoleName) {
+          changes.role = { old: oldRoleName || 'None', new: newRoleName };
+        }
       }
 
       await queryRunner.commitTransaction();
 
+      // Send email notification if sensitive fields changed (password or email) or any changes
+      const hasSensitiveChanges = changes.password || changes.email;
+      const hasAnyChanges = Object.keys(changes).length > 0;
+
+      if (hasAnyChanges) {
+        try {
+          const frontendUrl =
+            this.configService.get<string>('HOME_HEALTH_AI_URL') ||
+            this.configService.get<string>('FRONTEND_URL') ||
+            'http://127.0.0.1:5173';
+          const loginUrl = `${frontendUrl}/login`;
+
+          // Extract user name for email template
+          const userName =
+            user.firstName && user.lastName
+              ? `${user.firstName} ${user.lastName}`
+              : user.firstName || user.email;
+
+          // Use the new email if it was changed, otherwise use the old one
+          const emailToSend = changes.email?.new || user.email;
+
+          await this.emailService.sendAdminUpdatedUserEmail(
+            emailToSend,
+            userName,
+            emailToSend,
+            changes,
+            loginUrl,
+          );
+        } catch (error) {
+          this.logger.error(
+            `Failed to send admin-updated user email to: ${this.maskEmail(user.email)}`,
+            error,
+          );
+          // Don't throw - user is updated, email failure is logged
+        }
+      }
+
       this.logger.log(
-        `User updated by admin ${this.maskEmail(adminUserId)}: ${this.maskEmail(user.email)}`,
+        `User updated by admin ${this.maskEmail(adminUserId)}: ${this.maskEmail(user.email)}${hasSensitiveChanges ? ' (Sensitive changes - user logged out)' : ''}`,
       );
 
       return {
-        message: 'User updated successfully',
+        message: 'User updated successfully' + (hasSensitiveChanges ? '. User has been notified and logged out.' : ''),
       };
     } catch (error) {
       await queryRunner.rollbackTransaction();
@@ -1030,6 +1148,63 @@ export class AuthService {
     } finally {
       await queryRunner.release();
     }
+  }
+
+  async changePassword(
+    userId: string,
+    oldPassword: string,
+    newPassword: string,
+    confirmPassword: string,
+  ): Promise<{ message: string }> {
+    if (newPassword !== confirmPassword) {
+      throw new BadRequestException('New password and confirm password do not match');
+    }
+
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      select: [
+        'id',
+        'password',
+        'temporary_password',
+        'temporary_password_expires_at',
+        'must_change_password',
+      ],
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    let isValidPassword = false;
+
+    if (user.password) {
+      isValidPassword = await bcrypt.compare(oldPassword, user.password);
+    }
+
+    if (!isValidPassword && user.temporary_password) {
+      const isTemporaryPassword = await bcrypt.compare(oldPassword, user.temporary_password);
+      if (isTemporaryPassword) {
+        isValidPassword = true;
+      }
+    }
+
+    if (!isValidPassword) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    user.password = hashedPassword;
+    user.temporary_password = null;
+    user.temporary_password_expires_at = null;
+    user.must_change_password = false;
+    user.password_changed_at = new Date();
+
+    await this.userRepository.save(user);
+
+    this.logger.log(`Password changed for user: ${userId}`);
+
+    return { message: 'Password changed successfully' };
   }
 
   /**
@@ -1082,9 +1257,81 @@ export class AuthService {
     }
   }
 
-  /**
-   * Mask email for logging (HIPAA compliance)
-   */
+  private generateTemporaryPassword(): string {
+    const uppercase = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+    const lowercase = 'abcdefghijkmnpqrstuvwxyz';
+    const numbers = '23456789';
+    const special = '!@#$%&*';
+    const allChars = uppercase + lowercase + numbers + special;
+
+    let password = '';
+    
+    password += uppercase[Math.floor(Math.random() * uppercase.length)];
+    password += lowercase[Math.floor(Math.random() * lowercase.length)];
+    password += numbers[Math.floor(Math.random() * numbers.length)];
+    password += special[Math.floor(Math.random() * special.length)];
+
+    for (let i = password.length; i < 12; i++) {
+      password += allChars[Math.floor(Math.random() * allChars.length)];
+    }
+
+    return password.split('').sort(() => Math.random() - 0.5).join('');
+  }
+
+  async getPublicRoles(): Promise<Role[]> {
+    const roleNames = ['ORGANIZATION', 'PATIENT', 'EMPLOYEE'];
+    const roles = await this.roleRepository
+      .createQueryBuilder('role')
+      .where('role.name IN (:...roleNames)', { roleNames })
+      .orderBy('role.id', 'ASC')
+      .getMany();
+
+    return roles;
+  }
+
+  async assignRoleToUser(userId: string, roleId: number): Promise<any> {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException(`User with ID ${userId} not found`);
+    }
+
+    const role = await this.roleRepository.findOne({ where: { id: roleId } });
+    if (!role) {
+      throw new NotFoundException(`Role with ID ${roleId} not found`);
+    }
+
+    const existingUserRole = await this.userRoleRepository.findOne({
+      where: { user_id: userId, role_id: roleId },
+    });
+
+    if (existingUserRole) {
+      throw new ConflictException(`User already has role ${role.name}`);
+    }
+
+    const userRole = this.userRoleRepository.create({
+      user_id: userId,
+      role_id: roleId,
+    });
+
+    await this.userRoleRepository.save(userRole);
+
+    this.logger.log(
+      `Role assigned: User ${this.maskEmail(user.email)} assigned role ${role.name}`,
+    );
+
+    return {
+      id: userRole.id,
+      user_id: userRole.user_id,
+      role_id: userRole.role_id,
+      role: {
+        id: role.id,
+        name: role.name,
+        description: role.description,
+      },
+      created_at: userRole.created_at,
+    };
+  }
+
   private maskEmail(email: string): string {
     const [localPart, domain] = email.split('@');
     if (!domain) return email;

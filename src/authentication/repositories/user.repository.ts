@@ -18,6 +18,7 @@ export class UserRepository extends Repository<User> {
   async findByEmailWithPassword(email: string): Promise<User | null> {
     return this.createQueryBuilder('user')
       .addSelect('user.password')
+      .addSelect('user.temporary_password')
       .addSelect('user.totp_secret')
       .where('user.email = :email', { email })
       .leftJoinAndSelect('user.userRoles', 'userRoles')
@@ -33,7 +34,6 @@ export class UserRepository extends Repository<User> {
   }
 
   async findByVerificationToken(token: string): Promise<User | null> {
-    // Use query builder to ensure we get the token field (it might be excluded by select: false)
     const user = await this.createQueryBuilder('user')
       .where('user.email_verification_token = :token', { token })
       .getOne();

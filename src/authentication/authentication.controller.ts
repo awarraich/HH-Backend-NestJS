@@ -22,6 +22,7 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { Verify2FADto } from './dto/verify-2fa.dto';
 import { Authenticate2FADto } from './dto/authenticate-2fa.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { Jwt2FAPendingGuard } from '../common/guards/jwt-2fa-pending.guard';
 import { GoogleOAuthGuard } from '../common/guards/google-oauth.guard';
@@ -272,6 +273,19 @@ export class AuthenticationController {
   @HttpCode(HttpStatus.OK)
   async disable2FA(@Request() req: any) {
     const result = await this.authService.disable2FA(req.user.userId);
+    return SuccessHelper.createSuccessResponse(result);
+  }
+
+  @Post('change-password')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async changePassword(@Request() req: any, @Body() changePasswordDto: ChangePasswordDto) {
+    const result = await this.authService.changePassword(
+      req.user.userId,
+      changePasswordDto.oldPassword,
+      changePasswordDto.newPassword,
+      changePasswordDto.confirmPassword,
+    );
     return SuccessHelper.createSuccessResponse(result);
   }
 

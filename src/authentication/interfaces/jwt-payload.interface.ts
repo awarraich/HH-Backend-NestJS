@@ -5,4 +5,5 @@ export interface JwtPayload {
   is2FAPending?: boolean;
   iat?: number;
   exp?: number;
+  passwordChangedAt?: string;
 }

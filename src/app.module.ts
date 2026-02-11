@@ -10,6 +10,7 @@ import { EmployeesModule } from './models/employees/employees.module';
 import { AdminsModule } from './models/admins/admins.module';
 import { CreditPackagesModule } from './models/credit-packages/credit-packages.module';
 import { AuditLogModule } from './common/services/audit/audit-log.module';
+import { OnboardingStatusModule } from './common/services/onboarding-status/onboarding-status.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { AuditLogModule } from './common/services/audit/audit-log.module';
     AdminsModule,
     CreditPackagesModule,
     AuditLogModule,
+    OnboardingStatusModule,
   ],
   controllers: [],
   providers: [],
