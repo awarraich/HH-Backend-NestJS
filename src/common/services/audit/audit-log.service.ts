@@ -125,4 +125,45 @@ export class AuditLogService {
       take: limit,
     });
   }
+
+  /**
+   * Get paginated audit logs for admin with optional filters
+   */
+  async getAuditLogsForAdmin(params: {
+    page: number;
+    limit: number;
+    userId?: string;
+    action?: string;
+    resourceType?: string;
+    fromDate?: string;
+    toDate?: string;
+  }): Promise<{ logs: AuditLog[]; total: number; page: number; limit: number }> {
+    const { page, limit, userId, action, resourceType, fromDate, toDate } = params;
+    const skip = (page - 1) * limit;
+
+    const qb = this.auditLogRepository
+      .createQueryBuilder('audit_log')
+      .orderBy('audit_log.created_at', 'DESC')
+      .skip(skip)
+      .take(limit);
+
+    if (userId) {
+      qb.andWhere('audit_log.user_id = :userId', { userId });
+    }
+    if (action) {
+      qb.andWhere('audit_log.action = :action', { action });
+    }
+    if (resourceType) {
+      qb.andWhere('audit_log.resource_type = :resourceType', { resourceType });
+    }
+    if (fromDate) {
+      qb.andWhere('audit_log.created_at >= :fromDate', { fromDate });
+    }
+    if (toDate) {
+      qb.andWhere('audit_log.created_at <= :toDate', { toDate });
+    }
+
+    const [logs, total] = await qb.getManyAndCount();
+    return { logs, total, page, limit };
+  }
 }
