@@ -1,14 +1,19 @@
 import { Controller, Get, Req, Res, UseGuards } from '@nestjs/common';
 import { GoogleOAuthGuard } from '../common/guards/google-oauth.guard';
 import { AuthService } from './services/auth.service';
+import { AppConfigService } from '../config/app/config.service';
 
 /**
- * OAuth callback controller - registered without API prefix
- * Handles: /accounts/google/login/callback/
+ * OAuth callback controller - registered without API prefix.
+ * Handles: /accounts/google/login/callback
+ * Uses same redirect logic as AuthenticationController (fragment + cookies).
  */
 @Controller()
 export class GoogleOAuthCallbackController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly appConfigService: AppConfigService,
+  ) {}
 
   @Get('accounts/google/login/callback')
   @UseGuards(GoogleOAuthGuard)
@@ -16,13 +21,36 @@ export class GoogleOAuthCallbackController {
     const googleProfile = req.user;
     const result = await this.authService.googleLogin(googleProfile);
 
-    // Redirect to frontend with tokens
-    const frontendUrl = process.env.HOME_HEALTH_AI_URL || process.env.FRONTEND_URL;
+    const frontendUrl = this.appConfigService.frontendUrl;
     if (!frontendUrl) {
-      throw new Error('HOME_HEALTH_AI_URL or FRONTEND_URL environment variable is required');
+      throw new Error(
+        'HOME_HEALTH_AI_URL or FRONTEND_URL environment variable is required',
+      );
     }
-    const redirectUrl = `${frontendUrl}/auth/callback?accessToken=${result.accessToken}&refreshToken=${result.refreshToken}`;
-    
+
+    const fragmentParams = new URLSearchParams({
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      user: JSON.stringify(result.user),
+    });
+    const redirectUrl = `${frontendUrl}/auth/callback#${fragmentParams.toString()}`;
+
+    const isProduction = process.env.NODE_ENV === 'production';
+    res.cookie('accessToken', result.accessToken, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'strict',
+      maxAge: 3600000,
+      path: '/',
+    });
+    res.cookie('refreshToken', result.refreshToken, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'strict',
+      maxAge: 604800000,
+      path: '/',
+    });
+
     res.redirect(redirectUrl);
   }
 }

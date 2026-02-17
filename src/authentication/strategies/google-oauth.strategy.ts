@@ -16,9 +16,17 @@ export class GoogleOAuthStrategy extends PassportStrategy(Strategy, 'google') {
 
   async validate(
     accessToken: string,
+    refreshToken: string,
     profile: any,
     done: VerifyCallback,
   ): Promise<any> {
+    if (!profile) {
+      return done(
+        new UnauthorizedException('No profile received from Google'),
+        undefined,
+      );
+    }
+
     const { id, name, emails, photos } = profile;
 
     if (!emails || emails.length === 0) {

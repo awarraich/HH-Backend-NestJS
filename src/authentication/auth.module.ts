@@ -18,9 +18,11 @@ import { EmailModule } from '../common/services/email/email.module';
 import { RecaptchaModule } from '../common/services/recaptcha/recaptcha.module';
 import { GoogleOAuthStrategy } from './strategies/google-oauth.strategy';
 import { GoogleOAuthConfigModule } from '../config/google-oauth/config.module';
+import { AppConfigModule } from '../config/app/config.module';
 
 @Module({
   imports: [
+    AppConfigModule,
     TypeOrmModule.forFeature([User, Role, UserRole]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({

@@ -28,6 +28,7 @@ import { Jwt2FAPendingGuard } from '../common/guards/jwt-2fa-pending.guard';
 import { GoogleOAuthGuard } from '../common/guards/google-oauth.guard';
 import { SuccessHelper } from '../common/helpers/responses/success.helper';
 import { RecaptchaService } from '../common/services/recaptcha/recaptcha.service';
+import { AppConfigService } from '../config/app/config.service';
 
 @Controller('v1/api/auth')
 export class AuthenticationController {
@@ -36,6 +37,7 @@ export class AuthenticationController {
   constructor(
     private readonly authService: AuthService,
     private readonly recaptchaService: RecaptchaService,
+    private readonly appConfigService: AppConfigService,
   ) {}
 
   private setAuthCookies(res: any, accessToken: string, refreshToken?: string): void {
@@ -123,12 +125,19 @@ export class AuthenticationController {
 
     this.setAuthCookies(res, result.accessToken, result.refreshToken);
 
-    const frontendUrl = process.env.HOME_HEALTH_AI_URL || process.env.FRONTEND_URL;
+    const frontendUrl = this.appConfigService.frontendUrl;
     if (!frontendUrl) {
-      throw new Error('HOME_HEALTH_AI_URL or FRONTEND_URL environment variable is required');
+      throw new Error(
+        'HOME_HEALTH_AI_URL or FRONTEND_URL environment variable is required',
+      );
     }
-    const redirectUrl = `${frontendUrl}/auth/callback`;
-    
+    const fragmentParams = new URLSearchParams({
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      user: JSON.stringify(result.user),
+    });
+    const redirectUrl = `${frontendUrl}/auth/callback#${fragmentParams.toString()}`;
+
     res.redirect(redirectUrl);
   }
 
@@ -181,31 +190,34 @@ export class AuthenticationController {
   @Redirect()
   async verifyEmailGet(@Req() req: any) {
     const token = req.query.token;
-    const frontendUrl =
-      process.env.HOME_HEALTH_AI_URL ||
-      process.env.FRONTEND_URL ||
-      'http://127.0.0.1:5173';
-  
+    const frontendUrl = this.appConfigService.frontendUrl;
+
+    if (!frontendUrl) {
+      throw new BadRequestException(
+        'Frontend URL not configured (set HOME_HEALTH_AI_URL or FRONTEND_URL)',
+      );
+    }
+
     if (!token) {
       return {
         url: `${frontendUrl}/login?error=${encodeURIComponent(
-          'Verification link is invalid'
+          'Verification link is invalid',
         )}`,
       };
     }
-  
+
     try {
       const result = await this.authService.verifyEmail({ token });
-  
+
       return {
         url: `${frontendUrl}/login?verified=true&message=${encodeURIComponent(
-          result.message
+          result.message,
         )}`,
       };
     } catch (err) {
       return {
         url: `${frontendUrl}/login?error=${encodeURIComponent(
-          err instanceof Error ? err.message : 'Verification failed'
+          err instanceof Error ? err.message : 'Verification failed',
         )}`,
       };
     }

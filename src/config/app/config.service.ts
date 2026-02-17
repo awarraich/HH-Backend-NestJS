@@ -17,6 +17,10 @@ export class AppConfigService {
     return this.configService.get<string>('app.api.prefix', 'v1/api');
   }
 
+  get frontendUrl(): string {
+    return this.configService.get<string>('app.frontendUrl', '');
+  }
+
   get isDevelopment(): boolean {
     return this.environment === 'development';
   }

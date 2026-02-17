@@ -10,7 +10,7 @@ import { GoogleOAuthGuard } from './common/guards/google-oauth.guard';
 import { SocketIoAdapter } from './common/adapters/socket-io.adapter';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter());
+  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter({logger: true}));
 
   const httpPort = parseInt(process.env.PORT || '3000', 10);
   const wsPort = parseInt(process.env.WS_PORT || String(httpPort + 1), 10);
@@ -32,7 +32,7 @@ async function bootstrap() {
   const authService = moduleRef.get(AuthService, { strict: false });
   const googleOAuthGuard = moduleRef.get(GoogleOAuthGuard, { strict: false });
   
-  fastifyInstance.get('/accounts/google/login/callback', async (request: any, reply: any) => {
+  fastifyInstance.get('/accounts/google/login/callback/', async (request: any, reply: any) => {
     try {
       if (!reply.setHeader) {
         (reply as any).setHeader = (name: string, value: string) => {
@@ -73,14 +73,39 @@ async function bootstrap() {
       
       // Process OAuth login
       const result = await authService.googleLogin(googleProfile);
-      
-      const frontendUrl = process.env.HOME_HEALTH_AI_URL || process.env.FRONTEND_URL;
+
+      const frontendUrl =
+        process.env.HOME_HEALTH_AI_URL || process.env.FRONTEND_URL || '';
       if (!frontendUrl) {
-        throw new Error('HOME_HEALTH_AI_URL or FRONTEND_URL environment variable is required');
+        throw new Error(
+          'HOME_HEALTH_AI_URL or FRONTEND_URL environment variable is required',
+        );
       }
-      const redirectUrl = `${frontendUrl}/auth/callback?accessToken=${result.accessToken}&refreshToken=${result.refreshToken}`;
-      
-      reply.redirect(302, redirectUrl);
+
+      const isProduction = process.env.NODE_ENV === 'production';
+      const fragmentParams = new URLSearchParams({
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        user: JSON.stringify(result.user),
+      });
+      const redirectUrl = `${frontendUrl}/auth/callback#${fragmentParams.toString()}`;
+
+      reply.setCookie('accessToken', result.accessToken, {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: 'strict',
+        maxAge: 3600000,
+        path: '/',
+      });
+      reply.setCookie('refreshToken', result.refreshToken, {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: 'strict',
+        maxAge: 604800000,
+        path: '/',
+      });
+
+      reply.redirect(redirectUrl, 302);
     } catch (error: any) {
       reply.code(500).send({ 
         message: 'OAuth callback error', 
