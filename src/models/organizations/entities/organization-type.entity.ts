@@ -8,7 +8,7 @@ export class OrganizationType {
   id: number;
 
   @Column({ type: 'varchar', length: 50, unique: true })
-  name: string; // HOME_HEALTH | HOSPICE | NURSING_HOME | BOARD_AND_CARE | PHARMACIST | LAB
+  name: string; // HOME HEALTH | HOSPICE | NURSING HOME | BOARD AND CARE | PHARMACIST | LAB
 
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
