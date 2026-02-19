@@ -13,6 +13,7 @@ import { User } from '../../../authentication/entities/user.entity';
 import { OrganizationTypeAssignment } from './organization-type-assignment.entity';
 import { OrganizationProfile } from './organization-profile.entity';
 import { OrganizationRolePermission } from './organization-role-permission.entity';
+import { OrganizationStaff } from '../staff-management/entities/organization-staff.entity';
 
 @Entity('organizations')
 @Index(['user_id'], { unique: true })
@@ -59,4 +60,7 @@ export class Organization {
 
   @OneToMany(() => OrganizationRolePermission, (permission) => permission.organization)
   rolePermissions: OrganizationRolePermission[];
+
+  @OneToMany(() => OrganizationStaff, (staff) => staff.organization)
+  staff: OrganizationStaff[];
 }

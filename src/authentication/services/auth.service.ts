@@ -864,6 +864,72 @@ export class AuthService {
   }
 
   /**
+   * Create a user with temporary password (e.g. for organization staff).
+   * Assigns EMPLOYEE system role. Caller must create organization_staff record(s) and send email.
+   */
+  async createUserWithTemporaryPassword(dto: {
+    email: string;
+    firstName: string;
+    lastName: string;
+  }): Promise<{ user: User; temporaryPassword: string }> {
+    const existingUser = await this.userRepository.findByEmail(dto.email);
+    if (existingUser) {
+      throw new ConflictException('User with this email already exists');
+    }
+
+    const employeeRole = await this.roleRepository.findByName('EMPLOYEE');
+    if (!employeeRole) {
+      throw new NotFoundException('EMPLOYEE role not found. Ensure roles are seeded.');
+    }
+
+    const temporaryPassword = this.generateTemporaryPassword();
+    const hashedTemporaryPassword = await bcrypt.hash(temporaryPassword, 10);
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const user = this.userRepository.create({
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+        email: dto.email,
+        password: null,
+        temporary_password: hashedTemporaryPassword,
+        temporary_password_expires_at: expiresAt,
+        must_change_password: true,
+        email_verified: true,
+        is_active: true,
+      });
+
+      const savedUser = await queryRunner.manager.save(User, user);
+
+      const userRole = queryRunner.manager.create(UserRole, {
+        user_id: savedUser.id,
+        role_id: employeeRole.id,
+      });
+      await queryRunner.manager.save(UserRole, userRole);
+
+      await queryRunner.commitTransaction();
+
+      this.logger.log(
+        `User created with temporary password: ${this.maskEmail(dto.email)} (for organization staff)`,
+      );
+
+      return { user: savedUser, temporaryPassword };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      this.logger.error(
+        `Failed to create user with temporary password: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  /**
    * Get all users with their roles (paginated)
    * Excludes the current admin user
    */

@@ -5,6 +5,7 @@ import { VerificationEmailTemplate } from './templates/verification-email.templa
 import { PasswordResetEmailTemplate } from './templates/password-reset-email.template';
 import { AdminCreatedUserEmailTemplate } from './templates/admin-created-user-email.template';
 import { AdminUpdatedUserEmailTemplate } from './templates/admin-updated-user-email.template';
+import { OrganizationStaffCreatedEmailTemplate } from './templates/organization-staff-created-email.template';
 
 @Injectable()
 export class EmailService implements OnModuleInit {
@@ -198,6 +199,56 @@ export class EmailService implements OnModuleInit {
       );
       throw new Error(
         `Failed to send admin-created user email: ${errorMessage}. Please check your email configuration.`,
+      );
+    }
+  }
+
+  async sendOrganizationStaffCreatedEmail(
+    email: string,
+    userName: string,
+    userEmail: string,
+    temporaryPassword: string,
+    loginUrl: string,
+    expiresInHours: number = 24,
+  ): Promise<void> {
+    try {
+      const auth = this.emailConfigService.auth;
+      if (!auth.user || !auth.pass) {
+        throw new Error(
+          'Email service not configured. Please set EMAIL_USER and EMAIL_PASSWORD environment variables.',
+        );
+      }
+
+      const template = OrganizationStaffCreatedEmailTemplate.generate(
+        userName,
+        userEmail,
+        temporaryPassword,
+        loginUrl,
+        expiresInHours,
+      );
+
+      const mailOptions = {
+        from: `"${this.emailConfigService.fromName}" <${this.emailConfigService.from}>`,
+        to: email,
+        subject: template.subject,
+        html: template.html,
+        text: template.text,
+      };
+
+      await this.transporter.sendMail(mailOptions);
+
+      this.logger.log(
+        `Organization staff created email sent to: ${this.maskEmail(email)}`,
+      );
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Failed to send organization staff created email to: ${this.maskEmail(email)}. Error: ${errorMessage}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw new Error(
+        `Failed to send organization staff created email: ${errorMessage}. Please check your email configuration.`,
       );
     }
   }

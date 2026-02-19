@@ -12,10 +12,13 @@ import { ReferralOrganization } from './entities/referral-organization.entity';
 import { ReferralMessage } from './entities/referral-message.entity';
 import { ReferralDocument } from './entities/referral-document.entity';
 import { ReferralLastRead } from './entities/referral-last-read.entity';
-import { Employee } from '../employees/entities/employee.entity';
 import { User } from '../../authentication/entities/user.entity';
+import { StaffRole } from './staff-management/entities/staff-role.entity';
+import { OrganizationStaff } from './staff-management/entities/organization-staff.entity';
+import { OrganizationStaffRolePermission } from './staff-management/entities/organization-staff-role-permission.entity';
 import { Patient } from '../patients/entities/patient.entity';
 import { AuthenticationModule } from '../../authentication/auth.module';
+import { EmailModule } from '../../common/services/email/email.module';
 import { AuditLogModule } from '../../common/services/audit/audit-log.module';
 import { OrganizationRoleGuard } from '../../common/guards/organization-role.guard';
 import { PatientsModule } from '../patients/patients.module';
@@ -29,6 +32,8 @@ import { OrganizationsController } from './controllers/organizations.controller'
 import { OrganizationTypesController } from './controllers/organization-types.controller';
 import { ReferralsController } from './controllers/referrals.controller';
 import { ReferralOrganizationsController } from './controllers/referral-organizations.controller';
+import { OrganizationStaffController } from './staff-management/controllers/organization-staff.controller';
+import { OrganizationStaffService } from './staff-management/services/organization-staff.service';
 import { OrganizationRepository } from './repositories/organization.repository';
 import { ReferralRepository } from './repositories/referral.repository';
 import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
@@ -43,7 +48,9 @@ import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
       OrganizationTypeAssignment,
       OrganizationProfile,
       OrganizationRolePermission,
-      Employee,
+      StaffRole,
+      OrganizationStaff,
+      OrganizationStaffRolePermission,
       User,
       Referral,
       ReferralOrganization,
@@ -53,6 +60,7 @@ import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
       Patient,
     ]),
     AuthenticationModule,
+    EmailModule,
     AuditLogModule,
     PatientsModule,
   ],
@@ -61,6 +69,7 @@ import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
     OrganizationTypesController,
     ReferralsController,
     ReferralOrganizationsController,
+    OrganizationStaffController,
   ],
   providers: [
     OrganizationsService,
@@ -69,6 +78,7 @@ import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
     ReferralsService,
     ReferralMessagesService,
     ReferralDocumentStorageService,
+    OrganizationStaffService,
     OrganizationRepository,
     ReferralRepository,
     OrganizationRoleGuard,
@@ -78,6 +88,7 @@ import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
     TypeOrmModule,
     OrganizationsService,
     OrganizationRoleService,
+    OrganizationStaffService,
     OrganizationRepository,
     ReferralsService,
   ],

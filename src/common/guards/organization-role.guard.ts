@@ -41,18 +41,17 @@ export class OrganizationRoleGuard implements CanActivate {
       throw new ForbiddenException('Organization ID is required');
     }
 
-    // Check user's role in the specific organization
-    const userOrgRole = await this.organizationRoleService.getUserRoleInOrganization(
+    // Check user's roles in the specific organization (supports multiple roles per user)
+    const userOrgRoles = await this.organizationRoleService.getUsersRolesInOrganization(
       user.userId,
       organizationId,
     );
 
-    // Check if user has any of the required organization roles
-    const hasRequiredRole = userOrgRole ? requiredRoles.includes(userOrgRole) : false;
+    const hasRequiredRole = requiredRoles.some((r) => userOrgRoles.includes(r));
 
     if (!hasRequiredRole) {
       throw new ForbiddenException(
-        `You do not have the required role for this organization. Required: ${requiredRoles.join(', ')}, Your role: ${userOrgRole || 'none'}`,
+        `You do not have the required role for this organization. Required: ${requiredRoles.join(', ')}, Your roles: ${userOrgRoles.length ? userOrgRoles.join(', ') : 'none'}`,
       );
     }
 

@@ -1,21 +1,19 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Organization } from '../entities/organization.entity';
 import { OrganizationRolePermission } from '../entities/organization-role-permission.entity';
-import { Employee } from '../../employees/entities/employee.entity';
+import { OrganizationStaff } from '../staff-management/entities/organization-staff.entity';
 
 @Injectable()
 export class OrganizationRoleService {
-  private readonly logger = new Logger(OrganizationRoleService.name);
-
   constructor(
     @InjectRepository(Organization)
     private organizationRepository: Repository<Organization>,
     @InjectRepository(OrganizationRolePermission)
     private permissionRepository: Repository<OrganizationRolePermission>,
-    @InjectRepository(Employee)
-    private employeeRepository: Repository<Employee>,
+    @InjectRepository(OrganizationStaff)
+    private organizationStaffRepository: Repository<OrganizationStaff>,
   ) {}
 
   /**
@@ -30,26 +28,34 @@ export class OrganizationRoleService {
   }
 
   /**
-   * Get user's role in an organization
-   * Returns 'OWNER' if user owns the organization, otherwise returns employee role
+   * Get all of user's roles in an organization (from organization_staff + staff_roles).
+   * Returns ['OWNER'] if user owns the organization, otherwise role names from staff_roles.
    */
-  async getUserRoleInOrganization(userId: string, organizationId: string): Promise<string | null> {
-    // First check if user is the organization owner
+  async getUsersRolesInOrganization(userId: string, organizationId: string): Promise<string[]> {
     const isOwner = await this.isOrganizationOwner(userId, organizationId);
     if (isOwner) {
-      return 'OWNER';
+      return ['OWNER'];
     }
 
-    // Otherwise check if user is an employee
-    const employee = await this.employeeRepository.findOne({
+    const rows = await this.organizationStaffRepository.find({
       where: {
         user_id: userId,
         organization_id: organizationId,
         status: 'ACTIVE',
       },
+      relations: ['staffRole'],
     });
 
-    return employee?.role || null;
+    return rows.map((r) => r.staffRole.name).filter(Boolean);
+  }
+
+  /**
+   * Get user's first/primary role in an organization (backward compatibility).
+   * Returns 'OWNER' if owner, otherwise first staff role name or null.
+   */
+  async getUserRoleInOrganization(userId: string, organizationId: string): Promise<string | null> {
+    const roles = await this.getUsersRolesInOrganization(userId, organizationId);
+    return roles.length > 0 ? roles[0] : null;
   }
 
   /**
@@ -60,8 +66,8 @@ export class OrganizationRoleService {
     organizationId: string,
     role: string,
   ): Promise<boolean> {
-    const userRole = await this.getUserRoleInOrganization(userId, organizationId);
-    return userRole === role;
+    const userRoles = await this.getUsersRolesInOrganization(userId, organizationId);
+    return userRoles.includes(role);
   }
 
   /**
@@ -72,19 +78,15 @@ export class OrganizationRoleService {
     organizationId: string,
     roles: string[],
   ): Promise<boolean> {
-    const userRole = await this.getUserRoleInOrganization(userId, organizationId);
-    // OWNER has access to everything, so if OWNER is in required roles, check ownership
-    if (roles.includes('OWNER')) {
-      const isOwner = await this.isOrganizationOwner(userId, organizationId);
-      if (isOwner) {
-        return true;
-      }
+    const userRoles = await this.getUsersRolesInOrganization(userId, organizationId);
+    if (userRoles.includes('OWNER')) {
+      return true;
     }
-    return userRole ? roles.includes(userRole) : false;
+    return roles.some((r) => userRoles.includes(r));
   }
 
   /**
-   * Get organization role permissions
+   * Get organization role permissions (legacy: by role name string)
    */
   async getOrganizationRolePermissions(
     organizationId: string,
