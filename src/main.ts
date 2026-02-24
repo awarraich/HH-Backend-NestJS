@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { ValidationPipe } from '@nestjs/common';
+import * as http from 'node:http';
 import { AppModule } from './app.module';
 import { AuthenticationModule } from './authentication/auth.module';
 import { AppConfigService } from './config/app/config.service';
@@ -8,12 +9,13 @@ import { HttpExceptionFilter } from './common/exceptions/http-exception.filter';
 import { AuthService } from './authentication/services/auth.service';
 import { GoogleOAuthGuard } from './common/guards/google-oauth.guard';
 import { SocketIoAdapter } from './common/adapters/socket-io.adapter';
+import { McpHttpHandlerService } from './mcp/mcp-http-handler.service';
 import { JobManagementService } from './models/job-management/job-management.service';
 import { BlogService } from './models/blog/blog.service';
 import { SuccessHelper } from './common/helpers/responses/success.helper';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter({logger: false}));
+  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter({logger: true}));
 
   const httpPort = parseInt(process.env.PORT || '3000', 10);
   // const wsPort = parseInt(process.env.WS_PORT || String(httpPort + 1), 10);
@@ -313,6 +315,51 @@ async function bootstrap() {
   // console.log(`Application is running on: ${appUrl}`);
   // console.log(`Referral WebSocket server on: ${wsUrl}/referrals`);
   console.log(`Application is running on: ${appUrl}`);
-  console.log(`Referral WebSocket server on: ${appUrl}/referrals`);
+  console.log(`Referral WebSocket server on: ${wsUrl}/referrals`);
+
+  const mcpPort = appConfigService.mcpPort;
+  const mcpHandler = app.get(McpHttpHandlerService);
+  const mcpAllowedOrigins =
+    allowedOrigins.length > 0
+      ? allowedOrigins
+      : ['http://127.0.0.1:5173', 'http://localhost:5173'];
+  const getMcpCorsHeaders = (origin: string | undefined) => {
+    const allowOrigin =
+      origin && mcpAllowedOrigins.includes(origin)
+        ? origin
+        : mcpAllowedOrigins[0];
+    return {
+      'Access-Control-Allow-Origin': allowOrigin,
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      'Access-Control-Max-Age': '86400',
+    };
+  };
+  const mcpServer = http.createServer((req, res) => {
+    const url = req.url ?? '/';
+    const path = url.split('?')[0];
+    const origin = req.headers.origin;
+    const corsHeaders = getMcpCorsHeaders(origin);
+    if (path === '/mcp') {
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204, corsHeaders);
+        res.end();
+        return;
+      }
+      mcpHandler.handle(req, res, corsHeaders).catch((err) => {
+        console.error('MCP handler error', err);
+        if (!res.headersSent) {
+          res.writeHead(500, { 'Content-Type': 'application/json', ...corsHeaders });
+          res.end(JSON.stringify({ error: 'Internal server error' }));
+        }
+      });
+    } else {
+      res.writeHead(404, { 'Content-Type': 'application/json', ...corsHeaders });
+      res.end(JSON.stringify({ error: 'Not Found' }));
+    }
+  });
+  mcpServer.listen(mcpPort, host, () => {
+    console.log(`MCP server listening on port ${mcpPort}`);
+  });
 }
 bootstrap();

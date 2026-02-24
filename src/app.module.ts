@@ -15,6 +15,7 @@ import { AiChatModule } from './models/ai-chat/ai-chat.module';
 import { JobManagementModule } from './models/job-management/job-management.module';
 import { AuditLogModule } from './common/services/audit/audit-log.module';
 import { OnboardingStatusModule } from './common/services/onboarding-status/onboarding-status.module';
+import { McpModule } from './mcp/mcp.module';
 import { AppController } from './app.controller';
 
 @Module({
@@ -35,6 +36,7 @@ import { AppController } from './app.controller';
     JobManagementModule,
     AuditLogModule,
     OnboardingStatusModule,
+    McpModule,
   ],
   controllers: [AppController],
   providers: [],
