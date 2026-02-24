@@ -11,6 +11,7 @@ import { AdminsModule } from './models/admins/admins.module';
 import { CreditPackagesModule } from './models/credit-packages/credit-packages.module';
 import { AuditLogModule } from './common/services/audit/audit-log.module';
 import { OnboardingStatusModule } from './common/services/onboarding-status/onboarding-status.module';
+import { McpModule } from './mcp/mcp.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { OnboardingStatusModule } from './common/services/onboarding-status/onbo
     CreditPackagesModule,
     AuditLogModule,
     OnboardingStatusModule,
+    McpModule,
   ],
   controllers: [],
   providers: [],

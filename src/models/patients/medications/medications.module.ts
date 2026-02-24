@@ -7,6 +7,7 @@ import { MedicationsController } from './medications.controller';
 import { MedicationsService } from './medications.service';
 import { AuthenticationModule } from '../../../authentication/auth.module';
 import { AuditLogModule } from '../../../common/services/audit/audit-log.module';
+import { EmbeddingModule } from '../../../common/services/embedding/embedding.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { AuditLogModule } from '../../../common/services/audit/audit-log.module'
     ]),
     AuthenticationModule,
     AuditLogModule,
+    EmbeddingModule,
   ],
   controllers: [MedicationsController],
   providers: [MedicationsService],

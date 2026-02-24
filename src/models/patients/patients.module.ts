@@ -6,6 +6,7 @@ import { AuthenticationModule } from '../../authentication/auth.module';
 import { AuditLogModule } from '../../common/services/audit/audit-log.module';
 import { PatientsService } from './patients.service';
 import { MedicationsModule } from './medications/medications.module';
+import { DigitalNurseModule } from './digital-nurse/digital-nurse.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { MedicationsModule } from './medications/medications.module';
     AuthenticationModule,
     AuditLogModule,
     MedicationsModule,
+    DigitalNurseModule,
   ],
   providers: [PatientsService],
   exports: [TypeOrmModule, PatientsService],
