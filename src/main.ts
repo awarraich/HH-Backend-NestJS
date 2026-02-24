@@ -13,11 +13,13 @@ async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter({logger: false}));
 
   const httpPort = parseInt(process.env.PORT || '3000', 10);
-  const wsPort = parseInt(process.env.WS_PORT || String(httpPort + 1), 10);
+  // const wsPort = parseInt(process.env.WS_PORT || String(httpPort + 1), 10);
   const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') ||
     (process.env.HOME_HEALTH_AI_URL ? [process.env.HOME_HEALTH_AI_URL] : []) ||
     (process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []);
-  app.useWebSocketAdapter(new SocketIoAdapter(app, wsPort, allowedOrigins.length > 0 ? allowedOrigins : false));
+  app.useWebSocketAdapter(
+  new SocketIoAdapter(app, allowedOrigins.length > 0 ? allowedOrigins : false)
+);
 
   const appConfigService = app.get(AppConfigService);
 
@@ -142,10 +144,12 @@ async function bootstrap() {
     (process.env.HOST && process.env.PORT
       ? `http://${process.env.HOST === '0.0.0.0' ? 'localhost' : process.env.HOST}:${process.env.PORT}`
       : `http://localhost:${appConfigService.port}`);
-  const wsUrl = process.env.WS_PORT
-    ? `http://localhost:${process.env.WS_PORT}`
-    : `http://localhost:${wsPort}`;
+  // const wsUrl = process.env.WS_PORT
+  //   ? `http://localhost:${process.env.WS_PORT}`
+  //   : `http://localhost:${wsPort}`;
+  // console.log(`Application is running on: ${appUrl}`);
+  // console.log(`Referral WebSocket server on: ${wsUrl}/referrals`);
   console.log(`Application is running on: ${appUrl}`);
-  console.log(`Referral WebSocket server on: ${wsUrl}/referrals`);
+  console.log(`Referral WebSocket server on: ${appUrl}/referrals`);
 }
 bootstrap();
