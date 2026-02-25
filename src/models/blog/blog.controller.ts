@@ -28,7 +28,9 @@ import { LoggedInUser } from '../../common/decorators/requests/logged-in-user.de
 import { SuccessHelper } from '../../common/helpers/responses/success.helper';
 import type { UserWithRolesInterface } from '../../common/interfaces/user-with-roles.interface';
 
+
 @Controller('v1/api/blogs')
+@UseGuards(JwtAuthGuard)
 export class BlogController {
   constructor(
     private readonly blogService: BlogService,
