@@ -6,15 +6,16 @@ export class EmployeeSerializer {
       id: employee.id,
       user_id: employee.user_id,
       organization_id: employee.organization_id,
-      role: employee.role,
       status: employee.status,
+      employment_type: employee.employment_type,
+      notes: employee.notes,
+      provider_role_id: employee.provider_role_id,
       start_date: employee.start_date,
       end_date: employee.end_date,
       department: employee.department,
       position_title: employee.position_title,
       created_at: employee.created_at,
       updated_at: employee.updated_at,
-      // Include relations if loaded
       ...(employee.user && {
         user: {
           id: employee.user.id,
@@ -32,6 +33,13 @@ export class EmployeeSerializer {
       }),
       ...(employee.profile && {
         profile: this.serializeProfile(employee.profile),
+      }),
+      ...(employee.providerRole && {
+        provider_role: {
+          id: employee.providerRole.id,
+          code: employee.providerRole.code,
+          name: employee.providerRole.name,
+        },
       }),
     };
   }
@@ -52,8 +60,12 @@ export class EmployeeSerializer {
       phone_number: profile.phone_number,
       gender: profile.gender,
       age: profile.age,
+      date_of_birth: profile.date_of_birth,
+      specialization: profile.specialization,
+      years_of_experience: profile.years_of_experience,
+      certification: profile.certification,
+      board_certifications: profile.board_certifications,
       emergency_contact: profile.emergency_contact,
-      onboarding_status: profile.onboarding_status,
       created_at: profile.created_at,
       updated_at: profile.updated_at,
     };

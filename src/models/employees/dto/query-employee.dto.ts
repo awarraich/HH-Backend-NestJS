@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsInt, Min, Max, IsIn } from 'class-validator';
+import { IsOptional, IsString, IsInt, Min, Max, IsIn, IsUUID } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class QueryEmployeeDto {
@@ -7,9 +7,8 @@ export class QueryEmployeeDto {
   search?: string;
 
   @IsOptional()
-  @IsString()
-  @IsIn(['ADMIN', 'PROVIDER', 'STAFF', 'HR', 'ASSISTANT_HR', 'BILLER', 'SCHEDULER', 'FRONT_DESK', 'OFFICE_STAFF', 'NURSE'])
-  role?: string;
+  @IsUUID()
+  provider_role_id?: string;
 
   @IsOptional()
   @IsString()

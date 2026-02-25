@@ -3,6 +3,7 @@ import {
   IsOptional,
   IsInt,
   IsIn,
+  IsDateString,
   MaxLength,
   Min,
   Max,
@@ -44,9 +45,26 @@ export class UpdateEmployeeProfileDto {
   emergency_contact?: Record<string, any>;
 
   @IsOptional()
+  @IsDateString()
+  date_of_birth?: string;
+
+  @IsOptional()
   @IsString()
-  @IsIn(['pending', 'in_progress', 'completed'])
-  @MaxLength(10)
-  onboarding_status?: string;
+  @MaxLength(100)
+  specialization?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  years_of_experience?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  certification?: string;
+
+  @IsOptional()
+  board_certifications?: Record<string, unknown>;
 }
 

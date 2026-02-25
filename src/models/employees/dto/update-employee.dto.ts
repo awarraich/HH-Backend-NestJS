@@ -2,16 +2,12 @@ import {
   IsString,
   IsOptional,
   IsDateString,
+  IsUUID,
   MaxLength,
   IsIn,
 } from 'class-validator';
 
 export class UpdateEmployeeDto {
-  @IsOptional()
-  @IsString()
-  @IsIn(['ADMIN', 'PROVIDER', 'STAFF', 'HR', 'ASSISTANT_HR', 'BILLER', 'SCHEDULER', 'FRONT_DESK', 'OFFICE_STAFF', 'NURSE'])
-  role?: string;
-
   @IsOptional()
   @IsString()
   @MaxLength(100)
@@ -29,5 +25,19 @@ export class UpdateEmployeeDto {
   @IsOptional()
   @IsDateString()
   end_date?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['FULL_TIME', 'PART_TIME', 'CONTRACT', 'PER_DIEM'])
+  @MaxLength(20)
+  employment_type?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @IsOptional()
+  @IsUUID()
+  provider_role_id?: string;
 }
 

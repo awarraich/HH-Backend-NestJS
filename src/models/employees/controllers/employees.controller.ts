@@ -22,9 +22,9 @@ import { SuccessHelper } from '../../../common/helpers/responses/success.helper'
 import type { UserWithRolesInterface } from '../../../common/interfaces/user-with-roles.interface';
 import { EmployeesService } from '../services/employees.service';
 import { CreateEmployeeDto } from '../dto/create-employee.dto';
+import { CreateEmployeeByEmailDto } from '../dto/create-employee-by-email.dto';
 import { UpdateEmployeeDto } from '../dto/update-employee.dto';
 import { QueryEmployeeDto } from '../dto/query-employee.dto';
-import { UpdateEmployeeRoleDto } from '../dto/update-employee-role.dto';
 import { UpdateEmployeeStatusDto } from '../dto/update-employee-status.dto';
 import { InviteEmployeeDto } from '../dto/invite-employee.dto';
 import { UpdateEmployeeProfileDto } from '../dto/update-employee-profile.dto';
@@ -44,6 +44,30 @@ export class EmployeesController {
 
   private getUserAgent(request: FastifyRequest): string {
     return request.headers['user-agent'] || 'unknown';
+  }
+
+  @Post('by-email')
+  @HttpCode(HttpStatus.CREATED)
+  @Roles('OWNER', 'HR')
+  async createByEmail(
+    @Param('organizationId') organizationId: string,
+    @Body() dto: CreateEmployeeByEmailDto,
+    @LoggedInUser() user: UserWithRolesInterface,
+    @Req() request: FastifyRequest,
+  ) {
+    const ipAddress = this.getIpAddress(request);
+    const userAgent = this.getUserAgent(request);
+    const result = await this.employeesService.createByEmail(
+      organizationId,
+      dto,
+      user.userId,
+      ipAddress,
+      userAgent,
+    );
+    return SuccessHelper.createSuccessResponse(
+      result,
+      'Employee created. An email with temporary password has been sent.',
+    );
   }
 
   @Post()
@@ -121,31 +145,6 @@ export class EmployeesController {
     );
 
     return SuccessHelper.createSuccessResponse(result, 'Employee updated successfully');
-  }
-
-  @Patch(':id/role')
-  @HttpCode(HttpStatus.OK)
-  @Roles('OWNER', 'HR')
-  async updateRole(
-    @Param('organizationId') organizationId: string,
-    @Param('id') id: string,
-    @Body() roleDto: UpdateEmployeeRoleDto,
-    @LoggedInUser() user: UserWithRolesInterface,
-    @Req() request: FastifyRequest,
-  ) {
-    const ipAddress = this.getIpAddress(request);
-    const userAgent = this.getUserAgent(request);
-
-    const result = await this.employeesService.updateRole(
-      organizationId,
-      id,
-      roleDto,
-      user.userId,
-      ipAddress,
-      userAgent,
-    );
-
-    return SuccessHelper.createSuccessResponse(result, 'Employee role updated successfully');
   }
 
   @Patch(':id/status')
