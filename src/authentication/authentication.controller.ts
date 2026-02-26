@@ -317,4 +317,20 @@ export class AuthenticationController {
       user: req.user,
     });
   }
+
+  @Get('me')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async getMe(@Request() req: any) {
+    const user = await this.authService.getCurrentUserWithRoles(req.user.userId);
+    return SuccessHelper.createSuccessResponse(user);
+  }
+
+  @Get('user-info')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async getUserInfo(@Request() req: any) {
+    const user = await this.authService.getCurrentUserWithRoles(req.user.userId);
+    return SuccessHelper.createSuccessResponse(user);
+  }
 }

@@ -11,15 +11,19 @@ export class BlogSerializer {
   }
 
   serialize(blog: Blog, author?: User): any {
+    // Dashboard expects status: approved | pending | rejected | draft; backend has is_published only
+    const status = blog.is_published ? 'approved' : 'draft';
     return {
       id: blog.id,
       title: blog.title,
       excerpt: blog.excerpt,
+      short_description: blog.excerpt ?? '', // alias for blogger dashboard
       author: author ? `${author.firstName} ${author.lastName}` : 'Unknown Author',
       authorRole: 'Healthcare Professional', // Default role
       date: blog.published_at ? new Date(blog.published_at).toISOString() : new Date().toISOString(),
       readTime: this.calculateReadTime(blog.content),
       category: blog.category || 'General',
+      category_name: blog.category || 'General', // alias for dashboard
       image: blog.featured_image || '',
       likes: 0, // Default - can be extended with a likes system
       comments: 0, // Default - can be extended with a comments system
@@ -27,6 +31,7 @@ export class BlogSerializer {
       content: blog.content,
       author_id: blog.author_id,
       is_published: blog.is_published,
+      status, // approved | draft for dashboard
       published_at: blog.published_at,
       tags: blog.tags,
       created_at: blog.created_at,

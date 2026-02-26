@@ -53,6 +53,31 @@ export class BlogService {
     return this.blogSerializer.serialize(saved, author);
   }
 
+  /**
+   * Find all blogs for the current user (author). Used by blogger dashboard.
+   */
+  async findMyBlogs(
+    userId: string,
+    page: number = 1,
+    limit: number = 50,
+  ): Promise<{ data: any[]; total: number; page: number; limit: number }> {
+    const skip = (page - 1) * limit;
+    const queryBuilder = this.blogRepository
+      .createQueryBuilder('blog')
+      .where('blog.author_id = :userId', { userId })
+      .orderBy('blog.created_at', 'DESC')
+      .skip(skip)
+      .take(limit);
+
+    const [blogs, total] = await queryBuilder.getManyAndCount();
+    return {
+      data: this.blogSerializer.serializeMany(blogs),
+      total,
+      page,
+      limit,
+    };
+  }
+
   async findAll(queryDto: QueryBlogDto): Promise<{
     data: any[];
     total: number;

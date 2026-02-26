@@ -117,6 +117,30 @@ export class BlogController {
     return SuccessHelper.createSuccessResponse(result);
   }
 
+  /**
+   * Get current user's (blogger's) blogs for dashboard. Must be before :id route.
+   */
+  @Get('my-blogs')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async getMyBlogs(
+    @LoggedInUser() user: UserWithRolesInterface,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    const result = await this.blogService.findMyBlogs(
+      user.userId,
+      page ? Number(page) : 1,
+      limit ? Number(limit) : 50,
+    );
+    return SuccessHelper.createPaginatedResponse(
+      result.data,
+      result.total,
+      result.page,
+      result.limit,
+    );
+  }
+
   @Get(':id')
   @HttpCode(HttpStatus.OK)
   async findOne(@Param('id') id: string) {
