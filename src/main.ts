@@ -15,7 +15,7 @@ import { BlogService } from './models/blog/blog.service';
 import { SuccessHelper } from './common/helpers/responses/success.helper';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter({logger: false}));
+  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter({logger: true}));
 
   const httpPort = parseInt(process.env.PORT || '3000', 10);
   // const wsPort = parseInt(process.env.WS_PORT || String(httpPort + 1), 10);

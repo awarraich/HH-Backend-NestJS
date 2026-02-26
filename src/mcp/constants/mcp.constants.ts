@@ -5,6 +5,8 @@ export const TOOL_NAMES = {
   LIST_MEDICATIONS: 'list_medications',
   SEARCH_MEDICATIONS: 'search_medications',
   MARK_MEDICATION_TAKEN: 'mark_medication_taken',
+  GET_DOCUMENT_EXPIRATION_STATUS: 'get_document_expiration_status',
+  CHAT_WITH_EMPLOYEE_DOCUMENTS: 'chat_with_employee_document',
 } as const;
 
 export const MCP_ERROR_MESSAGES = {
