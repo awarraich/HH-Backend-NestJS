@@ -159,7 +159,7 @@ export class EmployeeDocumentsService {
     await this.ensureDocumentAccess(organizationId, employeeId, userId);
 
     const docTypes = await this.hrDocumentTypeRepository.find({
-      where: { organization_id: organizationId, is_active: true },
+      where: { organization_id: organizationId, is_active: true , is_required: true},
       order: { sort_order: 'ASC', id: 'ASC' },
     });
 
