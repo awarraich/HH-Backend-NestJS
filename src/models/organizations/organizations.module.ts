@@ -36,6 +36,18 @@ import { ReferralsController } from './controllers/referrals.controller';
 import { ReferralOrganizationsController } from './controllers/referral-organizations.controller';
 import { OrganizationStaffController } from './staff-management/controllers/organization-staff.controller';
 import { OrganizationStaffService } from './staff-management/services/organization-staff.service';
+import { HrDocumentType } from './hr-files-setup/entities/hr-document-type.entity';
+import { HrDocumentTypeService } from './hr-files-setup/services/hr-document-type.service';
+import { HrDocumentTypesController } from './hr-files-setup/controllers/hr-document-types.controller';
+import { EmployeeDocument } from './hr-files-setup/entities/employee-document.entity';
+import { DocumentChunk } from './hr-files-setup/entities/document-chunk.entity';
+import { Employee } from '../employees/entities/employee.entity';
+import { EmployeeDocumentsService } from './hr-files-setup/services/employee-documents.service';
+import { EmployeeDocumentsChatService } from './hr-files-setup/services/employee-documents-chat.service';
+import { EmployeeDocumentStorageService } from './hr-files-setup/services/employee-document-storage.service';
+import { EmployeeDocumentsController } from './hr-files-setup/controllers/employee-documents.controller';
+import { EmployeeDocumentAccessGuard } from '../../common/guards/employee-document-access.guard';
+import { EmbeddingModule } from '../../common/services/embedding/embedding.module';
 import { OrganizationRepository } from './repositories/organization.repository';
 import { ReferralRepository } from './repositories/referral.repository';
 import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
@@ -54,6 +66,10 @@ import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
       StaffRole,
       OrganizationStaff,
       OrganizationStaffRolePermission,
+      HrDocumentType,
+      EmployeeDocument,
+      DocumentChunk,
+      Employee,
       User,
       Referral,
       ReferralOrganization,
@@ -66,6 +82,7 @@ import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
     EmailModule,
     AuditLogModule,
     PatientsModule,
+    EmbeddingModule,
   ],
   controllers: [
     OrganizationsController,
@@ -74,6 +91,8 @@ import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
     ReferralsController,
     ReferralOrganizationsController,
     OrganizationStaffController,
+    HrDocumentTypesController,
+    EmployeeDocumentsController,
   ],
   providers: [
     OrganizationsService,
@@ -83,6 +102,11 @@ import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
     ReferralMessagesService,
     ReferralDocumentStorageService,
     OrganizationStaffService,
+    HrDocumentTypeService,
+    EmployeeDocumentsService,
+    EmployeeDocumentsChatService,
+    EmployeeDocumentStorageService,
+    EmployeeDocumentAccessGuard,
     OrganizationRepository,
     ReferralRepository,
     OrganizationRoleGuard,
@@ -95,6 +119,7 @@ import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
     OrganizationStaffService,
     OrganizationRepository,
     ReferralsService,
+    EmployeeDocumentsService,
   ],
 })
 export class OrganizationsModule {}

@@ -80,8 +80,8 @@ export class McpHttpHandlerService {
       return;
     }
 
-    const patientId = payload.sub;
-    if (!patientId) {
+    const userId = payload.sub;
+    if (!userId) {
       res.writeHead(401, jsonHeaders);
       res.end(
         JSON.stringify({ error: MCP_ERROR_MESSAGES.UNAUTHORIZED }),
@@ -94,22 +94,37 @@ export class McpHttpHandlerService {
       req.socket?.remoteAddress;
     const userAgent = (req.headers['user-agent'] as string) ?? undefined;
     const auditContext = {
-      userId: patientId,
+      userId,
       ipAddress,
       userAgent,
     };
+
+    let parsedBody: unknown;
+    if (method === 'POST') {
+      parsedBody = await readBody(req);
+    }
+
+    const body = parsedBody as { organizationId?: string; employeeId?: string } | undefined;
+    const organizationId = body?.organizationId;
+    const employeeId = body?.employeeId;
+    const useEmployeeContext =
+      typeof organizationId === 'string' &&
+      typeof employeeId === 'string' &&
+      organizationId.length > 0 &&
+      employeeId.length > 0;
 
     try {
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
       });
-      const server = this.mcpServerFactory.create(patientId, auditContext);
+      const server = useEmployeeContext
+        ? this.mcpServerFactory.create(undefined, undefined, {
+            organizationId,
+            employeeId,
+            userId,
+          })
+        : this.mcpServerFactory.create(userId, auditContext);
       await server.connect(transport);
-
-      let parsedBody: unknown;
-      if (method === 'POST') {
-        parsedBody = await readBody(req);
-      }
 
       await transport.handleRequest(req, res, parsedBody);
     } catch (err) {

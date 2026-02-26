@@ -12,7 +12,7 @@ import { SocketIoAdapter } from './common/adapters/socket-io.adapter';
 import { McpHttpHandlerService } from './mcp/mcp-http-handler.service';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter({logger: false}));
+  const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter({logger: true}));
 
   const httpPort = parseInt(process.env.PORT || '3000', 10);
   const wsPort = parseInt(process.env.WS_PORT || String(httpPort + 1), 10);
