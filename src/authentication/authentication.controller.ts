@@ -3,6 +3,7 @@ import {
   Post,
   Body,
   Get,
+  Patch,
   UseGuards,
   Request,
   HttpCode,
@@ -23,6 +24,7 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { Verify2FADto } from './dto/verify-2fa.dto';
 import { Authenticate2FADto } from './dto/authenticate-2fa.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { Jwt2FAPendingGuard } from '../common/guards/jwt-2fa-pending.guard';
 import { GoogleOAuthGuard } from '../common/guards/google-oauth.guard';
@@ -331,6 +333,17 @@ export class AuthenticationController {
   @HttpCode(HttpStatus.OK)
   async getUserInfo(@Request() req: any) {
     const user = await this.authService.getCurrentUserWithRoles(req.user.userId);
+    return SuccessHelper.createSuccessResponse(user);
+  }
+
+  @Patch('profile')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async updateProfile(@Request() req: any, @Body() updateProfileDto: UpdateProfileDto) {
+    const user = await this.authService.updateMyProfile(req.user.userId, {
+      firstName: updateProfileDto.firstName,
+      lastName: updateProfileDto.lastName,
+    });
     return SuccessHelper.createSuccessResponse(user);
   }
 }

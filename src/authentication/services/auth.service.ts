@@ -745,6 +745,47 @@ export class AuthService {
   }
 
   /**
+   * Update current user's profile (first name, last name).
+   * Only allowed fields are updated; returns updated user in same shape as getCurrentUserWithRoles.
+   */
+  async updateMyProfile(
+    userId: string,
+    dto: { firstName?: string; lastName?: string },
+  ): Promise<{
+    id: string;
+    email: string;
+    first_name: string;
+    last_name: string;
+    firstName: string;
+    lastName: string;
+    email_verified: boolean;
+    is_two_fa_enabled: boolean;
+    roles: string[];
+    user_type?: string;
+  }> {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    if (dto.firstName !== undefined) {
+      const trimmed = dto.firstName.trim();
+      if (trimmed.length === 0) {
+        throw new BadRequestException('First name cannot be empty');
+      }
+      user.firstName = trimmed;
+    }
+    if (dto.lastName !== undefined) {
+      const trimmed = dto.lastName.trim();
+      if (trimmed.length === 0) {
+        throw new BadRequestException('Last name cannot be empty');
+      }
+      user.lastName = trimmed;
+    }
+    await this.userRepository.save(user);
+    return this.getCurrentUserWithRoles(userId);
+  }
+
+  /**
    * Refresh access token
    */
   async refreshToken(refreshToken: string): Promise<AuthResponseInterface> {
