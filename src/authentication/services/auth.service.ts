@@ -709,6 +709,83 @@ export class AuthService {
   }
 
   /**
+   * Get current user profile with roles (for /me or /user-info).
+   * Returns shape compatible with frontend: roles as string[], first_name, last_name, email_verified.
+   */
+  async getCurrentUserWithRoles(userId: string): Promise<{
+    id: string;
+    email: string;
+    first_name: string;
+    last_name: string;
+    firstName: string;
+    lastName: string;
+    email_verified: boolean;
+    is_two_fa_enabled: boolean;
+    roles: string[];
+    user_type?: string;
+  }> {
+    const userWithRoles = await this.userRepository.findByIdWithRoles(userId);
+    if (!userWithRoles) {
+      throw new NotFoundException('User not found');
+    }
+    const roles = userWithRoles.userRoles?.map((ur) => ur.role.name) || [];
+    const userType = roles[0]?.toLowerCase() ?? undefined;
+    return {
+      id: userWithRoles.id,
+      email: userWithRoles.email,
+      first_name: userWithRoles.firstName,
+      last_name: userWithRoles.lastName,
+      firstName: userWithRoles.firstName,
+      lastName: userWithRoles.lastName,
+      email_verified: userWithRoles.email_verified,
+      is_two_fa_enabled: userWithRoles.is_two_fa_enabled,
+      roles,
+      user_type: userType,
+    };
+  }
+
+  /**
+   * Update current user's profile (first name, last name).
+   * Only allowed fields are updated; returns updated user in same shape as getCurrentUserWithRoles.
+   */
+  async updateMyProfile(
+    userId: string,
+    dto: { firstName?: string; lastName?: string },
+  ): Promise<{
+    id: string;
+    email: string;
+    first_name: string;
+    last_name: string;
+    firstName: string;
+    lastName: string;
+    email_verified: boolean;
+    is_two_fa_enabled: boolean;
+    roles: string[];
+    user_type?: string;
+  }> {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    if (dto.firstName !== undefined) {
+      const trimmed = dto.firstName.trim();
+      if (trimmed.length === 0) {
+        throw new BadRequestException('First name cannot be empty');
+      }
+      user.firstName = trimmed;
+    }
+    if (dto.lastName !== undefined) {
+      const trimmed = dto.lastName.trim();
+      if (trimmed.length === 0) {
+        throw new BadRequestException('Last name cannot be empty');
+      }
+      user.lastName = trimmed;
+    }
+    await this.userRepository.save(user);
+    return this.getCurrentUserWithRoles(userId);
+  }
+
+  /**
    * Refresh access token
    */
   async refreshToken(refreshToken: string): Promise<AuthResponseInterface> {
