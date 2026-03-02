@@ -119,7 +119,7 @@ export class BlogService {
     };
   }
 
-  async findOne(id: string): Promise<any> {
+  async findOne(id: string, options?: { allowDraft?: boolean }): Promise<any> {
     const blog = await this.blogRepository.findOne({
       where: { id },
       relations: ['author'],
@@ -129,16 +129,24 @@ export class BlogService {
       throw new NotFoundException(`Blog post with ID ${id} not found`);
     }
 
+    if (!options?.allowDraft && !blog.is_published) {
+      throw new NotFoundException(`Blog post with ID ${id} not found`);
+    }
+
     return this.blogSerializer.serialize(blog);
   }
 
-  async findBySlug(slug: string): Promise<any> {
+  async findBySlug(slug: string, options?: { allowDraft?: boolean }): Promise<any> {
     const blog = await this.blogRepository.findOne({
       where: { slug },
       relations: ['author'],
     });
 
     if (!blog) {
+      throw new NotFoundException(`Blog post with slug "${slug}" not found`);
+    }
+
+    if (!options?.allowDraft && !blog.is_published) {
       throw new NotFoundException(`Blog post with slug "${slug}" not found`);
     }
 

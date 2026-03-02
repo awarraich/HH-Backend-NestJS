@@ -24,13 +24,12 @@ import { CreateBlogDto } from './dto/create-blog.dto';
 import { UpdateBlogDto } from './dto/update-blog.dto';
 import { QueryBlogDto } from './dto/query-blog.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../../common/guards/optional-jwt-auth.guard';
 import { LoggedInUser } from '../../common/decorators/requests/logged-in-user.decorator';
 import { SuccessHelper } from '../../common/helpers/responses/success.helper';
 import type { UserWithRolesInterface } from '../../common/interfaces/user-with-roles.interface';
 
-
 @Controller('v1/api/blogs')
-@UseGuards(JwtAuthGuard)
 export class BlogController {
   constructor(
     private readonly blogService: BlogService,
@@ -98,9 +97,20 @@ export class BlogController {
     );
   }
 
+  /**
+   * List blogs. Public: when not logged in, only published blogs are returned.
+   * Authenticated users can pass is_published=false to see drafts (e.g. their own).
+   */
   @Get()
+  @UseGuards(OptionalJwtAuthGuard)
   @HttpCode(HttpStatus.OK)
-  async findAll(@Query() queryDto: QueryBlogDto) {
+  async findAll(
+    @Query() queryDto: QueryBlogDto,
+    @LoggedInUser() user?: UserWithRolesInterface,
+  ) {
+    if (!user) {
+      queryDto.is_published = true;
+    }
     const result = await this.blogService.findAll(queryDto);
     return SuccessHelper.createPaginatedResponse(
       result.data,
@@ -111,9 +121,15 @@ export class BlogController {
   }
 
   @Get('slug/:slug')
+  @UseGuards(OptionalJwtAuthGuard)
   @HttpCode(HttpStatus.OK)
-  async findBySlug(@Param('slug') slug: string) {
-    const result = await this.blogService.findBySlug(slug);
+  async findBySlug(
+    @Param('slug') slug: string,
+    @LoggedInUser() user?: UserWithRolesInterface,
+  ) {
+    const result = await this.blogService.findBySlug(slug, {
+      allowDraft: !!user,
+    });
     return SuccessHelper.createSuccessResponse(result);
   }
 
@@ -142,9 +158,15 @@ export class BlogController {
   }
 
   @Get(':id')
+  @UseGuards(OptionalJwtAuthGuard)
   @HttpCode(HttpStatus.OK)
-  async findOne(@Param('id') id: string) {
-    const result = await this.blogService.findOne(id);
+  async findOne(
+    @Param('id') id: string,
+    @LoggedInUser() user?: UserWithRolesInterface,
+  ) {
+    const result = await this.blogService.findOne(id, {
+      allowDraft: !!user,
+    });
     return SuccessHelper.createSuccessResponse(result);
   }
 
