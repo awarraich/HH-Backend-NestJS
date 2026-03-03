@@ -13,6 +13,8 @@ import { EmployeesController } from './controllers/employees.controller';
 import { ProviderRolesService } from './services/provider-roles.service';
 import { ProviderRolesController } from './controllers/provider-roles.controller';
 import { OrganizationRoleGuard } from '../../common/guards/organization-role.guard';
+import { EmployeeContextController } from './employee-context/controllers/employee-context.controller';
+import { EmployeeContextService } from './employee-context/services/employee-context.service';
 
 @Module({
   imports: [
@@ -23,8 +25,8 @@ import { OrganizationRoleGuard } from '../../common/guards/organization-role.gua
     AuditLogModule,
     EmailModule,
   ],
-  controllers: [EmployeesController, ProviderRolesController],
-  providers: [EmployeesService, ProviderRolesService, OrganizationRoleGuard],
+  controllers: [EmployeesController, ProviderRolesController, EmployeeContextController],
+  providers: [EmployeesService, ProviderRolesService, OrganizationRoleGuard, EmployeeContextService],
   exports: [TypeOrmModule, EmployeesService, ProviderRolesService],
 })
 export class EmployeesModule {}

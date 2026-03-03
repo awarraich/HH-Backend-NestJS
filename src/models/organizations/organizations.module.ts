@@ -39,6 +39,10 @@ import { OrganizationStaffService } from './staff-management/services/organizati
 import { HrDocumentType } from './hr-files-setup/entities/hr-document-type.entity';
 import { HrDocumentTypeService } from './hr-files-setup/services/hr-document-type.service';
 import { HrDocumentTypesController } from './hr-files-setup/controllers/hr-document-types.controller';
+import { RequirementTag } from './hr-files-setup/entities/requirement-tag.entity';
+import { RequirementDocumentType } from './hr-files-setup/entities/requirement-document-type.entity';
+import { RequirementTagService } from './hr-files-setup/services/requirement-tag.service';
+import { RequirementTagsController } from './hr-files-setup/controllers/requirement-tags.controller';
 import { EmployeeDocument } from './hr-files-setup/entities/employee-document.entity';
 import { DocumentChunk } from './hr-files-setup/entities/document-chunk.entity';
 import { Employee } from '../employees/entities/employee.entity';
@@ -67,6 +71,8 @@ import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
       OrganizationStaff,
       OrganizationStaffRolePermission,
       HrDocumentType,
+      RequirementTag,
+      RequirementDocumentType,
       EmployeeDocument,
       DocumentChunk,
       Employee,
@@ -92,6 +98,7 @@ import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
     ReferralOrganizationsController,
     OrganizationStaffController,
     HrDocumentTypesController,
+    RequirementTagsController,
     EmployeeDocumentsController,
   ],
   providers: [
@@ -103,6 +110,7 @@ import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
     ReferralDocumentStorageService,
     OrganizationStaffService,
     HrDocumentTypeService,
+    RequirementTagService,
     EmployeeDocumentsService,
     EmployeeDocumentsChatService,
     EmployeeDocumentStorageService,
