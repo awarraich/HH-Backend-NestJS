@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule, TypeOrmModuleAsyncOptions } from '@nestjs/typeorm';
 import { PostgresConfigModule } from '../../../config/database/postgres/config.module.js';
 import { PostgresConfigService } from '../../../config/database/postgres/config.service.js';
+import { migrations } from '../../../database/migrations/index.js';
 
 @Module({
   imports: [
@@ -52,7 +53,7 @@ import { PostgresConfigService } from '../../../config/database/postgres/config.
           synchronize: postgresConfigService.synchronize,
           logging: postgresConfigService.logging,
           migrationsRun: postgresConfigService.migrationsRun,
-          migrations: postgresConfigService.migrations,
+          migrations,
           entities: [
             'dist/**/*.entity.js',
             'dist/authentication/entities/*.entity.js',

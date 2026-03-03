@@ -10,6 +10,8 @@ import { EmployeesModule } from './models/employees/employees.module';
 import { AdminsModule } from './models/admins/admins.module';
 import { CreditPackagesModule } from './models/credit-packages/credit-packages.module';
 import { BlogModule } from './models/blog/blog.module';
+import { PatientChatModule } from './models/patient-chat/patient-chat.module';
+import { AiChatModule } from './models/ai-chat/ai-chat.module';
 import { AuditLogModule } from './common/services/audit/audit-log.module';
 import { OnboardingStatusModule } from './common/services/onboarding-status/onboarding-status.module';
 
@@ -26,6 +28,8 @@ import { OnboardingStatusModule } from './common/services/onboarding-status/onbo
     AdminsModule,
     CreditPackagesModule,
     BlogModule,
+    PatientChatModule,
+    AiChatModule,
     AuditLogModule,
     OnboardingStatusModule,
   ],
