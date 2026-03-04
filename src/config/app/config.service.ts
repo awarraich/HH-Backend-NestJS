@@ -14,7 +14,8 @@ export class AppConfigService {
   }
 
   get apiPrefix(): string {
-    return this.configService.get<string>('app.api.prefix', 'v1/api');
+    // Use empty prefix: controllers already use full paths (e.g. v1/api/blogs). A non-empty prefix would double-prefix and cause 404 on /v1/api/blogs.
+    return this.configService.get<string>('app.api.prefix', '') || '';
   }
 
   get frontendUrl(): string {
