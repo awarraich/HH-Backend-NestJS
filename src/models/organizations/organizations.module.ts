@@ -95,6 +95,7 @@ import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
     OrganizationStaffService,
     OrganizationRepository,
     ReferralsService,
+    OrganizationRoleGuard,
   ],
 })
 export class OrganizationsModule {}

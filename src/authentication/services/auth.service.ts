@@ -256,6 +256,7 @@ export class AuthService {
 
     this.logger.log(`User logged in: ${this.maskEmail(user.email)} (Roles: ${roles.join(', ')})`);
 
+    const userType = roles[0]?.toLowerCase() ?? undefined;
     return {
       ...tokens,
       user: {
@@ -265,6 +266,8 @@ export class AuthService {
         isTwoFaEnabled: user.is_two_fa_enabled,
         roles,
         mustChangePassword: user.must_change_password,
+        user_type: userType,
+        userType: userType,
       },
       redirectPath,
       mustChangePassword: user.must_change_password,
