@@ -12,8 +12,10 @@ import { CreditPackagesModule } from './models/credit-packages/credit-packages.m
 import { BlogModule } from './models/blog/blog.module';
 import { PatientChatModule } from './models/patient-chat/patient-chat.module';
 import { AiChatModule } from './models/ai-chat/ai-chat.module';
+import { JobManagementModule } from './models/job-management/job-management.module';
 import { AuditLogModule } from './common/services/audit/audit-log.module';
 import { OnboardingStatusModule } from './common/services/onboarding-status/onboarding-status.module';
+import { AppController } from './app.controller';
 
 @Module({
   imports: [
@@ -30,10 +32,11 @@ import { OnboardingStatusModule } from './common/services/onboarding-status/onbo
     BlogModule,
     PatientChatModule,
     AiChatModule,
+    JobManagementModule,
     AuditLogModule,
     OnboardingStatusModule,
   ],
-  controllers: [],
+  controllers: [AppController],
   providers: [],
 })
 export class AppModule {}

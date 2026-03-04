@@ -8,6 +8,8 @@ export interface AuthResponseInterface {
     isTwoFaEnabled: boolean;
     roles: string[];
     mustChangePassword?: boolean;
+    user_type?: string;
+    userType?: string;
   };
   requiresTwoFactor?: boolean;
   redirectPath?: string;
