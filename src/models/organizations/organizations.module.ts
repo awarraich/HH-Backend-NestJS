@@ -12,11 +12,12 @@ import { ReferralOrganization } from './entities/referral-organization.entity';
 import { ReferralMessage } from './entities/referral-message.entity';
 import { ReferralDocument } from './entities/referral-document.entity';
 import { ReferralLastRead } from './entities/referral-last-read.entity';
-import { User } from '../../authentication/entities/user.entity';
+import { OrganizationFeature } from './entities/organization-feature.entity';
 import { StaffRole } from './staff-management/entities/staff-role.entity';
 import { OrganizationStaff } from './staff-management/entities/organization-staff.entity';
-import { OrganizationFeature } from './entities/organization-feature.entity';
 import { OrganizationStaffRolePermission } from './staff-management/entities/organization-staff-role-permission.entity';
+import { Employee } from '../employees/entities/employee.entity';
+import { User } from '../../authentication/entities/user.entity';
 import { Patient } from '../patients/entities/patient.entity';
 import { AuthenticationModule } from '../../authentication/auth.module';
 import { EmailModule } from '../../common/services/email/email.module';
@@ -54,6 +55,7 @@ import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
       StaffRole,
       OrganizationStaff,
       OrganizationStaffRolePermission,
+      Employee,
       User,
       Referral,
       ReferralOrganization,
