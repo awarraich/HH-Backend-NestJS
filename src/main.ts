@@ -143,9 +143,37 @@ async function bootstrap() {
 
   // Fallback: register job-management list + create directly on Fastify so they always exist
   const prefix = apiPrefix.replace(/^\//, '').replace(/\/$/, '');
-  const jobMgmtBase = `/${prefix}/job-management`;
+  const jobMgmtBase = prefix ? `/${prefix}/job-management` : '/job-management';
+  // Same path as blogs so proxies (e.g. /v1/api -> backend) and frontend can use one base URL
+  const jobMgmtV1Base = '/v1/api/job-management';
   try {
     const jobService = app.get(JobManagementService);
+
+    const handleGetPublicJobPostings = async (request: any, reply: any) => {
+      try {
+        const { search, page, limit } = request.query || {};
+        const result = await jobService.findAllActive({
+          search: search as string,
+          page: page ? Number(page) : 1,
+          limit: limit ? Number(limit) : 20,
+        });
+        return reply.send(SuccessHelper.createPaginatedResponse(result.data, result.total, result.page, result.limit));
+      } catch (err: any) {
+        const status = err?.statusCode || err?.status || 500;
+        return reply.status(status).send({
+          message: err?.message || 'Internal server error',
+          error: err?.response?.message || err?.message,
+          statusCode: status,
+        });
+      }
+    };
+
+    // Public: list all active job postings (careers page) – no auth
+    fastifyInstance.get(`${jobMgmtBase}/job-postings`, handleGetPublicJobPostings);
+    fastifyInstance.get(`${jobMgmtBase}/job-postings/`, handleGetPublicJobPostings);
+    // Also under /v1/api/job-management/job-postings so it matches blogs (/v1/api/blogs) and works with proxies
+    fastifyInstance.get(`${jobMgmtV1Base}/job-postings`, handleGetPublicJobPostings);
+    fastifyInstance.get(`${jobMgmtV1Base}/job-postings/`, handleGetPublicJobPostings);
 
     fastifyInstance.get(`${jobMgmtBase}/organization/:organizationId/job-postings`, async (request: any, reply: any) => {
       try {

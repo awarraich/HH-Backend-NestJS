@@ -62,6 +62,36 @@ export class JobManagementService {
     return this.jobPostingRepository.save(entity);
   }
 
+  /**
+   * List all active job postings across organizations (public careers page).
+   * Returns jobs with organization relation for display name.
+   */
+  async findAllActive(
+    query: QueryJobPostingDto,
+  ): Promise<{ data: JobPosting[]; total: number; page: number; limit: number }> {
+    const page = query.page ?? 1;
+    const limit = Math.min(query.limit ?? 20, 50);
+    const skip = (page - 1) * limit;
+
+    const qb = this.jobPostingRepository
+      .createQueryBuilder('jp')
+      .leftJoinAndSelect('jp.organization', 'org')
+      .where('jp.status = :status', { status: 'active' })
+      .orderBy('jp.created_at', 'DESC')
+      .skip(skip)
+      .take(limit);
+
+    if (query.search?.trim()) {
+      qb.andWhere(
+        '(jp.title ILIKE :search OR jp.description ILIKE :search OR jp.location ILIKE :search)',
+        { search: `%${query.search.trim()}%` },
+      );
+    }
+
+    const [data, total] = await qb.getManyAndCount();
+    return { data, total, page, limit };
+  }
+
   async findAllByOrganization(
     organizationId: string,
     query: QueryJobPostingDto,
