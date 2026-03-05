@@ -7,6 +7,7 @@ import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3
 import { StorageConfigService } from '../../../../config/storage/config.service';
 
 const HR_DOCUMENTS_SUBDIR = 'hr-documents';
+const INSERVICE_DOCUMENTS_SUBDIR = 'inservices';
 
 @Injectable()
 export class EmployeeDocumentStorageService {
@@ -102,6 +103,27 @@ export class EmployeeDocumentStorageService {
       '.txt': 'text/plain',
     };
     return map[ext] ?? 'application/octet-stream';
+  }
+
+  /**
+   * Save an inservice training PDF. Returns file_name (original) and file_path (relative or key).
+   */
+  async saveInserviceDocument(
+    buffer: Buffer,
+    originalFilename: string,
+    organizationId: string,
+    inserviceId: string,
+  ): Promise<{ file_name: string; file_path: string }> {
+    const sanitized = this.sanitizeFilename(originalFilename);
+    const ext = path.extname(sanitized) || '.pdf';
+    const storedName = `${randomUUID()}${ext}`;
+    const relativePath = `${INSERVICE_DOCUMENTS_SUBDIR}/${organizationId}/${inserviceId}/${storedName}`;
+
+    if (this.storageConfig.isS3) {
+      await this.saveToS3(buffer, relativePath, originalFilename);
+      return { file_name: originalFilename, file_path: relativePath };
+    }
+    return this.saveToLocal(buffer, relativePath, originalFilename);
   }
 
   /**

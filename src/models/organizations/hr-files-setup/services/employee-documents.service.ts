@@ -21,6 +21,8 @@ import { DocumentChunk } from '../entities/document-chunk.entity';
 import { HrDocumentType } from '../entities/hr-document-type.entity';
 import { EmployeeRequirementTag } from '../entities/employee-requirement-tag.entity';
 import { RequirementDocumentType } from '../entities/requirement-document-type.entity';
+import { RequirementInserviceTraining } from '../entities/requirement-inservice-training.entity';
+import { InserviceTraining } from '../entities/inservice-training.entity';
 import { Employee } from '../../../employees/entities/employee.entity';
 import { Organization } from '../../entities/organization.entity';
 import { OrganizationRoleService } from '../../services/organization-role.service';
@@ -126,6 +128,10 @@ export class EmployeeDocumentsService {
     private readonly employeeRequirementTagRepository: Repository<EmployeeRequirementTag>,
     @InjectRepository(RequirementDocumentType)
     private readonly requirementDocumentTypeRepository: Repository<RequirementDocumentType>,
+    @InjectRepository(RequirementInserviceTraining)
+    private readonly requirementInserviceTrainingRepository: Repository<RequirementInserviceTraining>,
+    @InjectRepository(InserviceTraining)
+    private readonly inserviceTrainingRepository: Repository<InserviceTraining>,
     private readonly organizationRoleService: OrganizationRoleService,
     private readonly embeddingService: EmbeddingService,
     private readonly storageService: EmployeeDocumentStorageService,
@@ -274,6 +280,75 @@ export class EmployeeDocumentsService {
           : null,
       };
     });
+  }
+
+  async getInserviceTrainingsByEmployeeTags(
+    organizationId: string,
+    employeeId: string,
+    userId: string,
+  ): Promise<
+    Array<{
+      id: string;
+      organization_id: string;
+      code: string;
+      title: string;
+      description: string | null;
+      completion_frequency: string;
+      expiry_months: number | null;
+      pdf_file_name: string | null;
+      pdf_file_path: string | null;
+      pdf_file_size_bytes: number | null;
+      video_url: string | null;
+      sort_order: number;
+      is_active: boolean;
+      created_at: Date;
+      updated_at: Date;
+    }>
+  > {
+    await this.ensureDocumentAccess(organizationId, employeeId, userId);
+
+    const employeeTags = await this.employeeRequirementTagRepository.find({
+      where: { employee_id: employeeId },
+      select: ['requirement_tag_id'],
+    });
+    const tagIds = employeeTags.map((t) => t.requirement_tag_id);
+    if (tagIds.length === 0) return [];
+
+    const links = await this.requirementInserviceTrainingRepository.find({
+      where: { requirement_tag_id: In(tagIds) },
+      select: ['inservice_training_id'],
+    });
+    const inserviceIds = [...new Set(links.map((l) => l.inservice_training_id))];
+    if (inserviceIds.length === 0) return [];
+
+    const inservices = await this.inserviceTrainingRepository.find({
+      where: {
+        id: In(inserviceIds),
+        organization_id: organizationId,
+        is_active: true,
+      },
+      order: { sort_order: 'ASC', created_at: 'DESC' },
+    });
+
+    return inservices.map((it) => ({
+      id: it.id,
+      organization_id: it.organization_id,
+      code: it.code,
+      title: it.title,
+      description: it.description,
+      completion_frequency: it.completion_frequency,
+      expiry_months: it.expiry_months,
+      pdf_file_name: it.pdf_file_name,
+      pdf_file_path: it.pdf_file_path,
+      pdf_file_size_bytes: it.pdf_file_size_bytes
+        ? Number(it.pdf_file_size_bytes)
+        : null,
+      video_url: it.video_url,
+      sort_order: it.sort_order,
+      is_active: it.is_active,
+      created_at: it.created_at,
+      updated_at: it.updated_at,
+    }));
   }
 
   async getExpirationStatus(

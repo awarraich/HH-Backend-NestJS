@@ -9,7 +9,9 @@ import { Repository, In, IsNull } from 'typeorm';
 import { Organization } from '../../entities/organization.entity';
 import { RequirementTag } from '../entities/requirement-tag.entity';
 import { RequirementDocumentType } from '../entities/requirement-document-type.entity';
+import { RequirementInserviceTraining } from '../entities/requirement-inservice-training.entity';
 import { HrDocumentType } from '../entities/hr-document-type.entity';
+import { InserviceTraining } from '../entities/inservice-training.entity';
 import { OrganizationRoleService } from '../../services/organization-role.service';
 import { CreateRequirementTagDto } from '../dto/create-requirement-tag.dto';
 import { UpdateRequirementTagDto } from '../dto/update-requirement-tag.dto';
@@ -21,6 +23,7 @@ export interface RequirementTagResponse {
   title: string;
   category: string;
   required_document_type_ids: string[];
+  required_inservice_training_ids: string[];
   created_at: Date;
   updated_at: Date;
 }
@@ -32,8 +35,12 @@ export class RequirementTagService {
     private readonly requirementTagRepository: Repository<RequirementTag>,
     @InjectRepository(RequirementDocumentType)
     private readonly requirementDocumentTypeRepository: Repository<RequirementDocumentType>,
+    @InjectRepository(RequirementInserviceTraining)
+    private readonly requirementInserviceTrainingRepository: Repository<RequirementInserviceTraining>,
     @InjectRepository(HrDocumentType)
     private readonly hrDocumentTypeRepository: Repository<HrDocumentType>,
+    @InjectRepository(InserviceTraining)
+    private readonly inserviceTrainingRepository: Repository<InserviceTraining>,
     @InjectRepository(Organization)
     private readonly organizationRepository: Repository<Organization>,
     private readonly organizationRoleService: OrganizationRoleService,
@@ -59,13 +66,18 @@ export class RequirementTagService {
     }
   }
 
-  private toResponse(tag: RequirementTag, docTypeIds: string[]): RequirementTagResponse {
+  private toResponse(
+    tag: RequirementTag,
+    docTypeIds: string[],
+    inserviceTrainingIds: string[],
+  ): RequirementTagResponse {
     return {
       id: tag.id,
       organization_id: tag.organization_id,
       title: tag.title,
       category: tag.category,
       required_document_type_ids: docTypeIds,
+      required_inservice_training_ids: inserviceTrainingIds,
       created_at: tag.created_at,
       updated_at: tag.updated_at,
     };
@@ -98,14 +110,21 @@ export class RequirementTagService {
 
     const data: RequirementTagResponse[] = [];
     for (const tag of tags) {
-      const links = await this.requirementDocumentTypeRepository.find({
-        where: { requirement_tag_id: tag.id },
-        select: ['document_type_id'],
-      });
+      const [docLinks, inserviceLinks] = await Promise.all([
+        this.requirementDocumentTypeRepository.find({
+          where: { requirement_tag_id: tag.id },
+          select: ['document_type_id'],
+        }),
+        this.requirementInserviceTrainingRepository.find({
+          where: { requirement_tag_id: tag.id },
+          select: ['inservice_training_id'],
+        }),
+      ]);
       data.push(
-        await this.toResponse(
+        this.toResponse(
           tag,
-          links.map((l) => l.document_type_id),
+          docLinks.map((l) => l.document_type_id),
+          inserviceLinks.map((l) => l.inservice_training_id),
         ),
       );
     }
@@ -127,13 +146,20 @@ export class RequirementTagService {
       throw new NotFoundException('Requirement tag not found');
     }
 
-    const links = await this.requirementDocumentTypeRepository.find({
-      where: { requirement_tag_id: tag.id },
-      select: ['document_type_id'],
-    });
+    const [docLinks, inserviceLinks] = await Promise.all([
+      this.requirementDocumentTypeRepository.find({
+        where: { requirement_tag_id: tag.id },
+        select: ['document_type_id'],
+      }),
+      this.requirementInserviceTrainingRepository.find({
+        where: { requirement_tag_id: tag.id },
+        select: ['inservice_training_id'],
+      }),
+    ]);
     return this.toResponse(
       tag,
-      links.map((l) => l.document_type_id),
+      docLinks.map((l) => l.document_type_id),
+      inserviceLinks.map((l) => l.inservice_training_id),
     );
   }
 
@@ -145,6 +171,8 @@ export class RequirementTagService {
     await this.ensureAccess(organizationId, userId);
 
     const documentTypeIds = dto.document_type_ids ?? [];
+    const inserviceTrainingIds = dto.inservice_training_ids ?? [];
+
     if (documentTypeIds.length > 0) {
       const docTypes = await this.hrDocumentTypeRepository.find({
         where: {
@@ -157,6 +185,21 @@ export class RequirementTagService {
       if (docTypes.length !== documentTypeIds.length) {
         throw new BadRequestException(
           'One or more document type IDs are invalid or do not belong to this organization.',
+        );
+      }
+    }
+
+    if (inserviceTrainingIds.length > 0) {
+      const inservices = await this.inserviceTrainingRepository.find({
+        where: {
+          id: In(inserviceTrainingIds),
+          organization_id: organizationId,
+        },
+        select: ['id'],
+      });
+      if (inservices.length !== inserviceTrainingIds.length) {
+        throw new BadRequestException(
+          'One or more inservice training IDs are invalid or do not belong to this organization.',
         );
       }
     }
@@ -176,7 +219,22 @@ export class RequirementTagService {
     );
     await this.requirementDocumentTypeRepository.save(linkEntities);
 
-    return this.toResponse(saved, documentTypeIds);
+    const inserviceLinkEntities = inserviceTrainingIds.map(
+      (inservice_training_id) =>
+        this.requirementInserviceTrainingRepository.create({
+          requirement_tag_id: saved.id,
+          inservice_training_id,
+        }),
+    );
+    await this.requirementInserviceTrainingRepository.save(
+      inserviceLinkEntities,
+    );
+
+    return this.toResponse(
+      saved,
+      documentTypeIds,
+      inserviceTrainingIds,
+    );
   }
 
   async update(
@@ -227,13 +285,51 @@ export class RequirementTagService {
       }
     }
 
-    const links = await this.requirementDocumentTypeRepository.find({
-      where: { requirement_tag_id: tag.id },
-      select: ['document_type_id'],
-    });
+    if (dto.inservice_training_ids !== undefined) {
+      await this.requirementInserviceTrainingRepository.delete({
+        requirement_tag_id: tag.id,
+      });
+      const inserviceTrainingIds = dto.inservice_training_ids;
+      if (inserviceTrainingIds.length > 0) {
+        const inservices = await this.inserviceTrainingRepository.find({
+          where: {
+            id: In(inserviceTrainingIds),
+            organization_id: organizationId,
+          },
+          select: ['id'],
+        });
+        if (inservices.length !== inserviceTrainingIds.length) {
+          throw new BadRequestException(
+            'One or more inservice training IDs are invalid or do not belong to this organization.',
+          );
+        }
+        const inserviceLinkEntities = inserviceTrainingIds.map(
+          (inservice_training_id) =>
+            this.requirementInserviceTrainingRepository.create({
+              requirement_tag_id: tag.id,
+              inservice_training_id,
+            }),
+        );
+        await this.requirementInserviceTrainingRepository.save(
+          inserviceLinkEntities,
+        );
+      }
+    }
+
+    const [docLinks, inserviceLinks] = await Promise.all([
+      this.requirementDocumentTypeRepository.find({
+        where: { requirement_tag_id: tag.id },
+        select: ['document_type_id'],
+      }),
+      this.requirementInserviceTrainingRepository.find({
+        where: { requirement_tag_id: tag.id },
+        select: ['inservice_training_id'],
+      }),
+    ]);
     return this.toResponse(
       tag,
-      links.map((l) => l.document_type_id),
+      docLinks.map((l) => l.document_type_id),
+      inserviceLinks.map((l) => l.inservice_training_id),
     );
   }
 
