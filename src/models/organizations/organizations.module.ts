@@ -42,6 +42,8 @@ import { HrDocumentTypeService } from './hr-files-setup/services/hr-document-typ
 import { HrDocumentTypesController } from './hr-files-setup/controllers/hr-document-types.controller';
 import { RequirementTag } from './hr-files-setup/entities/requirement-tag.entity';
 import { RequirementDocumentType } from './hr-files-setup/entities/requirement-document-type.entity';
+import { RequirementInserviceTraining } from './hr-files-setup/entities/requirement-inservice-training.entity';
+import { InserviceTraining } from './hr-files-setup/entities/inservice-training.entity';
 import { EmployeeRequirementTag } from './hr-files-setup/entities/employee-requirement-tag.entity';
 import { RequirementTagService } from './hr-files-setup/services/requirement-tag.service';
 import { EmployeeRequirementTagService } from './hr-files-setup/services/employee-requirement-tag.service';
@@ -54,7 +56,9 @@ import { EmployeeDocumentsChatService } from './hr-files-setup/services/employee
 import { EmployeeDocumentStorageService } from './hr-files-setup/services/employee-document-storage.service';
 import { EmployeeDocumentsController } from './hr-files-setup/controllers/employee-documents.controller';
 import { EmployeeDocumentTypesController } from './hr-files-setup/controllers/employee-document-types.controller';
+import { InserviceTrainingsController } from './hr-files-setup/controllers/inservice-trainings.controller';
 import { EmployeeDocumentTypeService } from './hr-files-setup/services/employee-document-type.service';
+import { InserviceTrainingService } from './hr-files-setup/services/inservice-training.service';
 import { EmployeeDocumentAccessGuard } from '../../common/guards/employee-document-access.guard';
 import { EmployeeDocumentTypeAccessGuard } from '../../common/guards/employee-document-type-access.guard';
 import { EmbeddingModule } from '../../common/services/embedding/embedding.module';
@@ -80,6 +84,8 @@ import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
       HrDocumentType,
       RequirementTag,
       RequirementDocumentType,
+      RequirementInserviceTraining,
+      InserviceTraining,
       EmployeeRequirementTag,
       EmployeeDocument,
       DocumentChunk,
@@ -109,6 +115,7 @@ import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
     RequirementTagsController,
     EmployeeDocumentsController,
     EmployeeDocumentTypesController,
+    InserviceTrainingsController,
   ],
   providers: [
     OrganizationsService,
@@ -120,6 +127,7 @@ import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
     OrganizationStaffService,
     HrDocumentTypeService,
     EmployeeDocumentTypeService,
+    InserviceTrainingService,
     RequirementTagService,
     EmployeeRequirementTagService,
     EmployeeDocumentsService,

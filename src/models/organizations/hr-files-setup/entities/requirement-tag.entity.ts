@@ -11,6 +11,7 @@ import {
 } from 'typeorm';
 import { Organization } from '../../entities/organization.entity';
 import { RequirementDocumentType } from './requirement-document-type.entity';
+import { RequirementInserviceTraining } from './requirement-inservice-training.entity';
 
 @Entity('requirement_tags')
 @Index(['organization_id'])
@@ -44,4 +45,11 @@ export class RequirementTag {
     { cascade: true },
   )
   requirementDocumentTypes: RequirementDocumentType[];
+
+  @OneToMany(
+    () => RequirementInserviceTraining,
+    (rit) => rit.requirementTag,
+    { cascade: true },
+  )
+  requirementInserviceTrainings: RequirementInserviceTraining[];
 }

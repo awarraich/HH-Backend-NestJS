@@ -64,6 +64,22 @@ export class EmployeeDocumentsController {
     return SuccessHelper.createSuccessResponse(data);
   }
 
+  @Get('inservice-trainings-by-tags')
+  @HttpCode(HttpStatus.OK)
+  async getInserviceTrainingsByEmployeeTags(
+    @Param('organizationId') organizationId: string,
+    @Param('employeeId') employeeId: string,
+    @LoggedInUser() user: UserWithRolesInterface,
+  ) {
+    const data =
+      await this.employeeDocumentsService.getInserviceTrainingsByEmployeeTags(
+        organizationId,
+        employeeId,
+        user.userId,
+      );
+    return SuccessHelper.createSuccessResponse(data);
+  }
+
   @Post('expiration-status')
   @HttpCode(HttpStatus.OK)
   async getExpirationStatus(

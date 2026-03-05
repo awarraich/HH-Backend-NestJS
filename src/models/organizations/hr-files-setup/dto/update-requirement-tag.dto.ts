@@ -21,4 +21,9 @@ export class UpdateRequirementTagDto {
   @IsArray()
   @IsUUID('4', { each: true })
   document_type_ids?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  inservice_training_ids?: string[];
 }
