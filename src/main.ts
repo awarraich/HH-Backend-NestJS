@@ -9,6 +9,7 @@ import { AuthService } from './authentication/services/auth.service';
 import { GoogleOAuthGuard } from './common/guards/google-oauth.guard';
 import { SocketIoAdapter } from './common/adapters/socket-io.adapter';
 import { JobManagementService } from './models/job-management/job-management.service';
+import { BlogService } from './models/blog/blog.service';
 import { SuccessHelper } from './common/helpers/responses/success.helper';
 
 async function bootstrap() {
@@ -244,6 +245,42 @@ async function bootstrap() {
     });
   } catch (e) {
     console.warn('Job-management fallback routes not registered:', (e as Error).message);
+  }
+
+  // Blogs: ensure GET /v1/api/blogs always works (e.g. if API_PREFIX is set and double-prefixed controller path 404s)
+  try {
+    const blogService = app.get(BlogService);
+    const handleGetBlogs = async (request: any, reply: any) => {
+      try {
+        const query = request.query || {};
+        const page = query.page ? Number(query.page) : 1;
+        const limit = query.limit ? Number(query.limit) : 10;
+        const isPublished = query.is_published === 'false' || query.is_published === false ? false : true;
+        const category = query.category as string | undefined;
+        const search = query.search as string | undefined;
+        const result = await blogService.findAll({
+          page,
+          limit,
+          is_published: isPublished,
+          category,
+          search,
+        });
+        return reply.send(
+          SuccessHelper.createPaginatedResponse(result.data, result.total, result.page, result.limit),
+        );
+      } catch (err: any) {
+        const status = err?.statusCode || err?.status || 500;
+        return reply.status(status).send({
+          message: err?.message || 'Failed to fetch blogs',
+          error: err?.response?.message || err?.message,
+          statusCode: status,
+        });
+      }
+    };
+    fastifyInstance.get('/v1/api/blogs', handleGetBlogs);
+    fastifyInstance.get('/v1/api/blogs/', handleGetBlogs);
+  } catch (e) {
+    console.warn('Blogs fallback routes not registered:', (e as Error).message);
   }
 
   const host = process.env.HOST || '0.0.0.0';

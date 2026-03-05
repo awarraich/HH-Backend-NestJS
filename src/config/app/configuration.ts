@@ -3,7 +3,7 @@ export default () => ({
     port: parseInt(process.env.PORT || '3000', 10),
     environment: process.env.NODE_ENV || 'development',
     api: {
-      // Empty by default: controllers use full paths (v1/api/...). Set API_PREFIX only if you need an extra prefix (e.g. behind a proxy that strips it).
+      // Must be empty: controllers use full path (e.g. v1/api/blogs). If API_PREFIX is set to v1/api, GET /v1/api/blogs becomes 404 (route would be /v1/api/v1/api/blogs).
       prefix: process.env.API_PREFIX ?? '',
     },
     frontendUrl:
