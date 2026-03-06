@@ -56,8 +56,12 @@ import { EmployeeDocumentStorageService } from './hr-files-setup/services/employ
 import { EmployeeDocumentsController } from './hr-files-setup/controllers/employee-documents.controller';
 import { EmployeeDocumentTypesController } from './hr-files-setup/controllers/employee-document-types.controller';
 import { InserviceTrainingsController } from './hr-files-setup/controllers/inservice-trainings.controller';
+import { InserviceQuizQuestionsController } from './hr-files-setup/controllers/inservice-quiz-questions.controller';
+import { InserviceQuizQuestionsOrgController } from './hr-files-setup/controllers/inservice-quiz-questions-org.controller';
 import { EmployeeDocumentTypeService } from './hr-files-setup/services/employee-document-type.service';
 import { InserviceTrainingService } from './hr-files-setup/services/inservice-training.service';
+import { InserviceQuizQuestionService } from './hr-files-setup/services/inservice-quiz-question.service';
+import { InserviceQuizQuestion } from './hr-files-setup/entities/inservice-quiz-question.entity';
 import { EmployeeDocumentAccessGuard } from '../../common/guards/employee-document-access.guard';
 import { EmployeeDocumentTypeAccessGuard } from '../../common/guards/employee-document-type-access.guard';
 import { EmbeddingModule } from '../../common/services/embedding/embedding.module';
@@ -84,6 +88,7 @@ import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
       RequirementDocumentType,
       RequirementInserviceTraining,
       InserviceTraining,
+      InserviceQuizQuestion,
       EmployeeRequirementTag,
       EmployeeDocument,
       DocumentChunk,
@@ -114,6 +119,8 @@ import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
     EmployeeDocumentsController,
     EmployeeDocumentTypesController,
     InserviceTrainingsController,
+    InserviceQuizQuestionsController,
+    InserviceQuizQuestionsOrgController,
   ],
   providers: [
     OrganizationsService,
@@ -126,6 +133,7 @@ import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
     HrDocumentTypeService,
     EmployeeDocumentTypeService,
     InserviceTrainingService,
+    InserviceQuizQuestionService,
     RequirementTagService,
     EmployeeRequirementTagService,
     EmployeeDocumentsService,

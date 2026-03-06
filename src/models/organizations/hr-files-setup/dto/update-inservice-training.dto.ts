@@ -3,6 +3,7 @@ import {
   IsOptional,
   IsInt,
   Min,
+  Max,
   MaxLength,
   IsIn,
   IsUrl,
@@ -41,4 +42,14 @@ export class UpdateInserviceTrainingDto {
   @IsOptional()
   @IsBoolean()
   is_active?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  has_quiz?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  passing_score_percent?: number | null;
 }

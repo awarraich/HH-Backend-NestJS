@@ -156,7 +156,20 @@ export class InserviceTrainingsController {
     const completion_frequency = getMultipartString(body.completion_frequency);
     const video_url = getMultipartString(body.video_url);
     const sort_orderStr = getMultipartString(body.sort_order);
+    const has_quizStr = getMultipartString(body.has_quiz);
+    const passing_score_percentStr = getMultipartString(
+      body.passing_score_percent,
+    );
     const sort_order = sort_orderStr ? parseInt(sort_orderStr, 10) : undefined;
+    const has_quiz =
+      has_quizStr === 'true'
+        ? true
+        : has_quizStr === 'false'
+          ? false
+          : undefined;
+    const passing_score_percent = passing_score_percentStr
+      ? parseInt(passing_score_percentStr, 10)
+      : undefined;
 
     const dto = plainToInstance(CreateInserviceTrainingDto, {
       code: code || undefined,
@@ -165,6 +178,10 @@ export class InserviceTrainingsController {
       completion_frequency: completion_frequency || undefined,
       video_url: video_url || undefined,
       sort_order: Number.isFinite(sort_order) ? sort_order : undefined,
+      has_quiz,
+      passing_score_percent: Number.isFinite(passing_score_percent)
+        ? passing_score_percent
+        : undefined,
     });
 
     const errors = await validate(dto);
@@ -233,6 +250,12 @@ export class InserviceTrainingsController {
       body.sort_order != null ? getMultipartString(body.sort_order) : undefined;
     const is_activeStr =
       body.is_active != null ? getMultipartString(body.is_active) : undefined;
+    const has_quizStr =
+      body.has_quiz != null ? getMultipartString(body.has_quiz) : undefined;
+    const passing_score_percentStr =
+      body.passing_score_percent != null
+        ? getMultipartString(body.passing_score_percent)
+        : undefined;
     const sort_order = sort_orderStr ? parseInt(sort_orderStr, 10) : undefined;
     const is_active =
       is_activeStr === 'true'
@@ -240,6 +263,17 @@ export class InserviceTrainingsController {
         : is_activeStr === 'false'
           ? false
           : undefined;
+    const has_quiz =
+      has_quizStr === 'true'
+        ? true
+        : has_quizStr === 'false'
+          ? false
+          : undefined;
+    const passing_score_percent = passing_score_percentStr
+      ? parseInt(passing_score_percentStr, 10)
+      : passing_score_percentStr === ''
+        ? null
+        : undefined;
 
     const dto = plainToInstance(UpdateInserviceTrainingDto, {
       ...(titleVal !== undefined && { title: titleVal || undefined }),
@@ -254,6 +288,12 @@ export class InserviceTrainingsController {
       }),
       ...(Number.isFinite(sort_order) && { sort_order }),
       ...(is_active !== undefined && { is_active }),
+      ...(has_quiz !== undefined && { has_quiz }),
+      ...(passing_score_percent !== undefined && {
+        passing_score_percent: Number.isFinite(passing_score_percent)
+          ? passing_score_percent
+          : null,
+      }),
     });
 
     const errors = await validate(dto, { skipMissingProperties: true });
