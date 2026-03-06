@@ -38,6 +38,8 @@ export interface InserviceTrainingResponse {
   video_url: string | null;
   sort_order: number;
   is_active: boolean;
+  has_quiz: boolean;
+  passing_score_percent: number | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -94,6 +96,8 @@ export class InserviceTrainingService {
       video_url: inservice.video_url,
       sort_order: inservice.sort_order,
       is_active: inservice.is_active,
+      has_quiz: inservice.has_quiz,
+      passing_score_percent: inservice.passing_score_percent,
       created_at: inservice.created_at,
       updated_at: inservice.updated_at,
     };
@@ -166,6 +170,41 @@ export class InserviceTrainingService {
     return this.toResponse(inservice);
   }
 
+  /**
+   * Resolves inservice by id and ensures the user has access to its organization.
+   * Use for routes that only have inserviceId in path (e.g. quiz-questions).
+   */
+  async ensureInserviceAccess(
+    inserviceId: string,
+    userId: string,
+  ): Promise<InserviceTraining> {
+    const inservice = await this.inserviceTrainingRepository.findOne({
+      where: { id: inserviceId },
+    });
+    if (!inservice) {
+      throw new NotFoundException('Inservice training not found');
+    }
+    await this.ensureAccess(inservice.organization_id, userId);
+    return inservice;
+  }
+
+  /** Updates has_quiz flag (used when first/last quiz question is added/removed). */
+  async setHasQuiz(inserviceId: string, hasQuiz: boolean): Promise<void> {
+    await this.inserviceTrainingRepository.update(inserviceId, {
+      has_quiz: hasQuiz,
+    });
+  }
+
+  /** Updates passing_score_percent (used when quiz is enabled). */
+  async setPassingScore(
+    inserviceId: string,
+    passingScorePercent: number | null,
+  ): Promise<void> {
+    await this.inserviceTrainingRepository.update(inserviceId, {
+      passing_score_percent: passingScorePercent,
+    });
+  }
+
   async create(
     organizationId: string,
     dto: CreateInserviceTrainingDto,
@@ -207,6 +246,9 @@ export class InserviceTrainingService {
       video_url: dto.video_url?.trim() || null,
       sort_order: dto.sort_order ?? 0,
       is_active: true,
+      has_quiz: dto.has_quiz ?? false,
+      passing_score_percent:
+        dto.passing_score_percent != null ? dto.passing_score_percent : null,
     });
 
     // When we have a PDF we need to save first to get id, then upload. Use placeholder so DB CHECK passes.
@@ -270,6 +312,11 @@ export class InserviceTrainingService {
     }
     if (dto.sort_order !== undefined) inservice.sort_order = dto.sort_order;
     if (dto.is_active !== undefined) inservice.is_active = dto.is_active;
+    if (dto.has_quiz !== undefined) inservice.has_quiz = dto.has_quiz;
+    if (dto.passing_score_percent !== undefined) {
+      inservice.passing_score_percent =
+        dto.passing_score_percent == null ? null : dto.passing_score_percent;
+    }
 
     if (file?.buffer?.length) {
       const { file_name, file_path } =

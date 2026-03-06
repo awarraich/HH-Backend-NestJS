@@ -53,6 +53,12 @@ export class InserviceTraining {
   @Column({ type: 'boolean', default: true })
   is_active: boolean;
 
+  @Column({ type: 'boolean', default: false })
+  has_quiz: boolean;
+
+  @Column({ type: 'integer', nullable: true })
+  passing_score_percent: number | null;
+
   @CreateDateColumn({ type: 'timestamp with time zone', default: () => 'NOW()' })
   created_at: Date;
 

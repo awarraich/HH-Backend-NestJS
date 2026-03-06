@@ -4,9 +4,11 @@ import {
   IsOptional,
   IsInt,
   Min,
+  Max,
   MaxLength,
   IsIn,
   IsUrl,
+  IsBoolean,
 } from 'class-validator';
 
 export const INSERVICE_COMPLETION_FREQUENCIES = [
@@ -56,4 +58,14 @@ export class CreateInserviceTrainingDto {
   @IsInt()
   @Min(0)
   sort_order?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  has_quiz?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  passing_score_percent?: number;
 }
