@@ -28,6 +28,12 @@ async function bootstrap() {
   const apiPrefix = appConfigService.apiPrefix;
 
   const fastifyInstance = app.getHttpAdapter().getInstance();
+
+  // Health check at fixed path so production can verify this Nest app (with blogs) is the one serving api.homehealth.ai
+  fastifyInstance.get('/v1/api/health', (_request: any, reply: any) => {
+    reply.send({ ok: true, service: 'hh-backend', blogs: true, timestamp: new Date().toISOString() });
+  });
+
   await fastifyInstance.register(require('@fastify/multipart'), {
     limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
     attachFieldsToBody: true, // so multipart create can read "data" field from body
@@ -121,6 +127,11 @@ async function bootstrap() {
   });
 
   app.setGlobalPrefix(apiPrefix);
+  if (apiPrefix && process.env.NODE_ENV === 'production') {
+    console.warn(
+      `API_PREFIX is set to "${apiPrefix}". GET /v1/api/blogs may 404; frontend expects /v1/api/blogs. Either unset API_PREFIX or ensure blog fallback routes registered.`,
+    );
+  }
 
   // Global validation pipe
   app.useGlobalPipes(
@@ -279,8 +290,15 @@ async function bootstrap() {
     };
     fastifyInstance.get('/v1/api/blogs', handleGetBlogs);
     fastifyInstance.get('/v1/api/blogs/', handleGetBlogs);
+    if (process.env.NODE_ENV === 'production') {
+      console.log('Blogs fallback routes registered at GET /v1/api/blogs (production)');
+    }
   } catch (e) {
-    console.warn('Blogs fallback routes not registered:', (e as Error).message);
+    const errMsg = (e as Error).message;
+    console.error(
+      'Blogs fallback routes NOT registered. GET /v1/api/blogs will 404 unless API_PREFIX is empty and Nest controller is used. Error:',
+      errMsg,
+    );
   }
 
   const host = process.env.HOST || '0.0.0.0';
