@@ -24,6 +24,8 @@ import { QueryReferralOrganizationsDto } from '../dto/query-referral-organizatio
 import { OrganizationSerializer } from '../serializers/organization.serializer';
 import { AuditLogService } from '../../../common/services/audit/audit-log.service';
 import { OrganizationPermissionService } from './organization-permission.service';
+import { HrDocumentType } from '../hr-files-setup/entities/hr-document-type.entity';
+import { DEFAULT_ORGANIZATION_DOCUMENT_TYPES } from '../hr-files-setup/constants/default-organization-document-types';
 
 @Injectable()
 export class OrganizationsService {
@@ -70,6 +72,22 @@ export class OrganizationsService {
       });
 
       const saved = await queryRunner.manager.save(Organization, organization);
+
+      // Seed 20 default HR document types for the new organization
+      for (const row of DEFAULT_ORGANIZATION_DOCUMENT_TYPES) {
+        const docType = queryRunner.manager.create(HrDocumentType, {
+          organization_id: saved.id,
+          employee_id: null,
+          code: row.code,
+          name: row.name,
+          has_expiration: row.has_expiration,
+          is_required: row.is_required,
+          category: row.category,
+          sort_order: row.sort_order,
+          is_active: true,
+        });
+        await queryRunner.manager.save(HrDocumentType, docType);
+      }
 
       await queryRunner.commitTransaction();
 

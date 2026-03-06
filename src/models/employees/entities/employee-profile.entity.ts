@@ -19,30 +19,41 @@ export class EmployeeProfile {
   @Column({ type: 'uuid', unique: true })
   employee_id: string;
 
-  // Profile fields moved from users
   @Column({ type: 'varchar', length: 255 })
   name: string;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  profile_image: string;
+  profile_image: string | null;
 
   @Column({ type: 'text', nullable: true })
-  address: string;
+  address: string | null;
 
   @Column({ type: 'varchar', length: 20, nullable: true })
-  phone_number: string;
+  phone_number: string | null;
 
   @Column({ type: 'varchar', length: 20, nullable: true })
-  gender: string;
+  gender: string | null;
 
   @Column({ type: 'integer', nullable: true })
-  age: number;
+  age: number | null;
+
+  @Column({ type: 'date', nullable: true })
+  date_of_birth: Date | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  emergency_contact: Record<string, any>;
+  emergency_contact: Record<string, unknown> | null;
 
-  @Column({ type: 'varchar', length: 10, default: 'pending' })
-  onboarding_status: string;
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  specialization: string | null;
+
+  @Column({ type: 'integer', nullable: true })
+  years_of_experience: number | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  certification: string | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  board_certifications: Record<string, unknown> | null;
 
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
@@ -50,7 +61,6 @@ export class EmployeeProfile {
   @UpdateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   updated_at: Date;
 
-  // Relations
   @OneToOne(() => Employee, (employee) => employee.profile, {
     onDelete: 'CASCADE',
   })

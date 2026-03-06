@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  Logger,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, IsNull } from 'typeorm';
 import { PatientMedication } from './entities/patient-medication.entity';
@@ -9,6 +14,7 @@ import { UpdateMedicationDto } from './dto/update-medication.dto';
 import { UpdateMedicationInventoryDto } from './dto/update-medication-inventory.dto';
 import { MarkMedicationTakenDto } from './dto/mark-medication-taken.dto';
 import { AuditLogService } from '../../../common/services/audit/audit-log.service';
+import { EmbeddingService } from '../../../common/services/embedding/embedding.service';
 
 export interface MedicationAuditContext {
   userId: string;
@@ -52,6 +58,8 @@ export interface MedicationInventoryResponse {
 
 @Injectable()
 export class MedicationsService {
+  private readonly logger = new Logger(MedicationsService.name);
+
   constructor(
     @InjectRepository(PatientMedication)
     private medicationRepository: Repository<PatientMedication>,
@@ -60,7 +68,38 @@ export class MedicationsService {
     @InjectRepository(MedicationAdministration)
     private administrationRepository: Repository<MedicationAdministration>,
     private auditLogService: AuditLogService,
+    private embeddingService: EmbeddingService,
   ) {}
+
+  private buildSearchableText(med: {
+    name: string;
+    dosage?: string | null;
+    form?: string | null;
+    frequency?: string | null;
+    prescribed_by?: string | null;
+    instructions?: string | null;
+  }): string {
+    const parts: string[] = [
+      med.name,
+      med.dosage,
+      med.form,
+      med.frequency,
+      med.prescribed_by,
+      med.instructions,
+    ].filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
+    return parts.join(' ');
+  }
+
+  private async persistEmbedding(
+    medicationId: string,
+    embedding: number[],
+  ): Promise<void> {
+    const vectorStr = `[${embedding.join(',')}]`;
+    await this.medicationRepository.query(
+      'UPDATE patient_medications SET embedding = $2::vector WHERE id = $1',
+      [medicationId, vectorStr],
+    );
+  }
 
   private toResponse(
     med: PatientMedication,
@@ -204,6 +243,18 @@ export class MedicationsService {
       where: { id: saved.id },
       relations: ['time_slots'],
     });
+    const medForEmbedding = withSlots ?? saved;
+    const searchableText = this.buildSearchableText(medForEmbedding);
+    if (searchableText) {
+      try {
+        const embedding = await this.embeddingService.embed(searchableText);
+        if (embedding?.length) {
+          await this.persistEmbedding(saved.id, embedding);
+        }
+      } catch (err) {
+        this.logger.warn('Failed to create medication embedding', err);
+      }
+    }
     if (auditContext?.userId) {
       try {
         await this.auditLogService.log({
@@ -299,6 +350,18 @@ export class MedicationsService {
       where: { id: medicationId },
       relations: ['time_slots'],
     });
+    const medAfterUpdate = updated ?? med;
+    const searchableText = this.buildSearchableText(medAfterUpdate);
+    if (searchableText) {
+      try {
+        const embedding = await this.embeddingService.embed(searchableText);
+        if (embedding?.length) {
+          await this.persistEmbedding(medicationId, embedding);
+        }
+      } catch (err) {
+        this.logger.warn('Failed to update medication embedding', err);
+      }
+    }
     if (auditContext?.userId) {
       try {
         await this.auditLogService.log({
@@ -316,6 +379,61 @@ export class MedicationsService {
       }
     }
     return this.toResponse(updated ?? med);
+  }
+
+  async searchByQuery(
+    patientId: string,
+    query: string,
+    auditContext?: MedicationAuditContext,
+  ): Promise<MedicationResponse[]> {
+    const trimmed = query?.trim() ?? '';
+    if (!trimmed) {
+      return this.findAll(patientId, undefined, auditContext);
+    }
+    try {
+      const queryEmbedding = await this.embeddingService.embed(trimmed);
+      if (!queryEmbedding?.length) {
+        return this.findAll(patientId, undefined, auditContext);
+      }
+      const vectorStr = `[${queryEmbedding.join(',')}]`;
+      const rows = await this.medicationRepository.query(
+        `SELECT id FROM patient_medications
+         WHERE patient_id = $1 AND deleted_at IS NULL AND embedding IS NOT NULL
+         ORDER BY embedding <=> $2::vector
+         LIMIT 20`,
+        [patientId, vectorStr],
+      );
+      const ids = (rows as { id: string }[]).map((r) => r.id);
+      if (ids.length === 0) {
+        return [];
+      }
+      const list = await this.medicationRepository.find({
+        where: { id: In(ids), patient_id: patientId, deleted_at: IsNull() },
+        relations: ['time_slots'],
+      });
+      const orderMap = new Map(ids.map((id, i) => [id, i]));
+      list.sort((a, b) => (orderMap.get(a.id) ?? 0) - (orderMap.get(b.id) ?? 0));
+      const queryDate = new Date().toISOString().slice(0, 10);
+      const administrations = await this.administrationRepository.find({
+        where: {
+          patient_medication_id: In(ids),
+          scheduled_date: new Date(queryDate),
+        },
+      });
+      const byMedId = new Map<string, MedicationAdministration[]>();
+      for (const a of administrations) {
+        const arr = byMedId.get(a.patient_medication_id) ?? [];
+        arr.push(a);
+        byMedId.set(a.patient_medication_id, arr);
+      }
+      return list.map((m) => this.toResponse(m, byMedId.get(m.id) ?? []));
+    } catch (err) {
+      this.logger.warn(
+        'Medication search by embedding failed, falling back to list',
+        err,
+      );
+      return this.findAll(patientId, undefined, auditContext);
+    }
   }
 
   async markAsTaken(

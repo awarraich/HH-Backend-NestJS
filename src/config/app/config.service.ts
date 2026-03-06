@@ -18,6 +18,10 @@ export class AppConfigService {
     return this.configService.get<string>('app.api.prefix', '') || '';
   }
 
+  get mcpPort(): number {
+    return this.configService.get<number>('mcp.port', 8002);
+  }
+
   get frontendUrl(): string {
     return this.configService.get<string>('app.frontendUrl', '');
   }

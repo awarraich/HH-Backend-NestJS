@@ -16,6 +16,7 @@ import { JobManagementModule } from './models/job-management/job-management.modu
 import { AuditLogModule } from './common/services/audit/audit-log.module';
 import { OnboardingStatusModule } from './common/services/onboarding-status/onboarding-status.module';
 import { AppController } from './app.controller';
+import { McpModule } from './mcp/mcp.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { AppController } from './app.controller';
     JobManagementModule,
     AuditLogModule,
     OnboardingStatusModule,
+    McpModule,
   ],
   controllers: [AppController],
   providers: [],

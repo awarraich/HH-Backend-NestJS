@@ -327,31 +327,15 @@ export class OnboardingStatusService {
       };
     }
 
-    const onboardingStatus = employee.profile.onboarding_status || 'PENDING';
-
-    if (onboardingStatus === 'PENDING') {
-      return {
-        currentStep: 'employee_profile',
-        nextAction: 'complete_employee_profile',
-        redirectPath: '/onboarding/employee/profile',
-        requiresAction: true,
-        details: {
-          hasRole: true,
-          role: 'EMPLOYEE',
-          onboardingStatus: 'PENDING',
-        },
-      };
-    }
-
     return {
-      currentStep: 'completed',
-      nextAction: 'navigate_to_dashboard',
-      redirectPath: '/employee/dashboard',
-      requiresAction: false,
+      currentStep: 'employee_profile',
+      nextAction: 'complete_employee_profile',
+      redirectPath: '/onboarding/employee/profile',
+      requiresAction: true,
       details: {
         hasRole: true,
         role: 'EMPLOYEE',
-        onboardingStatus: 'COMPLETED',
+        onboardingStatus: 'PENDING',
       },
     };
   }

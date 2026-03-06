@@ -6,17 +6,13 @@ import {
   IsDateString,
   MaxLength,
   IsIn,
+  IsArray,
 } from 'class-validator';
 
 export class CreateEmployeeDto {
   @IsNotEmpty()
   @IsUUID()
   user_id: string;
-
-  @IsNotEmpty()
-  @IsString()
-  @IsIn(['ADMIN', 'PROVIDER', 'STAFF', 'HR', 'ASSISTANT_HR', 'BILLER', 'SCHEDULER', 'FRONT_DESK', 'OFFICE_STAFF', 'NURSE'])
-  role: string;
 
   @IsOptional()
   @IsString()
@@ -31,5 +27,27 @@ export class CreateEmployeeDto {
   @IsOptional()
   @IsDateString()
   start_date?: string;
-}
 
+  @IsOptional()
+  @IsDateString()
+  end_date?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['FULL_TIME', 'PART_TIME', 'CONTRACT', 'PER_DIEM'])
+  @MaxLength(20)
+  employment_type?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @IsOptional()
+  @IsUUID()
+  provider_role_id?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  requirement_tag_ids?: string[];
+}

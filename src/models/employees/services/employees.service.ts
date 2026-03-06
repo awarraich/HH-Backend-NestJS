@@ -14,16 +14,22 @@ import { Organization } from '../../organizations/entities/organization.entity';
 import { User } from '../../../authentication/entities/user.entity';
 import { UserRepository } from '../../../authentication/repositories/user.repository';
 import { CreateEmployeeDto } from '../dto/create-employee.dto';
+import { CreateEmployeeByEmailDto } from '../dto/create-employee-by-email.dto';
 import { UpdateEmployeeDto } from '../dto/update-employee.dto';
 import { QueryEmployeeDto } from '../dto/query-employee.dto';
-import { UpdateEmployeeRoleDto } from '../dto/update-employee-role.dto';
 import { UpdateEmployeeStatusDto } from '../dto/update-employee-status.dto';
 import { InviteEmployeeDto } from '../dto/invite-employee.dto';
 import { UpdateEmployeeProfileDto } from '../dto/update-employee-profile.dto';
 import { EmployeeSerializer } from '../serializers/employee.serializer';
 import { OrganizationRoleService } from '../../organizations/services/organization-role.service';
+import { EmployeeRequirementTagService } from '../../organizations/hr-files-setup/services/employee-requirement-tag.service';
 import { AuditLogService } from '../../../common/services/audit/audit-log.service';
+import { AuthService } from '../../../authentication/services/auth.service';
+import { EmailService } from '../../../common/services/email/email.service';
+import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
+
+const TEMPORARY_PASSWORD_EXPIRES_HOURS = 24;
 
 @Injectable()
 export class EmployeesService {
@@ -41,6 +47,10 @@ export class EmployeesService {
     private organizationRoleService: OrganizationRoleService,
     private dataSource: DataSource,
     private auditLogService: AuditLogService,
+    private authService: AuthService,
+    private emailService: EmailService,
+    private configService: ConfigService,
+    private employeeRequirementTagService: EmployeeRequirementTagService,
   ) {}
 
   private async validateOrganizationAccess(
@@ -125,18 +135,26 @@ export class EmployeesService {
       const employee = this.employeeRepository.create({
         user_id: createDto.user_id,
         organization_id: organizationId,
-        role: createDto.role,
         status: 'ACTIVE',
-        department: createDto.department,
-        position_title: createDto.position_title,
+        department: createDto.department ?? null,
+        position_title: createDto.position_title ?? null,
         start_date: createDto.start_date ? new Date(createDto.start_date) : new Date(),
+        end_date: createDto.end_date ? new Date(createDto.end_date) : null,
+        employment_type: createDto.employment_type ?? null,
+        notes: createDto.notes ?? null,
+        provider_role_id: createDto.provider_role_id ?? null,
       });
 
       const saved = await queryRunner.manager.save(Employee, employee);
 
-      await queryRunner.commitTransaction();
+      await this.employeeRequirementTagService.assignToEmployee(
+        saved.id,
+        organizationId,
+        createDto.requirement_tag_ids ?? [],
+        queryRunner.manager,
+      );
 
-      // HIPAA Compliance: Log operation
+      await queryRunner.commitTransaction();
       try {
         await this.auditLogService.log({
           userId,
@@ -147,7 +165,7 @@ export class EmployeesService {
           metadata: {
             organization_id: organizationId,
             user_id: createDto.user_id,
-            role: createDto.role,
+            provider_role_id: createDto.provider_role_id ?? null,
           },
           ipAddress,
           userAgent,
@@ -163,7 +181,7 @@ export class EmployeesService {
 
       const employeeWithRelations = await this.employeeRepository.findOne({
         where: { id: saved.id },
-        relations: ['user', 'organization', 'profile'],
+        relations: ['user', 'organization', 'profile', 'providerRole'],
       });
 
       return this.employeeSerializer.serialize(employeeWithRelations!);
@@ -193,47 +211,227 @@ export class EmployeesService {
     }
   }
 
-  async findAll(organizationId: string, queryDto: QueryEmployeeDto): Promise<{
-    data: any[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
-    // Validate organization exists
+  async createByEmail(
+    organizationId: string,
+    dto: CreateEmployeeByEmailDto,
+    userId: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<any> {
+    const { hasRole } = await this.validateOrganizationAccess(organizationId, userId, [
+      'OWNER',
+      'HR',
+    ]);
+
+    if (!hasRole) {
+      try {
+        await this.auditLogService.log({
+          userId,
+          action: 'CREATE',
+          resourceType: 'EMPLOYEE',
+          description: 'Unauthorized employee creation attempt',
+          metadata: { organization_id: organizationId, email: dto.email },
+          ipAddress,
+          userAgent,
+          status: 'failure',
+          errorMessage: 'User does not have permission to add employees',
+        });
+      } catch (logError) {
+        this.logger.error('Failed to log audit error', logError);
+      }
+      throw new ForbiddenException('You do not have permission to add employees to this organization');
+    }
+
     const organization = await this.organizationRepository.findOne({
       where: { id: organizationId },
     });
-
     if (!organization) {
       throw new NotFoundException(`Organization with ID ${organizationId} not found`);
     }
 
-    const { search, role, status, page = 1, limit = 20 } = queryDto;
+    const existingUser = await this.userRepository.findByEmail(dto.email);
+    if (existingUser) {
+      throw new ConflictException('User with this email already exists. Use add-by-user-id flow.');
+    }
+
+    let user: User;
+    let temporaryPassword: string | undefined;
+
+    if (dto.authMethod === 'GOOGLE_SIGNIN') {
+      user = await this.authService.createUserForGoogleSignIn({
+        email: dto.email,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+      });
+    } else {
+      const result = await this.authService.createUserWithTemporaryPasswordForEmployee({
+        email: dto.email,
+        firstName: dto.firstName,
+        lastName: dto.lastName,
+      });
+      user = result.user;
+      temporaryPassword = result.temporaryPassword;
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const employee = this.employeeRepository.create({
+        user_id: user.id,
+        organization_id: organizationId,
+        status: dto.status ?? 'ACTIVE',
+        start_date: dto.start_date ? new Date(dto.start_date) : new Date(),
+        end_date: dto.end_date ? new Date(dto.end_date) : null,
+        department: dto.department ?? null,
+        position_title: dto.position_title ?? null,
+        employment_type: dto.employment_type ?? null,
+        notes: dto.notes ?? null,
+        provider_role_id: dto.provider_role_id ?? null,
+      });
+      const savedEmployee = await queryRunner.manager.save(Employee, employee);
+
+      const fullName = [dto.firstName, dto.lastName].filter(Boolean).join(' ').trim() || dto.email;
+      const profile = this.employeeProfileRepository.create({
+        employee_id: savedEmployee.id,
+        name: fullName,
+        phone_number: dto.phone_number ?? null,
+        gender: dto.gender ?? null,
+        date_of_birth: dto.date_of_birth ? new Date(dto.date_of_birth) : null,
+        address: dto.address ?? null,
+        specialization: dto.specialization ?? null,
+        years_of_experience: dto.years_of_experience ?? null,
+        certification: dto.certification ?? null,
+        board_certifications: dto.board_certifications ?? null,
+      });
+      await queryRunner.manager.save(EmployeeProfile, profile);
+
+      await this.employeeRequirementTagService.assignToEmployee(
+        savedEmployee.id,
+        organizationId,
+        dto.requirement_tag_ids ?? [],
+        queryRunner.manager,
+      );
+
+      await queryRunner.commitTransaction();
+
+      try {
+        await this.auditLogService.log({
+          userId,
+          action: 'CREATE',
+          resourceType: 'EMPLOYEE',
+          resourceId: savedEmployee.id,
+          description: 'Employee created by email',
+          metadata: {
+            organization_id: organizationId,
+            user_id: user.id,
+            email: dto.email,
+            provider_role_id: dto.provider_role_id ?? null,
+          },
+          ipAddress,
+          userAgent,
+          status: 'success',
+        });
+      } catch (e) {
+        this.logger.warn('Audit log failed', e);
+      }
+
+      const loginUrl = this.configService.get<string>('HOME_HEALTH_AI_URL') ?? '';
+      const loginUrlPath = loginUrl ? `${loginUrl.replace(/\/$/, '')}/login` : '/login';
+      try {
+        if (dto.authMethod === 'GOOGLE_SIGNIN') {
+          await this.emailService.sendGoogleSignInInviteEmail(
+            dto.email,
+            fullName,
+            loginUrlPath,
+            organization.organization_name ?? 'your organization',
+          );
+        } else {
+          await this.emailService.sendOrganizationStaffCreatedEmail(
+            dto.email,
+            fullName,
+            dto.email,
+            temporaryPassword!,
+            loginUrlPath,
+            TEMPORARY_PASSWORD_EXPIRES_HOURS,
+          );
+        }
+      } catch (emailError) {
+        this.logger.error('Failed to send employee created email', emailError);
+      }
+
+      const employeeWithRelations = await this.employeeRepository.findOne({
+        where: { id: savedEmployee.id },
+        relations: ['user', 'organization', 'profile', 'providerRole'],
+      });
+      return this.employeeSerializer.serialize(employeeWithRelations!);
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      this.logger.error('Failed to create employee by email', error);
+      try {
+        await this.auditLogService.log({
+          userId,
+          action: 'CREATE',
+          resourceType: 'EMPLOYEE',
+          description: 'Failed to create employee by email',
+          metadata: { organization_id: organizationId, email: dto.email },
+          ipAddress,
+          userAgent,
+          status: 'error',
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
+      } catch (logError) {
+        this.logger.error('Failed to log audit error', logError);
+      }
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  /**
+   * List employees for an organization with optional filters and pagination.
+   */
+  async findAll(
+    organizationId: string,
+    queryDto: QueryEmployeeDto,
+  ): Promise<{ data: any[]; total: number; page: number; limit: number }> {
+    const organization = await this.organizationRepository.findOne({
+      where: { id: organizationId },
+    });
+    if (!organization) {
+      throw new NotFoundException(`Organization with ID ${organizationId} not found`);
+    }
+
+    const { search, provider_role_id, status, page = 1, limit = 20 } = queryDto;
     const skip = (page - 1) * limit;
+    const searchTerm = search ? `%${search}%` : null;
 
     const queryBuilder = this.employeeRepository
       .createQueryBuilder('employee')
+      .leftJoinAndSelect('employee.user', 'user')
+      .leftJoinAndSelect('employee.organization', 'organization')
+      .leftJoinAndSelect('employee.profile', 'profile')
+      .leftJoinAndSelect('employee.providerRole', 'providerRole')
       .where('employee.organization_id = :organizationId', { organizationId });
 
-    if (search) {
+    if (searchTerm) {
       queryBuilder.andWhere(
-        '(employee.department ILIKE :search OR employee.position_title ILIKE :search)',
-        { search: `%${search}%` },
+        '(employee.department ILIKE :search OR employee.position_title ILIKE :search OR user.firstName ILIKE :search OR user.lastName ILIKE :search OR user.email ILIKE :search)',
+        { search: searchTerm },
       );
     }
-
-    if (role) {
-      queryBuilder.andWhere('employee.role = :role', { role });
+    if (provider_role_id) {
+      queryBuilder.andWhere('employee.provider_role_id = :provider_role_id', {
+        provider_role_id,
+      });
     }
-
     if (status) {
       queryBuilder.andWhere('employee.status = :status', { status });
     }
 
     queryBuilder
-      .leftJoinAndSelect('employee.user', 'user')
-      .leftJoinAndSelect('employee.organization', 'organization')
-      .leftJoinAndSelect('employee.profile', 'profile')
       .orderBy('employee.created_at', 'DESC')
       .skip(skip)
       .take(limit);
@@ -254,7 +452,7 @@ export class EmployeesService {
         id: employeeId,
         organization_id: organizationId,
       },
-      relations: ['user', 'organization', 'profile'],
+      relations: ['user', 'organization', 'profile', 'providerRole'],
     });
 
     if (!employee) {
@@ -316,9 +514,6 @@ export class EmployeesService {
 
     const beforeValues = { ...employee };
 
-    if (updateDto.role) {
-      employee.role = updateDto.role;
-    }
     if (updateDto.department !== undefined) {
       employee.department = updateDto.department;
     }
@@ -330,6 +525,15 @@ export class EmployeesService {
     }
     if (updateDto.end_date !== undefined) {
       employee.end_date = updateDto.end_date ? new Date(updateDto.end_date) : null;
+    }
+    if (updateDto.provider_role_id !== undefined) {
+      employee.provider_role_id = updateDto.provider_role_id ?? null;
+    }
+    if (updateDto.employment_type !== undefined) {
+      employee.employment_type = updateDto.employment_type ?? null;
+    }
+    if (updateDto.notes !== undefined) {
+      employee.notes = updateDto.notes ?? null;
     }
 
     const updated = await this.employeeRepository.save(employee);
@@ -362,93 +566,7 @@ export class EmployeesService {
 
     const employeeWithRelations = await this.employeeRepository.findOne({
       where: { id: employeeId },
-      relations: ['user', 'organization', 'profile'],
-    });
-
-    return this.employeeSerializer.serialize(employeeWithRelations!);
-  }
-
-  async updateRole(
-    organizationId: string,
-    employeeId: string,
-    roleDto: UpdateEmployeeRoleDto,
-    userId: string,
-    ipAddress?: string,
-    userAgent?: string,
-  ): Promise<any> {
-    // Validate organization access
-    const { hasRole } = await this.validateOrganizationAccess(organizationId, userId, [
-      'OWNER',
-      'HR',
-    ]);
-
-    if (!hasRole) {
-      try {
-        await this.auditLogService.log({
-          userId,
-          action: 'UPDATE',
-          resourceType: 'EMPLOYEE',
-          resourceId: employeeId,
-          description: 'Unauthorized role update attempt',
-          metadata: { organization_id: organizationId, new_role: roleDto.role },
-          ipAddress,
-          userAgent,
-          status: 'failure',
-          errorMessage: 'User does not have permission to update employee roles',
-        });
-      } catch (logError) {
-        this.logger.error('Failed to log audit error', logError);
-      }
-
-      throw new ForbiddenException('You do not have permission to update employee roles');
-    }
-
-    const employee = await this.employeeRepository.findOne({
-      where: {
-        id: employeeId,
-        organization_id: organizationId,
-      },
-    });
-
-    if (!employee) {
-      throw new NotFoundException(
-        `Employee with ID ${employeeId} not found in organization ${organizationId}`,
-      );
-    }
-
-    const beforeRole = employee.role;
-
-    employee.role = roleDto.role;
-    const updated = await this.employeeRepository.save(employee);
-
-    // HIPAA Compliance: Log role change
-    try {
-      await this.auditLogService.log({
-        userId,
-        action: 'UPDATE',
-        resourceType: 'EMPLOYEE',
-        resourceId: employeeId,
-        description: 'Employee role updated',
-        metadata: {
-          organization_id: organizationId,
-          before_role: beforeRole,
-          after_role: roleDto.role,
-        },
-        ipAddress,
-        userAgent,
-        status: 'success',
-      });
-    } catch (error) {
-      this.logger.error('Failed to log audit event', error);
-    }
-
-    this.logger.log(
-      `Employee role updated: ${employeeId} from ${beforeRole} to ${roleDto.role} by user: ${userId}`,
-    );
-
-    const employeeWithRelations = await this.employeeRepository.findOne({
-      where: { id: employeeId },
-      relations: ['user', 'organization', 'profile'],
+      relations: ['user', 'organization', 'profile', 'providerRole'],
     });
 
     return this.employeeSerializer.serialize(employeeWithRelations!);
@@ -596,7 +714,9 @@ export class EmployeesService {
     await queryRunner.startTransaction();
 
     try {
-      await queryRunner.manager.remove(Employee, employee);
+      // Delete related data first: profile (FK from profile to employee)
+      await queryRunner.manager.delete(EmployeeProfile, { employee_id: employeeId });
+      await queryRunner.manager.delete(Employee, { id: employeeId });
       await queryRunner.commitTransaction();
 
       // HIPAA Compliance: Log operation
@@ -610,7 +730,7 @@ export class EmployeesService {
           metadata: {
             organization_id: organizationId,
             user_id: employee.user_id,
-            role: employee.role,
+            provider_role_id: employee.provider_role_id,
           },
           ipAddress,
           userAgent,
@@ -709,10 +829,9 @@ export class EmployeesService {
       const employee = this.employeeRepository.create({
         user_id: user.id,
         organization_id: organizationId,
-        role: inviteDto.role,
         status: 'INVITED',
-        department: inviteDto.department,
-        position_title: inviteDto.position_title,
+        department: inviteDto.department ?? null,
+        position_title: inviteDto.position_title ?? null,
       });
 
       const saved = await queryRunner.manager.save(Employee, employee);
@@ -731,7 +850,6 @@ export class EmployeesService {
             organization_id: organizationId,
             user_id: user.id,
             email: inviteDto.email,
-            role: inviteDto.role,
           },
           ipAddress,
           userAgent,
@@ -813,8 +931,12 @@ export class EmployeesService {
           phone_number: employee.profile.phone_number,
           gender: employee.profile.gender,
           age: employee.profile.age,
+          date_of_birth: employee.profile.date_of_birth,
+          specialization: employee.profile.specialization,
+          years_of_experience: employee.profile.years_of_experience,
+          certification: employee.profile.certification,
+          board_certifications: employee.profile.board_certifications,
           emergency_contact: employee.profile.emergency_contact,
-          onboarding_status: employee.profile.onboarding_status,
           created_at: employee.profile.created_at,
           updated_at: employee.profile.updated_at,
         }

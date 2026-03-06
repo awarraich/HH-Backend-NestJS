@@ -37,6 +37,35 @@ import { ReferralsController } from './controllers/referrals.controller';
 import { ReferralOrganizationsController } from './controllers/referral-organizations.controller';
 import { OrganizationStaffController } from './staff-management/controllers/organization-staff.controller';
 import { OrganizationStaffService } from './staff-management/services/organization-staff.service';
+import { HrDocumentType } from './hr-files-setup/entities/hr-document-type.entity';
+import { HrDocumentTypeService } from './hr-files-setup/services/hr-document-type.service';
+import { HrDocumentTypesController } from './hr-files-setup/controllers/hr-document-types.controller';
+import { RequirementTag } from './hr-files-setup/entities/requirement-tag.entity';
+import { RequirementDocumentType } from './hr-files-setup/entities/requirement-document-type.entity';
+import { RequirementInserviceTraining } from './hr-files-setup/entities/requirement-inservice-training.entity';
+import { InserviceTraining } from './hr-files-setup/entities/inservice-training.entity';
+import { EmployeeRequirementTag } from './hr-files-setup/entities/employee-requirement-tag.entity';
+import { RequirementTagService } from './hr-files-setup/services/requirement-tag.service';
+import { EmployeeRequirementTagService } from './hr-files-setup/services/employee-requirement-tag.service';
+import { RequirementTagsController } from './hr-files-setup/controllers/requirement-tags.controller';
+import { EmployeeDocument } from './hr-files-setup/entities/employee-document.entity';
+import { DocumentChunk } from './hr-files-setup/entities/document-chunk.entity';
+import { Employee } from '../employees/entities/employee.entity';
+import { EmployeeDocumentsService } from './hr-files-setup/services/employee-documents.service';
+import { EmployeeDocumentsChatService } from './hr-files-setup/services/employee-documents-chat.service';
+import { EmployeeDocumentStorageService } from './hr-files-setup/services/employee-document-storage.service';
+import { EmployeeDocumentsController } from './hr-files-setup/controllers/employee-documents.controller';
+import { EmployeeDocumentTypesController } from './hr-files-setup/controllers/employee-document-types.controller';
+import { InserviceTrainingsController } from './hr-files-setup/controllers/inservice-trainings.controller';
+import { InserviceQuizQuestionsController } from './hr-files-setup/controllers/inservice-quiz-questions.controller';
+import { InserviceQuizQuestionsOrgController } from './hr-files-setup/controllers/inservice-quiz-questions-org.controller';
+import { EmployeeDocumentTypeService } from './hr-files-setup/services/employee-document-type.service';
+import { InserviceTrainingService } from './hr-files-setup/services/inservice-training.service';
+import { InserviceQuizQuestionService } from './hr-files-setup/services/inservice-quiz-question.service';
+import { InserviceQuizQuestion } from './hr-files-setup/entities/inservice-quiz-question.entity';
+import { EmployeeDocumentAccessGuard } from '../../common/guards/employee-document-access.guard';
+import { EmployeeDocumentTypeAccessGuard } from '../../common/guards/employee-document-type-access.guard';
+import { EmbeddingModule } from '../../common/services/embedding/embedding.module';
 import { OrganizationRepository } from './repositories/organization.repository';
 import { ReferralRepository } from './repositories/referral.repository';
 import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
@@ -55,6 +84,15 @@ import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
       StaffRole,
       OrganizationStaff,
       OrganizationStaffRolePermission,
+      HrDocumentType,
+      RequirementTag,
+      RequirementDocumentType,
+      RequirementInserviceTraining,
+      InserviceTraining,
+      InserviceQuizQuestion,
+      EmployeeRequirementTag,
+      EmployeeDocument,
+      DocumentChunk,
       Employee,
       User,
       Referral,
@@ -68,6 +106,7 @@ import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
     EmailModule,
     AuditLogModule,
     PatientsModule,
+    EmbeddingModule,
   ],
   controllers: [
     OrganizationsController,
@@ -76,6 +115,13 @@ import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
     ReferralsController,
     ReferralOrganizationsController,
     OrganizationStaffController,
+    HrDocumentTypesController,
+    RequirementTagsController,
+    EmployeeDocumentsController,
+    EmployeeDocumentTypesController,
+    InserviceTrainingsController,
+    InserviceQuizQuestionsController,
+    InserviceQuizQuestionsOrgController,
   ],
   providers: [
     OrganizationsService,
@@ -85,6 +131,17 @@ import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
     ReferralMessagesService,
     ReferralDocumentStorageService,
     OrganizationStaffService,
+    HrDocumentTypeService,
+    EmployeeDocumentTypeService,
+    InserviceTrainingService,
+    InserviceQuizQuestionService,
+    RequirementTagService,
+    EmployeeRequirementTagService,
+    EmployeeDocumentsService,
+    EmployeeDocumentsChatService,
+    EmployeeDocumentStorageService,
+    EmployeeDocumentAccessGuard,
+    EmployeeDocumentTypeAccessGuard,
     OrganizationRepository,
     ReferralRepository,
     OrganizationRoleGuard,
@@ -98,6 +155,8 @@ import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
     OrganizationRepository,
     ReferralsService,
     OrganizationRoleGuard,
+    EmployeeDocumentsService,
+    EmployeeRequirementTagService,
   ],
 })
 export class OrganizationsModule {}
