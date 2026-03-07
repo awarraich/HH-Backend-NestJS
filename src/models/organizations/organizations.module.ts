@@ -50,7 +50,6 @@ import { EmployeeRequirementTagService } from './hr-files-setup/services/employe
 import { RequirementTagsController } from './hr-files-setup/controllers/requirement-tags.controller';
 import { EmployeeDocument } from './hr-files-setup/entities/employee-document.entity';
 import { DocumentChunk } from './hr-files-setup/entities/document-chunk.entity';
-import { Employee } from '../employees/entities/employee.entity';
 import { EmployeeDocumentsService } from './hr-files-setup/services/employee-documents.service';
 import { EmployeeDocumentsChatService } from './hr-files-setup/services/employee-documents-chat.service';
 import { EmployeeDocumentStorageService } from './hr-files-setup/services/employee-document-storage.service';
