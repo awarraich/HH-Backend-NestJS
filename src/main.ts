@@ -309,7 +309,6 @@ async function bootstrap() {
 
   const host = process.env.HOST || '0.0.0.0';
   await app.listen(appConfigService.port, host);
-  if (typeof process.send === 'function') process.send('ready');
   const appUrl = process.env.HHBACKEND_URL || 
     (process.env.HOST && process.env.PORT
       ? `http://${process.env.HOST === '0.0.0.0' ? 'localhost' : process.env.HOST}:${process.env.PORT}`

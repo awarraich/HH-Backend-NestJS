@@ -24,8 +24,7 @@ module.exports = {
       
       // Graceful shutdown
       kill_timeout: 5000,
-      // Disable wait_ready: NestJS does not send process.send('ready'), so PM2 would kill the app after listen_timeout
-      wait_ready: false,
+      wait_ready: true,
       listen_timeout: 10000,
       
       // Advanced PM2 features

@@ -73,7 +73,7 @@ jobs:
             npm run build
             
             # Run database migrations
-            npm run typeorm:migration:run || echo "No migrations to run or migration command not available"
+            npm run typeorm migration:run || echo "No migrations to run or migration command not available"
             
             # Reload PM2 application (zero-downtime)
             pm2 reload ecosystem.config.js --update-env
