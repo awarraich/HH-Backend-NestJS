@@ -19,9 +19,13 @@ async function bootstrap() {
 
   const httpPort = parseInt(process.env.PORT || '3000', 10);
   // const wsPort = parseInt(process.env.WS_PORT || String(httpPort + 1), 10);
-  const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') ||
+  let allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map((o) => o.trim()).filter(Boolean) ||
     (process.env.HOME_HEALTH_AI_URL ? [process.env.HOME_HEALTH_AI_URL] : []) ||
     (process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []);
+  // Production fallback: allow live frontend so CORS works when ALLOWED_ORIGINS/FRONTEND_URL not set
+  if (allowedOrigins.length === 0 && process.env.NODE_ENV === 'production') {
+    allowedOrigins = ['https://homehealth.ai', 'https://www.homehealth.ai'];
+  }
   app.useWebSocketAdapter(
   new SocketIoAdapter(app, allowedOrigins.length > 0 ? allowedOrigins : false)
 );
