@@ -10,6 +10,10 @@ interface ExpressCompatibleResponse extends FastifyReply {
 
 @Injectable()
 export class GoogleOAuthGuard extends AuthGuard('google') {
+  getAuthenticateOptions(_context: ExecutionContext) {
+    return { prompt: 'select_account' };
+  }
+
   getRequest(context: ExecutionContext): FastifyRequest {
     return context.switchToHttp().getRequest<FastifyRequest>();
   }
