@@ -29,11 +29,8 @@ export class PatientChatController {
   async listConversations(
     @LoggedInUser() user: UserWithRolesInterface,
     @Query() query: QueryConversationsDto,
-  ) {
-    const result = await this.patientChatService.listConversations(
-      user.userId,
-      query,
-    );
+  ): Promise<unknown> {
+    const result = await this.patientChatService.listConversations(user.userId, query);
     return SuccessHelper.createSuccessResponse(result);
   }
 
@@ -42,11 +39,8 @@ export class PatientChatController {
   async createConversation(
     @LoggedInUser() user: UserWithRolesInterface,
     @Body() dto: CreateConversationDto,
-  ) {
-    const data = await this.patientChatService.createConversation(
-      user.userId,
-      dto,
-    );
+  ): Promise<unknown> {
+    const data = await this.patientChatService.createConversation(user.userId, dto);
     return SuccessHelper.createSuccessResponse(data, 'Conversation created');
   }
 
@@ -55,11 +49,8 @@ export class PatientChatController {
   async getConversation(
     @LoggedInUser() user: UserWithRolesInterface,
     @Param('conversationId') conversationId: string,
-  ) {
-    const data = await this.patientChatService.getConversation(
-      conversationId,
-      user.userId,
-    );
+  ): Promise<unknown> {
+    const data = await this.patientChatService.getConversation(conversationId, user.userId);
     return SuccessHelper.createSuccessResponse(data);
   }
 
@@ -68,11 +59,8 @@ export class PatientChatController {
   async listMessages(
     @LoggedInUser() user: UserWithRolesInterface,
     @Param('conversationId') conversationId: string,
-  ) {
-    const data = await this.patientChatService.listMessages(
-      conversationId,
-      user.userId,
-    );
+  ): Promise<unknown> {
+    const data = await this.patientChatService.listMessages(conversationId, user.userId);
     return SuccessHelper.createSuccessResponse(data);
   }
 
@@ -82,18 +70,14 @@ export class PatientChatController {
     @LoggedInUser() user: UserWithRolesInterface,
     @Param('conversationId') conversationId: string,
     @Body() dto: CreateMessageDto,
-  ) {
-    const data = await this.patientChatService.sendMessage(
-      conversationId,
-      user.userId,
-      dto,
-    );
+  ): Promise<unknown> {
+    const data = await this.patientChatService.sendMessage(conversationId, user.userId, dto);
     return SuccessHelper.createSuccessResponse(data, 'Message sent');
   }
 
   @Get('recipients')
   @HttpCode(HttpStatus.OK)
-  async getRecipients(@Query() query: QueryRecipientsDto) {
+  async getRecipients(@Query() query: QueryRecipientsDto): Promise<unknown> {
     const data = await this.patientChatService.getRecipients(query.category);
     return SuccessHelper.createSuccessResponse(data);
   }

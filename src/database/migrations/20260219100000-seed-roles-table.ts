@@ -1,9 +1,4 @@
-import {
-  MigrationInterface,
-  QueryRunner,
-  Table,
-  TableIndex,
-} from 'typeorm';
+import { MigrationInterface, QueryRunner, Table, TableIndex } from 'typeorm';
 
 /**
  * Creates the roles and user_roles tables (if they don't already exist from
@@ -140,10 +135,11 @@ export class SeedRolesTable20260219100000 implements MigrationInterface {
       );
 
       if (exists.length === 0) {
-        await queryRunner.query(
-          `INSERT INTO roles (id, name, description) VALUES ($1, $2, $3)`,
-          [role.id, role.name, role.description],
-        );
+        await queryRunner.query(`INSERT INTO roles (id, name, description) VALUES ($1, $2, $3)`, [
+          role.id,
+          role.name,
+          role.description,
+        ]);
       }
     }
   }

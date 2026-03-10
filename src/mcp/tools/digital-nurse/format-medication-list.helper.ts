@@ -11,7 +11,10 @@ export function formatMedicationListToText(list: MedicationResponse[]): string {
       const times = m.timeSlots?.length ? m.timeSlots.join(', ') : 'no times';
       parts.push(` (${times})`);
       const todayStatus = (m.takenForDate ?? [])
-        .map((t: { timeSlot: string; taken: boolean }) => `${t.timeSlot}: ${t.taken ? 'taken' : 'not taken'}`)
+        .map(
+          (t: { timeSlot: string; taken: boolean }) =>
+            `${t.timeSlot}: ${t.taken ? 'taken' : 'not taken'}`,
+        )
         .join('; ');
       if (todayStatus) parts.push(` – today: ${todayStatus}`);
       return parts.join('');

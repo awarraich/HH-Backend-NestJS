@@ -219,22 +219,15 @@ export class RequirementTagService {
     );
     await this.requirementDocumentTypeRepository.save(linkEntities);
 
-    const inserviceLinkEntities = inserviceTrainingIds.map(
-      (inservice_training_id) =>
-        this.requirementInserviceTrainingRepository.create({
-          requirement_tag_id: saved.id,
-          inservice_training_id,
-        }),
+    const inserviceLinkEntities = inserviceTrainingIds.map((inservice_training_id) =>
+      this.requirementInserviceTrainingRepository.create({
+        requirement_tag_id: saved.id,
+        inservice_training_id,
+      }),
     );
-    await this.requirementInserviceTrainingRepository.save(
-      inserviceLinkEntities,
-    );
+    await this.requirementInserviceTrainingRepository.save(inserviceLinkEntities);
 
-    return this.toResponse(
-      saved,
-      documentTypeIds,
-      inserviceTrainingIds,
-    );
+    return this.toResponse(saved, documentTypeIds, inserviceTrainingIds);
   }
 
   async update(
@@ -303,16 +296,13 @@ export class RequirementTagService {
             'One or more inservice training IDs are invalid or do not belong to this organization.',
           );
         }
-        const inserviceLinkEntities = inserviceTrainingIds.map(
-          (inservice_training_id) =>
-            this.requirementInserviceTrainingRepository.create({
-              requirement_tag_id: tag.id,
-              inservice_training_id,
-            }),
+        const inserviceLinkEntities = inserviceTrainingIds.map((inservice_training_id) =>
+          this.requirementInserviceTrainingRepository.create({
+            requirement_tag_id: tag.id,
+            inservice_training_id,
+          }),
         );
-        await this.requirementInserviceTrainingRepository.save(
-          inserviceLinkEntities,
-        );
+        await this.requirementInserviceTrainingRepository.save(inserviceLinkEntities);
       }
     }
 
@@ -333,11 +323,7 @@ export class RequirementTagService {
     );
   }
 
-  async remove(
-    organizationId: string,
-    requirementTagId: string,
-    userId: string,
-  ): Promise<void> {
+  async remove(organizationId: string, requirementTagId: string, userId: string): Promise<void> {
     await this.ensureAccess(organizationId, userId);
 
     const tag = await this.requirementTagRepository.findOne({

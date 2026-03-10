@@ -1,10 +1,4 @@
-import {
-  MigrationInterface,
-  QueryRunner,
-  TableColumn,
-  TableForeignKey,
-  TableIndex,
-} from 'typeorm';
+import { MigrationInterface, QueryRunner, TableColumn, TableForeignKey, TableIndex } from 'typeorm';
 
 export class AlterEmployeesAndProfiles20260224100001 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -15,7 +9,10 @@ export class AlterEmployeesAndProfiles20260224100001 implements MigrationInterfa
       WHERE tc.table_name = 'employees' AND tc.constraint_type = 'FOREIGN KEY'
         AND kcu.column_name = 'organization_id';
     `);
-    const fkName = Array.isArray(employeesFk) && employeesFk[0] ? (employeesFk[0] as { constraint_name: string }).constraint_name : 'fk_employees_organization_id';
+    const fkName =
+      Array.isArray(employeesFk) && employeesFk[0]
+        ? (employeesFk[0] as { constraint_name: string }).constraint_name
+        : 'fk_employees_organization_id';
     try {
       await queryRunner.dropForeignKey('employees', fkName);
     } catch {
@@ -26,7 +23,10 @@ export class AlterEmployeesAndProfiles20260224100001 implements MigrationInterfa
           AND constraint_name LIKE '%organization%';
       `);
       if (Array.isArray(alt) && alt[0]) {
-        await queryRunner.dropForeignKey('employees', (alt[0] as { constraint_name: string }).constraint_name);
+        await queryRunner.dropForeignKey(
+          'employees',
+          (alt[0] as { constraint_name: string }).constraint_name,
+        );
       }
     }
 

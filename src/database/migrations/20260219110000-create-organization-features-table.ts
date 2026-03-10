@@ -1,9 +1,4 @@
-import {
-  MigrationInterface,
-  QueryRunner,
-  Table,
-  TableIndex,
-} from 'typeorm';
+import { MigrationInterface, QueryRunner, Table, TableIndex } from 'typeorm';
 
 const FEATURES = [
   { code: 'operations_compliance', name: 'Company Documents & Compliance' },
@@ -27,7 +22,12 @@ export class CreateOrganizationFeaturesTable20260219110000 implements MigrationI
           { name: 'code', type: 'varchar', length: '100', isNullable: false },
           { name: 'name', type: 'varchar', length: '255', isNullable: true },
           { name: 'description', type: 'text', isNullable: true },
-          { name: 'created_at', type: 'timestamp', default: 'CURRENT_TIMESTAMP', isNullable: false },
+          {
+            name: 'created_at',
+            type: 'timestamp',
+            default: 'CURRENT_TIMESTAMP',
+            isNullable: false,
+          },
         ],
       }),
       true,
@@ -35,7 +35,11 @@ export class CreateOrganizationFeaturesTable20260219110000 implements MigrationI
 
     await queryRunner.createIndex(
       'organization_features',
-      new TableIndex({ name: 'idx_organization_features_code', columnNames: ['code'], isUnique: true }),
+      new TableIndex({
+        name: 'idx_organization_features_code',
+        columnNames: ['code'],
+        isUnique: true,
+      }),
     );
 
     for (const { code, name } of FEATURES) {

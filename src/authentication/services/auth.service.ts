@@ -51,10 +51,7 @@ export class AuthService {
    */
   async register(registerDto: RegisterDto, clientIp?: string): Promise<{ message: string }> {
     if (registerDto.recaptchaToken) {
-      const isValid = await this.recaptchaService.verifyToken(
-        registerDto.recaptchaToken,
-        clientIp,
-      );
+      const isValid = await this.recaptchaService.verifyToken(registerDto.recaptchaToken, clientIp);
       if (!isValid) {
         throw new BadRequestException('reCAPTCHA verification failed');
       }
@@ -71,7 +68,9 @@ export class AuthService {
     const hashedPassword = await bcrypt.hash(registerDto.password, 10);
 
     const verificationToken = crypto.randomBytes(32).toString('hex');
-    this.logger.log(`Generated verification token for ${this.maskEmail(registerDto.email)}: ${verificationToken.substring(0, 8)}... (length: ${verificationToken.length})`);
+    this.logger.log(
+      `Generated verification token for ${this.maskEmail(registerDto.email)}: ${verificationToken.substring(0, 8)}... (length: ${verificationToken.length})`,
+    );
 
     const user = this.userRepository.create({
       firstName: registerDto.firstName,
@@ -85,15 +84,17 @@ export class AuthService {
     });
 
     const savedUser = await this.userRepository.save(user);
-    
+
     // Verify the token was saved correctly
     const verifySaved = await this.userRepository.findOne({
       where: { id: savedUser.id },
       select: ['id', 'email', 'email_verification_token'],
     });
-    
+
     if (verifySaved && verifySaved.email_verification_token !== verificationToken) {
-      this.logger.error(`Token mismatch! Saved: ${verifySaved.email_verification_token?.substring(0, 8)}..., Expected: ${verificationToken.substring(0, 8)}...`);
+      this.logger.error(
+        `Token mismatch! Saved: ${verifySaved.email_verification_token?.substring(0, 8)}..., Expected: ${verificationToken.substring(0, 8)}...`,
+      );
     } else if (verifySaved) {
       this.logger.log(`Token saved correctly for user: ${this.maskEmail(registerDto.email)}`);
     }
@@ -133,10 +134,7 @@ export class AuthService {
   ): Promise<AuthResponseInterface> {
     // Verify reCAPTCHA if enabled
     if (loginDto.recaptchaToken) {
-      const isValid = await this.recaptchaService.verifyToken(
-        loginDto.recaptchaToken,
-        clientIp,
-      );
+      const isValid = await this.recaptchaService.verifyToken(loginDto.recaptchaToken, clientIp);
       if (!isValid) {
         throw new BadRequestException('reCAPTCHA verification failed');
       }
@@ -162,13 +160,15 @@ export class AuthService {
     if (user.temporary_password && user.temporary_password_expires_at) {
       const now = new Date();
       const expiresAt = new Date(user.temporary_password_expires_at);
-      
+
       if (now > expiresAt) {
-        throw new UnauthorizedException('Temporary password has expired. Please use password reset.');
+        throw new UnauthorizedException(
+          'Temporary password has expired. Please use password reset.',
+        );
       }
-      
+
       const isTemporaryPassword = await bcrypt.compare(loginDto.password, user.temporary_password);
-      
+
       if (isTemporaryPassword) {
         isPasswordValid = true;
         usedTemporaryPassword = true;
@@ -245,9 +245,9 @@ export class AuthService {
     const tokens = await this.generateTokens(user, roles);
 
     let redirectPath = '/home';
-    
-    const hasAdminRole = roles.some(role => role.toLowerCase() === 'admin');
-    
+
+    const hasAdminRole = roles.some((role) => role.toLowerCase() === 'admin');
+
     if (hasAdminRole) {
       redirectPath = '/admin';
     } else if (!user.is_two_fa_enabled) {
@@ -267,7 +267,7 @@ export class AuthService {
         roles,
         mustChangePassword: user.must_change_password,
         user_type: userType,
-        userType: userType,
+        userType,
       },
       redirectPath,
       mustChangePassword: user.must_change_password,
@@ -280,32 +280,40 @@ export class AuthService {
   async verifyEmail(verifyEmailDto: VerifyEmailDto): Promise<{
     message: string;
   }> {
-    this.logger.log(`Attempting to verify email with token: ${verifyEmailDto.token.substring(0, 8)}...`);
-    
+    this.logger.log(
+      `Attempting to verify email with token: ${verifyEmailDto.token.substring(0, 8)}...`,
+    );
+
     const user = await this.userRepository.findByVerificationToken(verifyEmailDto.token);
 
     if (!user) {
-      this.logger.warn(`Verification token not found in database: ${verifyEmailDto.token.substring(0, 8)}...`);
-      
+      this.logger.warn(
+        `Verification token not found in database: ${verifyEmailDto.token.substring(0, 8)}...`,
+      );
+
       // Check if there are any users with this token pattern (for debugging)
       const allUsers = await this.userRepository.find({
         where: {},
         select: ['id', 'email', 'email_verified', 'email_verification_token'],
       });
-      
+
       // Check if any user is already verified (token might have been cleared)
-      const verifiedUsers = allUsers.filter(u => u.email_verified);
+      const verifiedUsers = allUsers.filter((u) => u.email_verified);
       this.logger.debug(`Found ${verifiedUsers.length} verified users in database`);
-      
+
       // Check if token might match a user's email (shouldn't happen, but for debugging)
       const tokenLength = verifyEmailDto.token.length;
       this.logger.debug(`Token length: ${tokenLength} (expected: 64 for 32 bytes hex)`);
-      
-      throw new NotFoundException('Invalid or expired verification token. The link may have already been used or expired.');
+
+      throw new NotFoundException(
+        'Invalid or expired verification token. The link may have already been used or expired.',
+      );
     }
-    
-    this.logger.log(`Found user for verification token: ${this.maskEmail(user.email)} (User ID: ${user.id})`);
-    
+
+    this.logger.log(
+      `Found user for verification token: ${this.maskEmail(user.email)} (User ID: ${user.id})`,
+    );
+
     // Check if email is already verified
     if (user.email_verified) {
       this.logger.log(`Email already verified for: ${this.maskEmail(user.email)}`);
@@ -341,7 +349,9 @@ export class AuthService {
       throw new Error('Failed to save email verification status');
     }
 
-    this.logger.log(`Email verified successfully for: ${this.maskEmail(user.email)} (User ID: ${user.id})`);
+    this.logger.log(
+      `Email verified successfully for: ${this.maskEmail(user.email)} (User ID: ${user.id})`,
+    );
 
     return { message: 'Email verified successfully' };
   }
@@ -378,12 +388,7 @@ export class AuthService {
 
     // Send email
     try {
-      await this.emailService.sendVerificationEmail(
-        email,
-        verificationToken,
-        userName,
-        email,
-      );
+      await this.emailService.sendVerificationEmail(email, verificationToken, userName, email);
     } catch (error) {
       this.logger.error('Failed to send verification email', error);
       throw new BadRequestException('Failed to send verification email');
@@ -546,9 +551,17 @@ export class AuthService {
   }
 
   async verify2FALogin(userId: string, twoFactorToken: string): Promise<AuthResponseInterface> {
-    const user = await this.userRepository.findOne({ 
+    const user = await this.userRepository.findOne({
       where: { id: userId },
-      select: ['id', 'email', 'email_verified', 'is_two_fa_enabled', 'totp_secret', 'is_active', 'must_change_password'],
+      select: [
+        'id',
+        'email',
+        'email_verified',
+        'is_two_fa_enabled',
+        'totp_secret',
+        'is_active',
+        'must_change_password',
+      ],
     });
 
     if (!user) {
@@ -579,13 +592,15 @@ export class AuthService {
     const tokens = await this.generateTokens(user, roles);
 
     let redirectPath = '/home';
-    const hasAdminRole = roles.some(role => role.toLowerCase() === 'admin');
-    
+    const hasAdminRole = roles.some((role) => role.toLowerCase() === 'admin');
+
     if (hasAdminRole) {
       redirectPath = '/admin';
     }
 
-    this.logger.log(`User logged in with 2FA: ${this.maskEmail(user.email)} (Roles: ${roles.join(', ')})`);
+    this.logger.log(
+      `User logged in with 2FA: ${this.maskEmail(user.email)} (Roles: ${roles.join(', ')})`,
+    );
 
     return {
       ...tokens,
@@ -816,7 +831,7 @@ export class AuthService {
         },
         mustChangePassword: user.must_change_password,
       };
-    } catch (error) {
+    } catch {
       throw new UnauthorizedException('Invalid refresh token');
     }
   }
@@ -1152,7 +1167,8 @@ export class AuthService {
     }
 
     if (search) {
-      const searchCondition = '(user.firstName ILIKE :search OR user.lastName ILIKE :search OR user.email ILIKE :search)';
+      const searchCondition =
+        '(user.firstName ILIKE :search OR user.lastName ILIKE :search OR user.email ILIKE :search)';
       if (excludeUserId) {
         queryBuilder.andWhere(searchCondition, { search: `%${search}%` });
       } else {
@@ -1186,11 +1202,12 @@ export class AuthService {
       last_login: user.last_login,
       created_at: user.created_at,
       updated_at: user.updated_at,
-      roles: user.userRoles?.map((ur) => ({
-        id: ur.role.id,
-        name: ur.role.name,
-        description: ur.role.description,
-      })) || [],
+      roles:
+        user.userRoles?.map((ur) => ({
+          id: ur.role.id,
+          name: ur.role.name,
+          description: ur.role.description,
+        })) || [],
     }));
 
     return {
@@ -1222,11 +1239,12 @@ export class AuthService {
       last_login: user.last_login,
       created_at: user.created_at,
       updated_at: user.updated_at,
-      roles: user.userRoles?.map((ur) => ({
-        id: ur.role.id,
-        name: ur.role.name,
-        description: ur.role.description,
-      })) || [],
+      roles:
+        user.userRoles?.map((ur) => ({
+          id: ur.role.id,
+          name: ur.role.name,
+          description: ur.role.description,
+        })) || [],
     };
   }
 
@@ -1317,14 +1335,14 @@ export class AuthService {
       if (updateDto.password) {
         const temporaryPassword = this.generateTemporaryPassword();
         const hashedTemporaryPassword = await bcrypt.hash(temporaryPassword, 10);
-        
+
         user.temporary_password = hashedTemporaryPassword;
         user.temporary_password_expires_at = new Date(Date.now() + 24 * 60 * 60 * 1000);
         user.must_change_password = true;
-        
+
         user.password = await bcrypt.hash(updateDto.password, 10);
         user.password_changed_at = new Date();
-        
+
         changes.temporaryPassword = temporaryPassword;
       }
 
@@ -1402,7 +1420,9 @@ export class AuthService {
       );
 
       return {
-        message: 'User updated successfully' + (hasSensitiveChanges ? '. User has been notified and logged out.' : ''),
+        message:
+          'User updated successfully' +
+          (hasSensitiveChanges ? '. User has been notified and logged out.' : ''),
       };
     } catch (error) {
       await queryRunner.rollbackTransaction();
@@ -1476,10 +1496,7 @@ export class AuthService {
   /**
    * Delete user by admin
    */
-  async deleteUserByAdmin(
-    userId: string,
-    adminUserId: string,
-  ): Promise<{ message: string }> {
+  async deleteUserByAdmin(userId: string, adminUserId: string): Promise<{ message: string }> {
     const user = await this.userRepository.findOne({ where: { id: userId } });
 
     if (!user) {
@@ -1531,7 +1548,7 @@ export class AuthService {
     const allChars = uppercase + lowercase + numbers + special;
 
     let password = '';
-    
+
     password += uppercase[Math.floor(Math.random() * uppercase.length)];
     password += lowercase[Math.floor(Math.random() * lowercase.length)];
     password += numbers[Math.floor(Math.random() * numbers.length)];
@@ -1541,7 +1558,10 @@ export class AuthService {
       password += allChars[Math.floor(Math.random() * allChars.length)];
     }
 
-    return password.split('').sort(() => Math.random() - 0.5).join('');
+    return password
+      .split('')
+      .sort(() => Math.random() - 0.5)
+      .join('');
   }
 
   async getPublicRoles(): Promise<Role[]> {
@@ -1581,9 +1601,7 @@ export class AuthService {
 
     await this.userRoleRepository.save(userRole);
 
-    this.logger.log(
-      `Role assigned: User ${this.maskEmail(user.email)} assigned role ${role.name}`,
-    );
+    this.logger.log(`Role assigned: User ${this.maskEmail(user.email)} assigned role ${role.name}`);
 
     return {
       id: userRole.id,

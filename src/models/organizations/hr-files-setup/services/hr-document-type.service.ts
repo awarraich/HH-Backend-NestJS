@@ -50,14 +50,7 @@ export class HrDocumentTypeService {
   ): Promise<{ data: HrDocumentType[]; total: number; page: number; limit: number }> {
     await this.ensureAccess(organizationId, userId);
 
-    const {
-      page = 1,
-      limit = 20,
-      category,
-      is_required,
-      is_active = true,
-      search,
-    } = queryDto;
+    const { page = 1, limit = 20, category, is_required, is_active = true, search } = queryDto;
     const skip = (page - 1) * limit;
 
     const qb = this.hrDocumentTypeRepository
@@ -75,10 +68,9 @@ export class HrDocumentTypeService {
       qb.andWhere('hdt.is_active = :is_active', { is_active });
     }
     if (search && search.trim()) {
-      qb.andWhere(
-        '(hdt.code ILIKE :search OR hdt.name ILIKE :search)',
-        { search: `%${search.trim()}%` },
-      );
+      qb.andWhere('(hdt.code ILIKE :search OR hdt.name ILIKE :search)', {
+        search: `%${search.trim()}%`,
+      });
     }
 
     qb.orderBy('hdt.sort_order', 'ASC').addOrderBy('hdt.id', 'ASC');

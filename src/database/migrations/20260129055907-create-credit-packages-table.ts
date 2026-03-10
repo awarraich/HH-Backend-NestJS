@@ -109,4 +109,3 @@ export class CreateCreditPackagesTable20260129055907 implements MigrationInterfa
     await queryRunner.dropTable('credit_packages');
   }
 }
-

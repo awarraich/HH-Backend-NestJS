@@ -100,7 +100,9 @@ export class AdminUpdatedUserEmailTemplate {
                 </tr>
                 
                 <!-- Security Notice -->
-                ${hasSensitiveChanges ? `
+                ${
+                  hasSensitiveChanges
+                    ? `
                 <tr>
                   <td style="padding-bottom: 24px;">
                     <div style="background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 16px 20px; border-radius: 8px;">
@@ -110,7 +112,9 @@ export class AdminUpdatedUserEmailTemplate {
                     </div>
                   </td>
                 </tr>
-                ` : ''}
+                `
+                    : ''
+                }
                 
                 <!-- Changes Summary -->
                 <tr>
@@ -120,26 +124,36 @@ export class AdminUpdatedUserEmailTemplate {
                     </p>
                     <div style="background-color: #f9fafb; border-radius: 12px; padding: 20px; border: 1px solid #e5e7eb;">
                       <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                        ${changes.password ? `
+                        ${
+                          changes.password
+                            ? `
                         <tr>
                           <td style="padding-bottom: 12px;">
                             <div style="background-color: #fef2f2; border-left: 4px solid #dc2626; padding: 16px 20px; border-radius: 8px; margin-bottom: 12px;">
                               <p style="margin: 0 0 8px 0; color: #991b1b; font-size: 15px; line-height: 1.6; font-weight: 600;">
                                 Password: Changed
                               </p>
-                              ${changes.temporaryPassword ? `
+                              ${
+                                changes.temporaryPassword
+                                  ? `
                               <p style="margin: 0 0 8px 0; color: #991b1b; font-size: 14px; line-height: 1.6;">
                                 <strong>Temporary Password:</strong> <code style="background-color: #fee2e2; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-size: 14px; color: #991b1b;">${changes.temporaryPassword}</code>
                               </p>
                               <p style="margin: 0; color: #991b1b; font-size: 13px; line-height: 1.6;">
                                 This temporary password expires in 24 hours. You must change it on your first login.
                               </p>
-                              ` : ''}
+                              `
+                                  : ''
+                              }
                             </div>
                           </td>
                         </tr>
-                        ` : ''}
-                        ${changes.email ? `
+                        `
+                            : ''
+                        }
+                        ${
+                          changes.email
+                            ? `
                         <tr>
                           <td style="padding-bottom: 12px;">
                             <p style="margin: 0; color: #111827; font-size: 15px; line-height: 1.6;">
@@ -147,8 +161,12 @@ export class AdminUpdatedUserEmailTemplate {
                             </p>
                           </td>
                         </tr>
-                        ` : ''}
-                        ${changes.firstName ? `
+                        `
+                            : ''
+                        }
+                        ${
+                          changes.firstName
+                            ? `
                         <tr>
                           <td style="padding-bottom: 12px;">
                             <p style="margin: 0; color: #111827; font-size: 15px; line-height: 1.6;">
@@ -156,8 +174,12 @@ export class AdminUpdatedUserEmailTemplate {
                             </p>
                           </td>
                         </tr>
-                        ` : ''}
-                        ${changes.lastName ? `
+                        `
+                            : ''
+                        }
+                        ${
+                          changes.lastName
+                            ? `
                         <tr>
                           <td style="padding-bottom: 12px;">
                             <p style="margin: 0; color: #111827; font-size: 15px; line-height: 1.6;">
@@ -165,8 +187,12 @@ export class AdminUpdatedUserEmailTemplate {
                             </p>
                           </td>
                         </tr>
-                        ` : ''}
-                        ${changes.role ? `
+                        `
+                            : ''
+                        }
+                        ${
+                          changes.role
+                            ? `
                         <tr>
                           <td style="padding-bottom: 12px;">
                             <p style="margin: 0; color: #111827; font-size: 15px; line-height: 1.6;">
@@ -174,13 +200,17 @@ export class AdminUpdatedUserEmailTemplate {
                             </p>
                           </td>
                         </tr>
-                        ` : ''}
+                        `
+                            : ''
+                        }
                       </table>
                     </div>
                   </td>
                 </tr>
                 
-                ${hasSensitiveChanges ? `
+                ${
+                  hasSensitiveChanges
+                    ? `
                 <!-- Action Required -->
                 <tr>
                   <td style="padding-bottom: 24px;">
@@ -209,7 +239,9 @@ export class AdminUpdatedUserEmailTemplate {
                     </table>
                   </td>
                 </tr>
-                ` : ''}
+                `
+                    : ''
+                }
                 
                 <!-- Help Text -->
                 <tr>

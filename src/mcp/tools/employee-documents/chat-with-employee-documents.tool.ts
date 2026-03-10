@@ -3,11 +3,7 @@ import type { EmployeeDocumentsService } from '../../../models/organizations/hr-
 import { TOOL_NAMES } from '../../constants/mcp.constants';
 
 const chatWithEmployeeDocumentsInputSchema = {
-  message: z
-    .string()
-    .describe(
-      "The user's question or message (e.g. 'Summarize these documents')",
-    ),
+  message: z.string().describe("The user's question or message (e.g. 'Summarize these documents')"),
   document_ids: z
     .array(z.string().uuid())
     .optional()
@@ -21,12 +17,16 @@ export const chatWithEmployeeDocumentsTool = {
   inputSchema: chatWithEmployeeDocumentsInputSchema,
 };
 
+export type ChatWithEmployeeDocumentsResult = Promise<{
+  content: Array<{ type: 'text'; text: string }>;
+}>;
+
 export function createChatWithEmployeeDocumentsHandler(
   employeeDocumentsService: EmployeeDocumentsService,
   organizationId: string,
   employeeId: string,
   userId: string,
-) {
+): (args: { message: string; document_ids?: string[] }) => ChatWithEmployeeDocumentsResult {
   return async (args: { message: string; document_ids?: string[] }) => {
     const message = (args?.message ?? '').trim() || 'Summarize these documents.';
     const documentIds = args?.document_ids;

@@ -1,11 +1,4 @@
-import {
-  IsString,
-  IsOptional,
-  IsDateString,
-  IsUUID,
-  MaxLength,
-  IsIn,
-} from 'class-validator';
+import { IsString, IsOptional, IsDateString, IsUUID, MaxLength, IsIn } from 'class-validator';
 
 export class UpdateEmployeeDto {
   @IsOptional()
@@ -40,4 +33,3 @@ export class UpdateEmployeeDto {
   @IsUUID()
   provider_role_id?: string;
 }
-

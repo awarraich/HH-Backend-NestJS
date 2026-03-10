@@ -144,7 +144,9 @@ export class OrganizationRoleService {
     }
 
     const staffRoleIds = staffRows.map((r) => r.staff_role_id);
-    const staffRoleNames = [...new Set(staffRows.map((r) => r.staffRole?.name).filter(Boolean))] as string[];
+    const staffRoleNames = [
+      ...new Set(staffRows.map((r) => r.staffRole?.name).filter(Boolean)),
+    ] as string[];
 
     const permissions = await this.staffRolePermissionRepository.find({
       where: {

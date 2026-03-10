@@ -1,15 +1,14 @@
-import {
-  Injectable,
-  NotFoundException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreditPackage } from './entities/credit-package.entity';
 import { CreateCreditPackageDto } from './dto/create-credit-package.dto';
 import { UpdateCreditPackageDto } from './dto/update-credit-package.dto';
 import { QueryCreditPackageDto } from './dto/query-credit-package.dto';
-import { CreditPackageSerializer } from './serializers/credit-package.serializer';
+import {
+  CreditPackageSerializer,
+  type SerializedCreditPackage,
+} from './serializers/credit-package.serializer';
 
 @Injectable()
 export class CreditPackagesService {
@@ -22,17 +21,15 @@ export class CreditPackagesService {
 
   async create(
     createCreditPackageDto: CreateCreditPackageDto,
-    userId: string,
-  ): Promise<any> {
+    _userId: string,
+  ): Promise<SerializedCreditPackage> {
     // Check if stripe_price_id already exists
     const existingPackage = await this.creditPackagesRepository.findOne({
       where: { stripe_price_id: createCreditPackageDto.stripe_price_id },
     });
 
     if (existingPackage) {
-      throw new BadRequestException(
-        'A credit package with this Stripe price ID already exists',
-      );
+      throw new BadRequestException('A credit package with this Stripe price ID already exists');
     }
 
     const creditPackage = this.creditPackagesRepository.create({
@@ -45,7 +42,7 @@ export class CreditPackagesService {
   }
 
   async findAll(queryDto: QueryCreditPackageDto): Promise<{
-    data: any[];
+    data: SerializedCreditPackage[];
     total: number;
     page: number;
     limit: number;
@@ -53,9 +50,7 @@ export class CreditPackagesService {
     const { is_active, page = 1, limit = 20 } = queryDto;
     const skip = (page - 1) * limit;
 
-    const queryBuilder = this.creditPackagesRepository.createQueryBuilder(
-      'credit_package',
-    );
+    const queryBuilder = this.creditPackagesRepository.createQueryBuilder('credit_package');
 
     if (is_active !== undefined) {
       queryBuilder.where('credit_package.is_active = :is_active', {
@@ -76,7 +71,7 @@ export class CreditPackagesService {
     };
   }
 
-  async findOne(id: string): Promise<any> {
+  async findOne(id: string): Promise<SerializedCreditPackage> {
     const creditPackage = await this.creditPackagesRepository.findOne({
       where: { id },
     });
@@ -91,8 +86,8 @@ export class CreditPackagesService {
   async update(
     id: string,
     updateCreditPackageDto: UpdateCreditPackageDto,
-    userId: string,
-  ): Promise<any> {
+    _userId: string,
+  ): Promise<SerializedCreditPackage> {
     const creditPackage = await this.creditPackagesRepository.findOne({
       where: { id },
     });
@@ -111,9 +106,7 @@ export class CreditPackagesService {
       });
 
       if (existingPackage) {
-        throw new BadRequestException(
-          'A credit package with this Stripe price ID already exists',
-        );
+        throw new BadRequestException('A credit package with this Stripe price ID already exists');
       }
     }
 
@@ -123,7 +116,7 @@ export class CreditPackagesService {
     return this.creditPackageSerializer.serialize(updated);
   }
 
-  async remove(id: string, userId: string): Promise<void> {
+  async remove(id: string, _userId: string): Promise<void> {
     const creditPackage = await this.creditPackagesRepository.findOne({
       where: { id },
     });
@@ -135,4 +128,3 @@ export class CreditPackagesService {
     await this.creditPackagesRepository.remove(creditPackage);
   }
 }
-

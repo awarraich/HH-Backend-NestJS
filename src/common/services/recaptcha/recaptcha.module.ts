@@ -8,4 +8,3 @@ import { RecaptchaConfigModule } from '../../../config/recaptcha/config.module';
   exports: [RecaptchaService],
 })
 export class RecaptchaModule {}
-

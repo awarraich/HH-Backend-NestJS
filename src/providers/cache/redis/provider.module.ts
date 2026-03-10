@@ -10,7 +10,9 @@ import { CacheConfigService } from '../../../config/cache/config.service';
   providers: [
     {
       provide: 'CACHE_CONFIG',
-      useFactory: (cacheConfigService: CacheConfigService) => ({
+      useFactory: (
+        cacheConfigService: CacheConfigService,
+      ): { host: string; port: number; password: string; ttl: number } => ({
         host: cacheConfigService.host,
         port: cacheConfigService.port,
         password: cacheConfigService.password,

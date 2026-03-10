@@ -24,4 +24,3 @@ export class QueryUsersDto {
   @IsNumber()
   roleId?: number;
 }
-

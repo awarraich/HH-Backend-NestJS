@@ -42,7 +42,7 @@ export class BlogController {
   @Post('images/upload')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.CREATED)
-  async uploadImage(@Req() request: FastifyRequest) {
+  async uploadImage(@Req() request: FastifyRequest): Promise<unknown> {
     const multipartRequest = request as FastifyRequest & {
       file: () => Promise<{ filename: string; toBuffer: () => Promise<Buffer> } | undefined>;
     };
@@ -61,7 +61,7 @@ export class BlogController {
   async serveImage(
     @Param('filename') filename: string,
     @Res() reply: FastifyReply,
-  ) {
+  ): Promise<unknown> {
     const filePath = this.blogImageStorage.getLocalFilePath(filename);
     if (!filePath) throw new NotFoundException('File not found');
     const ext = path.extname(filename).toLowerCase();
@@ -86,15 +86,9 @@ export class BlogController {
   async create(
     @Body() createBlogDto: CreateBlogDto,
     @LoggedInUser() user: UserWithRolesInterface,
-  ) {
-    const result = await this.blogService.create(
-      createBlogDto,
-      user.userId,
-    );
-    return SuccessHelper.createSuccessResponse(
-      result,
-      'Blog post created successfully',
-    );
+  ): Promise<unknown> {
+    const result = await this.blogService.create(createBlogDto, user.userId);
+    return SuccessHelper.createSuccessResponse(result, 'Blog post created successfully');
   }
 
   /**
@@ -107,7 +101,7 @@ export class BlogController {
   async findAll(
     @Query() queryDto: QueryBlogDto,
     @LoggedInUser() user?: UserWithRolesInterface,
-  ) {
+  ): Promise<unknown> {
     if (!user) {
       queryDto.is_published = true;
     }
@@ -126,7 +120,7 @@ export class BlogController {
   async findBySlug(
     @Param('slug') slug: string,
     @LoggedInUser() user?: UserWithRolesInterface,
-  ) {
+  ): Promise<unknown> {
     const result = await this.blogService.findBySlug(slug, {
       allowDraft: !!user,
     });
@@ -143,7 +137,7 @@ export class BlogController {
     @LoggedInUser() user: UserWithRolesInterface,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ) {
+  ): Promise<unknown> {
     const result = await this.blogService.findMyBlogs(
       user.userId,
       page ? Number(page) : 1,
@@ -163,7 +157,7 @@ export class BlogController {
   async findOne(
     @Param('id') id: string,
     @LoggedInUser() user?: UserWithRolesInterface,
-  ) {
+  ): Promise<unknown> {
     const result = await this.blogService.findOne(id, {
       allowDraft: !!user,
     });
@@ -177,16 +171,9 @@ export class BlogController {
     @Param('id') id: string,
     @Body() updateBlogDto: UpdateBlogDto,
     @LoggedInUser() user: UserWithRolesInterface,
-  ) {
-    const result = await this.blogService.update(
-      id,
-      updateBlogDto,
-      user.userId,
-    );
-    return SuccessHelper.createSuccessResponse(
-      result,
-      'Blog post updated successfully',
-    );
+  ): Promise<unknown> {
+    const result = await this.blogService.update(id, updateBlogDto, user.userId);
+    return SuccessHelper.createSuccessResponse(result, 'Blog post updated successfully');
   }
 
   @Delete(':id')
@@ -195,11 +182,8 @@ export class BlogController {
   async remove(
     @Param('id') id: string,
     @LoggedInUser() user: UserWithRolesInterface,
-  ) {
+  ): Promise<unknown> {
     await this.blogService.remove(id, user.userId);
-    return SuccessHelper.createSuccessResponse(
-      null,
-      'Blog post deleted successfully',
-    );
+    return SuccessHelper.createSuccessResponse(null, 'Blog post deleted successfully');
   }
 }

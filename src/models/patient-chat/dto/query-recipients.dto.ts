@@ -1,12 +1,6 @@
 import { IsOptional, IsIn } from 'class-validator';
 
-const RECIPIENT_TYPES = [
-  'organization',
-  'lab',
-  'doctor',
-  'clinical',
-  'therapist',
-] as const;
+const RECIPIENT_TYPES = ['organization', 'lab', 'doctor', 'clinical', 'therapist'] as const;
 
 export class QueryRecipientsDto {
   @IsOptional()

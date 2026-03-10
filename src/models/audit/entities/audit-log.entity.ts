@@ -26,7 +26,7 @@ export class AuditLog {
   description: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata: Record<string, any>; // Additional data (before/after values, IP, etc.)
+  metadata: Record<string, unknown>; // Additional data (before/after values, IP, etc.)
 
   @Column({ type: 'varchar', length: 45, nullable: true })
   ip_address: string;

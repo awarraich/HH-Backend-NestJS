@@ -12,9 +12,7 @@ import {
  * later migrations (PatientsNullableUserIdAndOrganization, CreateReferralTables).
  * Skips creation if each table already exists (e.g. from sync or existing DB).
  */
-export class CreateOrganizationsPatientsTables20260208000000
-  implements MigrationInterface
-{
+export class CreateOrganizationsPatientsTables20260208000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     // organization_types (referenced by referral tables)
     if (!(await queryRunner.getTable('organization_types'))) {
@@ -417,7 +415,10 @@ export class CreateOrganizationsPatientsTables20260208000000
       );
       await queryRunner.createIndex(
         'patient_profiles',
-        new TableIndex({ name: 'IDX_patient_profiles_date_of_birth', columnNames: ['date_of_birth'] }),
+        new TableIndex({
+          name: 'IDX_patient_profiles_date_of_birth',
+          columnNames: ['date_of_birth'],
+        }),
       );
       await queryRunner.createIndex(
         'patient_profiles',

@@ -37,4 +37,3 @@ export class AddTemporaryPasswordFields20260202052121 implements MigrationInterf
     await queryRunner.dropColumn('users', 'temporary_password');
   }
 }
-

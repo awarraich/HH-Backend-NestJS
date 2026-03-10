@@ -11,12 +11,8 @@ export class PatientsNullableUserIdAndOrganization20260209000001 implements Migr
     await queryRunner.query(
       `ALTER TABLE "patients" DROP CONSTRAINT IF EXISTS "patients_user_id_key"`,
     );
-    await queryRunner.query(
-      `DROP INDEX IF EXISTS "patients_user_id_key"`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "patients" ALTER COLUMN "user_id" DROP NOT NULL`,
-    );
+    await queryRunner.query(`DROP INDEX IF EXISTS "patients_user_id_key"`);
+    await queryRunner.query(`ALTER TABLE "patients" ALTER COLUMN "user_id" DROP NOT NULL`);
     await queryRunner.query(
       `CREATE UNIQUE INDEX "idx_patients_user_id_unique" ON "patients" ("user_id") WHERE "user_id" IS NOT NULL`,
     );
@@ -33,15 +29,9 @@ export class PatientsNullableUserIdAndOrganization20260209000001 implements Migr
     await queryRunner.query(
       `ALTER TABLE "patients" DROP CONSTRAINT IF EXISTS "fk_patients_organization_id"`,
     );
-    await queryRunner.query(
-      `ALTER TABLE "patients" DROP COLUMN IF EXISTS "organization_id"`,
-    );
-    await queryRunner.query(
-      `DROP INDEX IF EXISTS "idx_patients_user_id_unique"`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "patients" ALTER COLUMN "user_id" SET NOT NULL`,
-    );
+    await queryRunner.query(`ALTER TABLE "patients" DROP COLUMN IF EXISTS "organization_id"`);
+    await queryRunner.query(`DROP INDEX IF EXISTS "idx_patients_user_id_unique"`);
+    await queryRunner.query(`ALTER TABLE "patients" ALTER COLUMN "user_id" SET NOT NULL`);
     await queryRunner.query(
       `ALTER TABLE "patients" ADD CONSTRAINT "patients_user_id_key" UNIQUE ("user_id")`,
     );

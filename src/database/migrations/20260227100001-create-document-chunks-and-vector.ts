@@ -1,14 +1,6 @@
-import {
-  MigrationInterface,
-  QueryRunner,
-  Table,
-  TableIndex,
-  TableForeignKey,
-} from 'typeorm';
+import { MigrationInterface, QueryRunner, Table, TableIndex, TableForeignKey } from 'typeorm';
 
-export class CreateDocumentChunksAndVector20260227100001
-  implements MigrationInterface
-{
+export class CreateDocumentChunksAndVector20260227100001 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query('CREATE EXTENSION IF NOT EXISTS vector');
 
@@ -93,25 +85,11 @@ export class CreateDocumentChunksAndVector20260227100001
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(
-      'DROP INDEX IF EXISTS idx_document_chunks_embedding',
-    );
-    await queryRunner.dropIndex(
-      'document_chunks',
-      'idx_document_chunks_employee_id',
-    );
-    await queryRunner.dropIndex(
-      'document_chunks',
-      'idx_document_chunks_organization_id',
-    );
-    await queryRunner.dropIndex(
-      'document_chunks',
-      'idx_document_chunks_document_id',
-    );
-    await queryRunner.dropForeignKey(
-      'document_chunks',
-      'fk_document_chunks_document_id',
-    );
+    await queryRunner.query('DROP INDEX IF EXISTS idx_document_chunks_embedding');
+    await queryRunner.dropIndex('document_chunks', 'idx_document_chunks_employee_id');
+    await queryRunner.dropIndex('document_chunks', 'idx_document_chunks_organization_id');
+    await queryRunner.dropIndex('document_chunks', 'idx_document_chunks_document_id');
+    await queryRunner.dropForeignKey('document_chunks', 'fk_document_chunks_document_id');
     await queryRunner.dropTable('document_chunks', true);
   }
 }

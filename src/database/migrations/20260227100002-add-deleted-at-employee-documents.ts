@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner, TableColumn, TableIndex } from 'typeorm';
 
-export class AddDeletedAtEmployeeDocuments20260227100002
-  implements MigrationInterface
-{
+export class AddDeletedAtEmployeeDocuments20260227100002 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.addColumn(
       'employee_documents',

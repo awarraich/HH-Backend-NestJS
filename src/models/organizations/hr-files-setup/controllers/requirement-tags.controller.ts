@@ -8,10 +8,14 @@ import {
   Param,
   Query,
   UseGuards,
-  Request,
   HttpCode,
   HttpStatus,
+  Request,
+  UnauthorizedException,
 } from '@nestjs/common';
+import type { FastifyRequest } from 'fastify';
+
+type RequestWithUser = FastifyRequest & { user?: { userId?: string; sub?: string } };
 import { JwtAuthGuard } from '../../../../common/guards/jwt-auth.guard';
 import { OrganizationRoleGuard } from '../../../../common/guards/organization-role.guard';
 import { Roles } from '../../../../common/decorators/roles.decorator';
@@ -32,14 +36,11 @@ export class RequirementTagsController {
   async findAll(
     @Param('organizationId') organizationId: string,
     @Query() query: QueryRequirementTagDto,
-    @Request() req: any,
+    @Request() req: RequestWithUser,
   ) {
     const userId = req.user?.userId ?? req.user?.sub;
-    const result = await this.requirementTagService.findAll(
-      organizationId,
-      query,
-      userId,
-    );
+    if (!userId) throw new UnauthorizedException('User ID not found');
+    const result = await this.requirementTagService.findAll(organizationId, query, userId);
     return SuccessHelper.createPaginatedResponse(
       result.data,
       result.total,
@@ -53,9 +54,10 @@ export class RequirementTagsController {
   async findOne(
     @Param('organizationId') organizationId: string,
     @Param('requirementTagId') requirementTagId: string,
-    @Request() req: any,
+    @Request() req: RequestWithUser,
   ) {
     const userId = req.user?.userId ?? req.user?.sub;
+    if (!userId) throw new UnauthorizedException('User ID not found');
     const result = await this.requirementTagService.findOne(
       organizationId,
       requirementTagId,
@@ -69,18 +71,12 @@ export class RequirementTagsController {
   async create(
     @Param('organizationId') organizationId: string,
     @Body() dto: CreateRequirementTagDto,
-    @Request() req: any,
+    @Request() req: RequestWithUser,
   ) {
     const userId = req.user?.userId ?? req.user?.sub;
-    const result = await this.requirementTagService.create(
-      organizationId,
-      dto,
-      userId,
-    );
-    return SuccessHelper.createSuccessResponse(
-      result,
-      'Requirement tag created successfully',
-    );
+    if (!userId) throw new UnauthorizedException('User ID not found');
+    const result = await this.requirementTagService.create(organizationId, dto, userId);
+    return SuccessHelper.createSuccessResponse(result, 'Requirement tag created successfully');
   }
 
   @Patch(':requirementTagId')
@@ -89,19 +85,17 @@ export class RequirementTagsController {
     @Param('organizationId') organizationId: string,
     @Param('requirementTagId') requirementTagId: string,
     @Body() dto: UpdateRequirementTagDto,
-    @Request() req: any,
+    @Request() req: RequestWithUser,
   ) {
     const userId = req.user?.userId ?? req.user?.sub;
+    if (!userId) throw new UnauthorizedException('User ID not found');
     const result = await this.requirementTagService.update(
       organizationId,
       requirementTagId,
       dto,
       userId,
     );
-    return SuccessHelper.createSuccessResponse(
-      result,
-      'Requirement tag updated successfully',
-    );
+    return SuccessHelper.createSuccessResponse(result, 'Requirement tag updated successfully');
   }
 
   @Delete(':requirementTagId')
@@ -109,17 +103,11 @@ export class RequirementTagsController {
   async remove(
     @Param('organizationId') organizationId: string,
     @Param('requirementTagId') requirementTagId: string,
-    @Request() req: any,
+    @Request() req: RequestWithUser,
   ) {
     const userId = req.user?.userId ?? req.user?.sub;
-    await this.requirementTagService.remove(
-      organizationId,
-      requirementTagId,
-      userId,
-    );
-    return SuccessHelper.createSuccessResponse(
-      null,
-      'Requirement tag deleted',
-    );
+    if (!userId) throw new UnauthorizedException('User ID not found');
+    await this.requirementTagService.remove(organizationId, requirementTagId, userId);
+    return SuccessHelper.createSuccessResponse(null, 'Requirement tag deleted');
   }
 }

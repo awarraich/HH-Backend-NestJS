@@ -67,7 +67,7 @@ export class EmployeeDocumentTypeService {
       if (hasRole) return employee;
     }
     throw new ForbiddenException(
-      'You do not have permission to access this employee\'s document types.',
+      "You do not have permission to access this employee's document types.",
     );
   }
 
@@ -88,7 +88,18 @@ export class EmployeeDocumentTypeService {
       where: { employee_id: employeeId, deleted_at: IsNull() },
     });
     const docByTypeId = new Map(documents.map((d) => [d.document_type_id, d]));
-    const toDoc = (d: EmployeeDocument) => ({
+    const toDoc = (
+      d: EmployeeDocument,
+    ): Pick<
+      EmployeeDocument,
+      | 'id'
+      | 'file_name'
+      | 'file_path'
+      | 'file_size_bytes'
+      | 'mime_type'
+      | 'extraction_status'
+      | 'created_at'
+    > => ({
       id: d.id,
       file_name: d.file_name,
       file_path: d.file_path,
@@ -170,11 +181,7 @@ export class EmployeeDocumentTypeService {
     return this.hrDocumentTypeRepository.save(entity);
   }
 
-  async removeForEmployee(
-    employeeId: string,
-    typeId: string,
-    userId: string,
-  ): Promise<void> {
+  async removeForEmployee(employeeId: string, typeId: string, userId: string): Promise<void> {
     await this.ensureAccess(employeeId, userId);
     const entity = await this.hrDocumentTypeRepository.findOne({
       where: { id: typeId, employee_id: employeeId, organization_id: IsNull() },

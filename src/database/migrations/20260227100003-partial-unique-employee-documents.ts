@@ -5,9 +5,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * partial unique index that applies only when deleted_at IS NULL. This allows
  * re-uploading a document of the same type after soft-deleting the previous one.
  */
-export class PartialUniqueEmployeeDocuments20260227100003
-  implements MigrationInterface
-{
+export class PartialUniqueEmployeeDocuments20260227100003 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.dropUniqueConstraint(
       'employee_documents',

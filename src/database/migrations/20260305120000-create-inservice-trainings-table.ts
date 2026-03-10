@@ -7,9 +7,7 @@ import {
   TableUnique,
 } from 'typeorm';
 
-export class CreateInserviceTrainingsTable20260305120000
-  implements MigrationInterface
-{
+export class CreateInserviceTrainingsTable20260305120000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.createTable(
       new Table({
@@ -133,10 +131,7 @@ export class CreateInserviceTrainingsTable20260305120000
       'inservice_trainings',
       'idx_inservice_trainings_organization_id_is_active',
     );
-    await queryRunner.dropIndex(
-      'inservice_trainings',
-      'idx_inservice_trainings_organization_id',
-    );
+    await queryRunner.dropIndex('inservice_trainings', 'idx_inservice_trainings_organization_id');
     await queryRunner.dropForeignKey(
       'inservice_trainings',
       'fk_inservice_trainings_organization_id',

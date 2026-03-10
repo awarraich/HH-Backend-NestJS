@@ -206,10 +206,7 @@ export class OrganizationsController {
       userAgent,
     );
 
-    return SuccessHelper.createSuccessResponse(
-      result,
-      'Organization profile created successfully',
-    );
+    return SuccessHelper.createSuccessResponse(result, 'Organization profile created successfully');
   }
 
   @Get(':id/profile')
@@ -259,7 +256,7 @@ export class OrganizationsController {
   ) {
     const ipAddress = this.getIpAddress(request);
     const userAgent = this.getUserAgent(request);
-  
+
     const result = await this.organizationsService.assignType(
       assignDto.organization_id,
       assignDto,
@@ -267,7 +264,7 @@ export class OrganizationsController {
       ipAddress,
       userAgent,
     );
-  
+
     return SuccessHelper.createSuccessResponse(result, 'Organization type assigned successfully');
   }
 
@@ -320,6 +317,9 @@ export class OrganizationsController {
       userAgent,
     );
 
-    return SuccessHelper.createSuccessResponse(result, 'Organization permissions updated successfully');
+    return SuccessHelper.createSuccessResponse(
+      result,
+      'Organization permissions updated successfully',
+    );
   }
 }

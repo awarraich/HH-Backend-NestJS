@@ -32,17 +32,17 @@ export class ReferralOrganizationsController {
 
   @Get('documents/files/:filename')
   @HttpCode(HttpStatus.OK)
-  async serveReferralDocument(
-    @Param('filename') filename: string,
-    @Res() reply: FastifyReply,
-  ) {
+  async serveReferralDocument(@Param('filename') filename: string, @Res() reply: FastifyReply) {
     const filePath = this.referralDocumentStorage.getLocalFilePath(filename);
     if (!filePath) throw new NotFoundException('File not found');
     const ext = path.extname(filename).toLowerCase();
     const contentType =
-      { '.pdf': 'application/pdf', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png' }[
-        ext
-      ] || 'application/octet-stream';
+      {
+        '.pdf': 'application/pdf',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+      }[ext] || 'application/octet-stream';
     return reply
       .header('Content-Type', contentType)
       .header('Content-Disposition', `inline; filename="${filename}"`)

@@ -12,11 +12,7 @@ export class AddMedicationEmbedding20260223100000 implements MigrationInterface 
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(
-      'DROP INDEX IF EXISTS idx_patient_medications_embedding',
-    );
-    await queryRunner.query(
-      'ALTER TABLE patient_medications DROP COLUMN IF EXISTS embedding',
-    );
+    await queryRunner.query('DROP INDEX IF EXISTS idx_patient_medications_embedding');
+    await queryRunner.query('ALTER TABLE patient_medications DROP COLUMN IF EXISTS embedding');
   }
 }

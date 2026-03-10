@@ -18,8 +18,7 @@ export const INSERVICE_QUESTION_TYPES = [
   'match',
 ] as const;
 
-export type InserviceQuestionType =
-  (typeof INSERVICE_QUESTION_TYPES)[number];
+export type InserviceQuestionType = (typeof INSERVICE_QUESTION_TYPES)[number];
 
 @Entity('inservice_quiz_questions')
 @Index(['inservice_training_id'])

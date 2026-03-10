@@ -51,10 +51,7 @@ export class AppController {
     @Param('organizationId') organizationId: string,
     @Query() queryDto: QueryJobPostingDto,
   ) {
-    const result = await this.jobManagementService.findAllByOrganization(
-      organizationId,
-      queryDto,
-    );
+    const result = await this.jobManagementService.findAllByOrganization(organizationId, queryDto);
     return SuccessHelper.createPaginatedResponse(
       result.data,
       result.total,

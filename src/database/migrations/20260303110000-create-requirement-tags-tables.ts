@@ -145,12 +145,12 @@ export class CreateRequirementTagsTables20260303110000 implements MigrationInter
     );
     await queryRunner.dropTable('requirement_document_types', true);
 
-    await queryRunner.dropIndex('requirement_tags', 'idx_requirement_tags_organization_id_category');
-    await queryRunner.dropIndex('requirement_tags', 'idx_requirement_tags_organization_id');
-    await queryRunner.dropForeignKey(
+    await queryRunner.dropIndex(
       'requirement_tags',
-      'fk_requirement_tags_organization_id',
+      'idx_requirement_tags_organization_id_category',
     );
+    await queryRunner.dropIndex('requirement_tags', 'idx_requirement_tags_organization_id');
+    await queryRunner.dropForeignKey('requirement_tags', 'fk_requirement_tags_organization_id');
     await queryRunner.dropTable('requirement_tags', true);
   }
 }

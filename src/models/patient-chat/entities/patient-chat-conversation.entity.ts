@@ -9,17 +9,11 @@ import {
   JoinColumn,
   Index,
 } from 'typeorm';
-import { User } from '../../../authentication/entities/user.entity';
 import { Patient } from '../../patients/entities/patient.entity';
 import { Organization } from '../../organizations/entities/organization.entity';
 import { PatientChatMessage } from './patient-chat-message.entity';
 
-export type RecipientType =
-  | 'organization'
-  | 'lab'
-  | 'doctor'
-  | 'clinical'
-  | 'therapist';
+export type RecipientType = 'organization' | 'lab' | 'doctor' | 'clinical' | 'therapist';
 
 @Entity('patient_chat_conversations')
 @Index(['organization_id', 'updated_at'])

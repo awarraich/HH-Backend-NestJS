@@ -24,15 +24,11 @@ import { UpdateInserviceQuizQuestionDto } from '../dto/update-inservice-quiz-que
  * Quiz questions under organization-scoped path.
  * Same behavior as InserviceQuizQuestionsController; use inserviceId only for the service.
  */
-@Controller(
-  'v1/api/organizations/:organizationId/inservice-trainings/:inserviceId/quiz-questions',
-)
+@Controller('v1/api/organizations/:organizationId/inservice-trainings/:inserviceId/quiz-questions')
 @UseGuards(JwtAuthGuard, OrganizationRoleGuard)
 @Roles('OWNER', 'HR', 'MANAGER')
 export class InserviceQuizQuestionsOrgController {
-  constructor(
-    private readonly inserviceQuizQuestionService: InserviceQuizQuestionService,
-  ) {}
+  constructor(private readonly inserviceQuizQuestionService: InserviceQuizQuestionService) {}
 
   @Get()
   @HttpCode(HttpStatus.OK)
@@ -41,8 +37,7 @@ export class InserviceQuizQuestionsOrgController {
     @Req() req: FastifyRequest & { user?: { userId?: string; sub?: string } },
   ) {
     const userId = req.user?.userId ?? req.user?.sub ?? '';
-    const result =
-      await this.inserviceQuizQuestionService.findAll(inserviceId, userId);
+    const result = await this.inserviceQuizQuestionService.findAll(inserviceId, userId);
     return SuccessHelper.createSuccessResponse(result);
   }
 
@@ -54,11 +49,7 @@ export class InserviceQuizQuestionsOrgController {
     @Req() req: FastifyRequest & { user?: { userId?: string; sub?: string } },
   ) {
     const userId = req.user?.userId ?? req.user?.sub ?? '';
-    const result = await this.inserviceQuizQuestionService.findOne(
-      inserviceId,
-      questionId,
-      userId,
-    );
+    const result = await this.inserviceQuizQuestionService.findOne(inserviceId, questionId, userId);
     return SuccessHelper.createSuccessResponse(result);
   }
 
@@ -70,15 +61,8 @@ export class InserviceQuizQuestionsOrgController {
     @Req() req: FastifyRequest & { user?: { userId?: string; sub?: string } },
   ) {
     const userId = req.user?.userId ?? req.user?.sub ?? '';
-    const result = await this.inserviceQuizQuestionService.create(
-      inserviceId,
-      dto,
-      userId,
-    );
-    return SuccessHelper.createSuccessResponse(
-      result,
-      'Quiz question created successfully',
-    );
+    const result = await this.inserviceQuizQuestionService.create(inserviceId, dto, userId);
+    return SuccessHelper.createSuccessResponse(result, 'Quiz question created successfully');
   }
 
   @Patch(':questionId')
@@ -96,10 +80,7 @@ export class InserviceQuizQuestionsOrgController {
       dto,
       userId,
     );
-    return SuccessHelper.createSuccessResponse(
-      result,
-      'Quiz question updated successfully',
-    );
+    return SuccessHelper.createSuccessResponse(result, 'Quiz question updated successfully');
   }
 
   @Delete(':questionId')
@@ -110,14 +91,7 @@ export class InserviceQuizQuestionsOrgController {
     @Req() req: FastifyRequest & { user?: { userId?: string; sub?: string } },
   ) {
     const userId = req.user?.userId ?? req.user?.sub ?? '';
-    await this.inserviceQuizQuestionService.remove(
-      inserviceId,
-      questionId,
-      userId,
-    );
-    return SuccessHelper.createSuccessResponse(
-      null,
-      'Quiz question deleted successfully',
-    );
+    await this.inserviceQuizQuestionService.remove(inserviceId, questionId, userId);
+    return SuccessHelper.createSuccessResponse(null, 'Quiz question deleted successfully');
   }
 }

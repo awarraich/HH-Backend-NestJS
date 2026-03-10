@@ -1,6 +1,31 @@
 import { Blog } from '../entities/blog.entity';
 import { User } from '../../../authentication/entities/user.entity';
 
+export interface SerializedBlog {
+  id: string;
+  title: string;
+  excerpt: string;
+  short_description: string;
+  author: string;
+  authorRole: string;
+  date: string;
+  readTime: string;
+  category: string;
+  category_name: string;
+  image: string;
+  likes: number;
+  comments: number;
+  slug: string;
+  content: string;
+  author_id: string;
+  is_published: boolean;
+  status: string;
+  published_at: Date | null;
+  tags: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
 export class BlogSerializer {
   // Calculate read time based on content (avg 200 words per minute)
   private calculateReadTime(content: string): string {
@@ -10,7 +35,7 @@ export class BlogSerializer {
     return `${minutes} min read`;
   }
 
-  serialize(blog: Blog, author?: User): any {
+  serialize(blog: Blog, author?: User): SerializedBlog {
     // Dashboard expects status: approved | pending | rejected | draft; backend has is_published only
     const status = blog.is_published ? 'approved' : 'draft';
     return {
@@ -20,7 +45,9 @@ export class BlogSerializer {
       short_description: blog.excerpt ?? '', // alias for blogger dashboard
       author: author ? `${author.firstName} ${author.lastName}` : 'Unknown Author',
       authorRole: 'Healthcare Professional', // Default role
-      date: blog.published_at ? new Date(blog.published_at).toISOString() : new Date().toISOString(),
+      date: blog.published_at
+        ? new Date(blog.published_at).toISOString()
+        : new Date().toISOString(),
       readTime: this.calculateReadTime(blog.content),
       category: blog.category || 'General',
       category_name: blog.category || 'General', // alias for dashboard
@@ -39,7 +66,7 @@ export class BlogSerializer {
     };
   }
 
-  serializeMany(blogs: Blog[], authors?: Map<string, User>): any[] {
+  serializeMany(blogs: Blog[], authors?: Map<string, User>): SerializedBlog[] {
     return blogs.map((blog) => {
       const author = authors ? authors.get(blog.author_id) : undefined;
       return this.serialize(blog, author);

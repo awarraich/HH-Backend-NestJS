@@ -33,7 +33,7 @@ export class MedicationsController {
     if (forwarded) {
       return Array.isArray(forwarded) ? forwarded[0] : forwarded.split(',')[0];
     }
-    return request.ip ?? (request.socket as any)?.remoteAddress ?? 'unknown';
+    return request.ip ?? (request.socket as { remoteAddress?: string })?.remoteAddress ?? 'unknown';
   }
 
   private getUserAgent(request: FastifyRequest): string {
@@ -46,17 +46,13 @@ export class MedicationsController {
     @LoggedInUser() user: UserWithRolesInterface,
     @Query('date') date: string | undefined,
     @Req() request: FastifyRequest,
-  ) {
+  ): Promise<unknown> {
     const auditContext = {
       userId: user.userId,
       ipAddress: this.getIpAddress(request),
       userAgent: this.getUserAgent(request),
     };
-    const data = await this.medicationsService.findAll(
-      user.userId,
-      date,
-      auditContext,
-    );
+    const data = await this.medicationsService.findAll(user.userId, date, auditContext);
     return SuccessHelper.createSuccessResponse(data);
   }
 
@@ -66,17 +62,13 @@ export class MedicationsController {
     @LoggedInUser() user: UserWithRolesInterface,
     @Body() dto: CreateMedicationDto,
     @Req() request: FastifyRequest,
-  ) {
+  ): Promise<unknown> {
     const auditContext = {
       userId: user.userId,
       ipAddress: this.getIpAddress(request),
       userAgent: this.getUserAgent(request),
     };
-    const data = await this.medicationsService.create(
-      user.userId,
-      dto,
-      auditContext,
-    );
+    const data = await this.medicationsService.create(user.userId, dto, auditContext);
     return SuccessHelper.createSuccessResponse(data);
   }
 
@@ -87,7 +79,7 @@ export class MedicationsController {
     @Param('medicationId') medicationId: string,
     @Body() dto: MarkMedicationTakenDto,
     @Req() request: FastifyRequest,
-  ) {
+  ): Promise<unknown> {
     const auditContext = {
       userId: user.userId,
       ipAddress: this.getIpAddress(request),
@@ -109,7 +101,7 @@ export class MedicationsController {
     @Param('medicationId') medicationId: string,
     @Body() dto: UpdateMedicationInventoryDto,
     @Req() request: FastifyRequest,
-  ) {
+  ): Promise<unknown> {
     const auditContext = {
       userId: user.userId,
       ipAddress: this.getIpAddress(request),
@@ -131,18 +123,13 @@ export class MedicationsController {
     @Param('medicationId') medicationId: string,
     @Body() dto: UpdateMedicationDto,
     @Req() request: FastifyRequest,
-  ) {
+  ): Promise<unknown> {
     const auditContext = {
       userId: user.userId,
       ipAddress: this.getIpAddress(request),
       userAgent: this.getUserAgent(request),
     };
-    const data = await this.medicationsService.update(
-      user.userId,
-      medicationId,
-      dto,
-      auditContext,
-    );
+    const data = await this.medicationsService.update(user.userId, medicationId, dto, auditContext);
     return SuccessHelper.createSuccessResponse(data);
   }
 
@@ -152,17 +139,13 @@ export class MedicationsController {
     @LoggedInUser() user: UserWithRolesInterface,
     @Param('medicationId') medicationId: string,
     @Req() request: FastifyRequest,
-  ) {
+  ): Promise<unknown> {
     const auditContext = {
       userId: user.userId,
       ipAddress: this.getIpAddress(request),
       userAgent: this.getUserAgent(request),
     };
-    await this.medicationsService.remove(
-      user.userId,
-      medicationId,
-      auditContext,
-    );
+    await this.medicationsService.remove(user.userId, medicationId, auditContext);
     return SuccessHelper.createSuccessResponse(
       { id: medicationId, deleted: true },
       'Medication removed',

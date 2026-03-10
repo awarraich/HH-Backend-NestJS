@@ -43,30 +43,23 @@ export class RecaptchaService {
         ...(remoteip && { remoteip }),
       });
 
-      const response = await axios.post<RecaptchaVerifyResponse>(
-        verifyUrl,
-        params.toString(),
-        {
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          timeout: 5000, // 5 second timeout
+      const response = await axios.post<RecaptchaVerifyResponse>(verifyUrl, params.toString(), {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
         },
-      );
+        timeout: 5000, // 5 second timeout
+      });
 
       if (!response.data.success) {
         const errorCodes = response.data['error-codes'] || [];
-        this.logger.warn(
-          `reCAPTCHA verification failed. Error codes: ${errorCodes.join(', ')}`,
-        );
+        this.logger.warn(`reCAPTCHA verification failed. Error codes: ${errorCodes.join(', ')}`);
         return false;
       }
 
       this.logger.debug('reCAPTCHA verification successful');
       return true;
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(`Failed to verify reCAPTCHA token: ${errorMessage}`);
       throw new BadRequestException('Failed to verify reCAPTCHA token');
     }
@@ -86,4 +79,3 @@ export class RecaptchaService {
     return this.recaptchaConfigService.enabled;
   }
 }
-

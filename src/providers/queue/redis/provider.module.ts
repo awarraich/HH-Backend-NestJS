@@ -10,7 +10,9 @@ import { QueueConfigService } from '../../../config/queue/config.service';
   providers: [
     {
       provide: 'QUEUE_CONFIG',
-      useFactory: (queueConfigService: QueueConfigService) => ({
+      useFactory: (
+        queueConfigService: QueueConfigService,
+      ): { host: string; port: number; password: string } => ({
         host: queueConfigService.host,
         port: queueConfigService.port,
         password: queueConfigService.password,

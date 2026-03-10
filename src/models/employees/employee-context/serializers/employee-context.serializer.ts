@@ -1,4 +1,5 @@
 import { Employee } from '../../entities/employee.entity';
+import { EmployeeProfile } from '../../entities/employee-profile.entity';
 
 export interface OrganizationContextItem {
   organization_id: string;
@@ -16,7 +17,13 @@ export class EmployeeContextSerializer {
     employee: {
       id: string;
       user_id: string;
-      user: { id: string; email: string; firstName: string; lastName: string; is_active: boolean } | null;
+      user: {
+        id: string;
+        email: string;
+        firstName: string;
+        lastName: string;
+        is_active: boolean;
+      } | null;
       profile: ReturnType<EmployeeContextSerializer['serializeProfile']>;
     };
     organizations: OrganizationContextItem[];
@@ -40,7 +47,24 @@ export class EmployeeContextSerializer {
     };
   }
 
-  private serializeProfile(profile: any): any {
+  private serializeProfile(profile: EmployeeProfile | null | undefined): {
+    id: string;
+    employee_id: string;
+    name: string;
+    profile_image: string | null;
+    address: string | null;
+    phone_number: string | null;
+    gender: string | null;
+    age: number | null;
+    date_of_birth: Date | null;
+    specialization: string | null;
+    years_of_experience: number | null;
+    certification: string | null;
+    board_certifications: Record<string, unknown> | null;
+    emergency_contact: Record<string, unknown> | null;
+    created_at: Date;
+    updated_at: Date;
+  } | null {
     if (!profile) return null;
     return {
       id: profile.id,

@@ -39,17 +39,9 @@ export class RequirementTag {
   @JoinColumn({ name: 'organization_id' })
   organization: Organization;
 
-  @OneToMany(
-    () => RequirementDocumentType,
-    (rdt) => rdt.requirementTag,
-    { cascade: true },
-  )
+  @OneToMany(() => RequirementDocumentType, (rdt) => rdt.requirementTag, { cascade: true })
   requirementDocumentTypes: RequirementDocumentType[];
 
-  @OneToMany(
-    () => RequirementInserviceTraining,
-    (rit) => rit.requirementTag,
-    { cascade: true },
-  )
+  @OneToMany(() => RequirementInserviceTraining, (rit) => rit.requirementTag, { cascade: true })
   requirementInserviceTrainings: RequirementInserviceTraining[];
 }

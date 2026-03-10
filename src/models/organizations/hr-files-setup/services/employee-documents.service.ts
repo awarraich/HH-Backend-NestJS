@@ -7,13 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import {
-  DataSource,
-  In,
-  IsNull,
-  type FindOptionsWhere,
-  Repository,
-} from 'typeorm';
+import { DataSource, In, IsNull, type FindOptionsWhere, Repository } from 'typeorm';
 import OpenAI from 'openai';
 import { extractText, getDocumentProxy } from 'unpdf';
 import { EmployeeDocument } from '../entities/employee-document.entity';
@@ -32,8 +26,7 @@ import { UpdateEmployeeDocumentDto } from '../dto/update-employee-document.dto';
 
 const VECTOR_SEARCH_LIMIT = 10;
 const MAX_EMBEDDING_TEXT_LENGTH = 8000;
-const UUID_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function filterValidUuids(ids: string[] | undefined): string[] | undefined {
   if (!ids?.length) return undefined;
@@ -42,7 +35,7 @@ function filterValidUuids(ids: string[] | undefined): string[] | undefined {
 }
 
 const EXPIRATION_DATE_REGEX =
-  /(?:expir(?:ation|es|y)?|valid\s+until|expires?\s+on|renew\s+by|date\s+of\s+expiration|exp\s+date)[:\s]*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2})/gi;
+  /(?:expir(?:ation|es|y)?|valid\s+until|expires?\s+on|renew\s+by|date\s+of\s+expiration|exp\s+date)[:\s]*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2})/gi;
 
 export interface RequiredDocumentItem {
   document_type: {
@@ -64,11 +57,7 @@ export interface RequiredDocumentItem {
   } | null;
 }
 
-export type ExpirationStatusType =
-  | 'expired'
-  | 'expiring_soon'
-  | 'valid'
-  | 'has_no_expiration_date';
+export type ExpirationStatusType = 'expired' | 'expiring_soon' | 'valid' | 'has_no_expiration_date';
 
 const EXPIRING_SOON_DAYS = 30;
 
@@ -79,8 +68,7 @@ function getExpirationStatusType(
   if (expirationDate == null) return 'has_no_expiration_date';
   const now = new Date();
   if (expirationDate < now) return 'expired';
-  const daysUntil =
-    (expirationDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
+  const daysUntil = (expirationDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
   if (daysUntil <= expiringSoonDays) return 'expiring_soon';
   return 'valid';
 }
@@ -164,7 +152,7 @@ export class EmployeeDocumentsService {
     }
     if (employee.user_id !== userId) {
       throw new ForbiddenException(
-        'You do not have permission to access this employee\'s documents.',
+        "You do not have permission to access this employee's documents.",
       );
     }
   }
@@ -177,7 +165,7 @@ export class EmployeeDocumentsService {
     await this.ensureDocumentAccess(organizationId, employeeId, userId);
 
     const docTypes = await this.hrDocumentTypeRepository.find({
-      where: { organization_id: organizationId, is_active: true , is_required: true},
+      where: { organization_id: organizationId, is_active: true, is_required: true },
       order: { sort_order: 'ASC', id: 'ASC' },
     });
 
@@ -340,9 +328,7 @@ export class EmployeeDocumentsService {
       expiry_months: it.expiry_months,
       pdf_file_name: it.pdf_file_name,
       pdf_file_path: it.pdf_file_path,
-      pdf_file_size_bytes: it.pdf_file_size_bytes
-        ? Number(it.pdf_file_size_bytes)
-        : null,
+      pdf_file_size_bytes: it.pdf_file_size_bytes ? Number(it.pdf_file_size_bytes) : null,
       video_url: it.video_url,
       sort_order: it.sort_order,
       is_active: it.is_active,
@@ -380,11 +366,8 @@ export class EmployeeDocumentsService {
       const text = await this.getDocumentContentForExpiration(doc.id);
       const expirationDate = text ? await this.extractExpirationFromContent(text) : null;
       const expirationDateStr =
-        expirationDate != null
-          ? expirationDate.toISOString().slice(0, 10)
-          : null;
-      const is_expired =
-        expirationDate != null ? expirationDate < new Date() : false;
+        expirationDate != null ? expirationDate.toISOString().slice(0, 10) : null;
+      const is_expired = expirationDate != null ? expirationDate < new Date() : false;
       const status = getExpirationStatusType(expirationDate);
 
       result.push({
@@ -426,15 +409,15 @@ export class EmployeeDocumentsService {
     return doc?.extracted_text ?? null;
   }
 
-  async extractExpirationFromContent(text: string): Promise<Date | null> {
-    if (!text?.trim()) return null;
+  extractExpirationFromContent(text: string): Promise<Date | null> {
+    if (!text?.trim()) return Promise.resolve(null);
     const matches = [...text.matchAll(EXPIRATION_DATE_REGEX)];
     for (const m of matches) {
       const dateStr = m[1];
       const parsed = this.parseDate(dateStr);
-      if (parsed) return parsed;
+      if (parsed) return Promise.resolve(parsed);
     }
-    return null;
+    return Promise.resolve(null);
   }
 
   private parseDate(str: string): Date | null {
@@ -508,7 +491,9 @@ export class EmployeeDocumentsService {
 
     const vectorStr = `[${queryEmbedding.join(',')}]`;
     const docIds = docs.map((d) => d.id);
-    const chunkRows = await this.dataSource.query(
+    const chunkRows = await this.dataSource.query<
+      Array<{ id: string; document_id: string; chunk_text: string }>
+    >(
       `SELECT id, document_id, chunk_text
        FROM document_chunks
        WHERE organization_id = $1 AND employee_id = $2
@@ -526,9 +511,7 @@ export class EmployeeDocumentsService {
       };
     }
 
-    const context = chunkRows
-      .map((r: { chunk_text: string }) => r.chunk_text)
-      .join('\n\n');
+    const context = chunkRows.map((r) => r.chunk_text).join('\n\n');
     const docMap = new Map(docs.map((d) => [d.id, d]));
 
     let answer: string;
@@ -543,14 +526,12 @@ export class EmployeeDocumentsService {
           { role: 'user', content: `Context:\n${context}\n\nQuestion: ${message}` },
         ],
       });
-      answer =
-        response.choices?.[0]?.message?.content?.trim() ??
-        'No answer could be generated.';
+      answer = response.choices?.[0]?.message?.content?.trim() ?? 'No answer could be generated.';
     } else {
       answer = 'LLM is not configured; cannot generate an answer.';
     }
 
-    const sources: ChatSource[] = chunkRows.map((r: { document_id: string; chunk_text: string }) => {
+    const sources: ChatSource[] = chunkRows.map((r) => {
       const doc = docMap.get(r.document_id);
       return {
         document_id: r.document_id,

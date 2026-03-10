@@ -1,10 +1,4 @@
-import {
-  IsString,
-  IsOptional,
-  IsDateString,
-  MaxLength,
-  Matches,
-} from 'class-validator';
+import { IsString, IsOptional, IsDateString, MaxLength } from 'class-validator';
 
 export class UpdateOrganizationProfileDto {
   @IsOptional()
@@ -223,4 +217,3 @@ export class UpdateOrganizationProfileDto {
   @IsDateString()
   lab_license_expiration?: string;
 }
-

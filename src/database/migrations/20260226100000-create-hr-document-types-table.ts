@@ -100,14 +100,8 @@ export class CreateHrDocumentTypesTable20260226100000 implements MigrationInterf
       'hr_document_types',
       'idx_hr_document_types_organization_id_is_active',
     );
-    await queryRunner.dropIndex(
-      'hr_document_types',
-      'idx_hr_document_types_organization_id',
-    );
-    await queryRunner.dropForeignKey(
-      'hr_document_types',
-      'fk_hr_document_types_organization_id',
-    );
+    await queryRunner.dropIndex('hr_document_types', 'idx_hr_document_types_organization_id');
+    await queryRunner.dropForeignKey('hr_document_types', 'fk_hr_document_types_organization_id');
     await queryRunner.dropTable('hr_document_types', true);
   }
 }

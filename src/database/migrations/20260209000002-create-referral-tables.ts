@@ -76,7 +76,10 @@ export class CreateReferralTables20260209000002 implements MigrationInterface {
 
     await queryRunner.createIndex(
       'referrals',
-      new TableIndex({ name: 'idx_referrals_sending_organization_id', columnNames: ['sending_organization_id'] }),
+      new TableIndex({
+        name: 'idx_referrals_sending_organization_id',
+        columnNames: ['sending_organization_id'],
+      }),
     );
     await queryRunner.createIndex(
       'referrals',
@@ -88,7 +91,10 @@ export class CreateReferralTables20260209000002 implements MigrationInterface {
     );
     await queryRunner.createIndex(
       'referrals',
-      new TableIndex({ name: 'idx_referrals_organization_type_id', columnNames: ['organization_type_id'] }),
+      new TableIndex({
+        name: 'idx_referrals_organization_type_id',
+        columnNames: ['organization_type_id'],
+      }),
     );
     await queryRunner.createIndex(
       'referrals',
@@ -116,7 +122,10 @@ export class CreateReferralTables20260209000002 implements MigrationInterface {
 
     await queryRunner.createUniqueConstraint(
       'referral_organizations',
-      new TableUnique({ columnNames: ['referral_id', 'organization_id'], name: 'uq_referral_organizations_referral_org' }),
+      new TableUnique({
+        columnNames: ['referral_id', 'organization_id'],
+        name: 'uq_referral_organizations_referral_org',
+      }),
     );
     await queryRunner.createForeignKey(
       'referral_organizations',
@@ -140,11 +149,17 @@ export class CreateReferralTables20260209000002 implements MigrationInterface {
     );
     await queryRunner.createIndex(
       'referral_organizations',
-      new TableIndex({ name: 'idx_referral_organizations_referral_id', columnNames: ['referral_id'] }),
+      new TableIndex({
+        name: 'idx_referral_organizations_referral_id',
+        columnNames: ['referral_id'],
+      }),
     );
     await queryRunner.createIndex(
       'referral_organizations',
-      new TableIndex({ name: 'idx_referral_organizations_organization_id', columnNames: ['organization_id'] }),
+      new TableIndex({
+        name: 'idx_referral_organizations_organization_id',
+        columnNames: ['organization_id'],
+      }),
     );
 
     await queryRunner.createTable(
@@ -206,7 +221,10 @@ export class CreateReferralTables20260209000002 implements MigrationInterface {
     );
     await queryRunner.createIndex(
       'referral_messages',
-      new TableIndex({ name: 'idx_referral_messages_referral_created', columnNames: ['referral_id', 'created_at'] }),
+      new TableIndex({
+        name: 'idx_referral_messages_referral_created',
+        columnNames: ['referral_id', 'created_at'],
+      }),
     );
 
     await queryRunner.createTable(
@@ -226,7 +244,10 @@ export class CreateReferralTables20260209000002 implements MigrationInterface {
 
     await queryRunner.createUniqueConstraint(
       'referral_last_read',
-      new TableUnique({ columnNames: ['referral_id', 'organization_id'], name: 'uq_referral_last_read_referral_org' }),
+      new TableUnique({
+        columnNames: ['referral_id', 'organization_id'],
+        name: 'uq_referral_last_read_referral_org',
+      }),
     );
     await queryRunner.createForeignKey(
       'referral_last_read',
@@ -254,7 +275,10 @@ export class CreateReferralTables20260209000002 implements MigrationInterface {
     );
     await queryRunner.createIndex(
       'referral_last_read',
-      new TableIndex({ name: 'idx_referral_last_read_organization_id', columnNames: ['organization_id'] }),
+      new TableIndex({
+        name: 'idx_referral_last_read_organization_id',
+        columnNames: ['organization_id'],
+      }),
     );
   }
 

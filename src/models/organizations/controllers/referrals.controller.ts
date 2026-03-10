@@ -47,7 +47,11 @@ export class ReferralsController {
     if (forwarded) {
       return Array.isArray(forwarded) ? forwarded[0] : forwarded.split(',')[0];
     }
-    return request.ip || (request.socket as any)?.remoteAddress || 'unknown';
+    return (
+      request.ip ||
+      (request.socket as { remoteAddress?: string } | undefined)?.remoteAddress ||
+      'unknown'
+    );
   }
 
   private getUserAgent(request: FastifyRequest): string {

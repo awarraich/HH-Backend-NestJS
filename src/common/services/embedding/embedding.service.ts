@@ -10,9 +10,7 @@ export class EmbeddingService {
   private readonly provider: string;
 
   constructor(private configService: ConfigService) {
-    this.provider =
-      this.configService.get<string>('embedding.provider')?.toLowerCase() ??
-      'none';
+    this.provider = this.configService.get<string>('embedding.provider')?.toLowerCase() ?? 'none';
     this.model =
       this.configService.get<string>('embedding.model') ??
       process.env.EMBEDDING_MODEL ??
@@ -59,7 +57,7 @@ export class EmbeddingService {
       if (!embedding || !Array.isArray(embedding)) {
         return null;
       }
-      return embedding as number[];
+      return embedding;
     } catch (err) {
       this.logger.error('Embedding request failed', err);
       return null;

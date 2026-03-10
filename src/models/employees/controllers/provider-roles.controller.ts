@@ -16,7 +16,7 @@ export class ProviderRolesController {
   @Get()
   @HttpCode(HttpStatus.OK)
   @Roles('OWNER', 'HR', 'ADMIN')
-  async findAll(@Param('organizationId') _organizationId: string) {
+  async findAll(@Param('organizationId') _organizationId: string): Promise<unknown> {
     const roles = await this.providerRolesService.findAll();
     const data = this.providerRoleSerializer.serializeMany(roles);
     return SuccessHelper.createSuccessResponse(data);

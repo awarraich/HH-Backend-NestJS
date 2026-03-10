@@ -1,16 +1,12 @@
-import {
-  Injectable,
-  NotFoundException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository } from 'typeorm';
 import { Blog } from './entities/blog.entity';
 import { User } from '../../authentication/entities/user.entity';
 import { CreateBlogDto } from './dto/create-blog.dto';
 import { UpdateBlogDto } from './dto/update-blog.dto';
 import { QueryBlogDto } from './dto/query-blog.dto';
-import { BlogSerializer } from './serializers/blog.serializer';
+import { BlogSerializer, type SerializedBlog } from './serializers/blog.serializer';
 
 @Injectable()
 export class BlogService {
@@ -23,19 +19,14 @@ export class BlogService {
     private userRepository: Repository<User>,
   ) {}
 
-  async create(
-    createBlogDto: CreateBlogDto,
-    userId: string,
-  ): Promise<any> {
+  async create(createBlogDto: CreateBlogDto, userId: string): Promise<SerializedBlog> {
     // Check if slug already exists
     const existingBlog = await this.blogRepository.findOne({
       where: { slug: createBlogDto.slug },
     });
 
     if (existingBlog) {
-      throw new BadRequestException(
-        'A blog post with this slug already exists',
-      );
+      throw new BadRequestException('A blog post with this slug already exists');
     }
 
     const blogData = {
@@ -47,9 +38,9 @@ export class BlogService {
 
     const blog = this.blogRepository.create(blogData);
     const saved = await this.blogRepository.save(blog);
-    
+
     // Fetch author for response
-    const author = await this.userRepository.findOne({ where: { id: userId } }) || undefined;
+    const author = (await this.userRepository.findOne({ where: { id: userId } })) || undefined;
     return this.blogSerializer.serialize(saved, author);
   }
 
@@ -60,7 +51,7 @@ export class BlogService {
     userId: string,
     page: number = 1,
     limit: number = 50,
-  ): Promise<{ data: any[]; total: number; page: number; limit: number }> {
+  ): Promise<{ data: SerializedBlog[]; total: number; page: number; limit: number }> {
     const skip = (page - 1) * limit;
     const queryBuilder = this.blogRepository
       .createQueryBuilder('blog')
@@ -79,7 +70,7 @@ export class BlogService {
   }
 
   async findAll(queryDto: QueryBlogDto): Promise<{
-    data: any[];
+    data: SerializedBlog[];
     total: number;
     page: number;
     limit: number;
@@ -119,7 +110,7 @@ export class BlogService {
     };
   }
 
-  async findOne(id: string, options?: { allowDraft?: boolean }): Promise<any> {
+  async findOne(id: string, options?: { allowDraft?: boolean }): Promise<SerializedBlog> {
     const blog = await this.blogRepository.findOne({
       where: { id },
       relations: ['author'],
@@ -136,7 +127,7 @@ export class BlogService {
     return this.blogSerializer.serialize(blog);
   }
 
-  async findBySlug(slug: string, options?: { allowDraft?: boolean }): Promise<any> {
+  async findBySlug(slug: string, options?: { allowDraft?: boolean }): Promise<SerializedBlog> {
     const blog = await this.blogRepository.findOne({
       where: { slug },
       relations: ['author'],
@@ -153,11 +144,7 @@ export class BlogService {
     return this.blogSerializer.serialize(blog);
   }
 
-  async update(
-    id: string,
-    updateBlogDto: UpdateBlogDto,
-    userId: string,
-  ): Promise<any> {
+  async update(id: string, updateBlogDto: UpdateBlogDto, _userId: string): Promise<SerializedBlog> {
     const blog = await this.blogRepository.findOne({
       where: { id },
     });
@@ -167,23 +154,18 @@ export class BlogService {
     }
 
     // Check if slug is being updated and if it already exists
-    if (
-      updateBlogDto.slug &&
-      updateBlogDto.slug !== blog.slug
-    ) {
+    if (updateBlogDto.slug && updateBlogDto.slug !== blog.slug) {
       const existingBlog = await this.blogRepository.findOne({
         where: { slug: updateBlogDto.slug },
       });
 
       if (existingBlog) {
-        throw new BadRequestException(
-          'A blog post with this slug already exists',
-        );
+        throw new BadRequestException('A blog post with this slug already exists');
       }
     }
 
     // Handle publishing
-    const updateData: any = { ...updateBlogDto };
+    const updateData: Partial<Blog> & { published_at?: Date } = { ...updateBlogDto };
     if (updateBlogDto.is_published !== undefined) {
       if (updateBlogDto.is_published && !blog.is_published) {
         updateData.published_at = new Date();
@@ -198,7 +180,7 @@ export class BlogService {
     return this.blogSerializer.serialize(updated);
   }
 
-  async remove(id: string, userId: string): Promise<void> {
+  async remove(id: string, _userId: string): Promise<void> {
     const blog = await this.blogRepository.findOne({
       where: { id },
     });

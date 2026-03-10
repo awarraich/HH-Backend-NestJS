@@ -18,4 +18,3 @@ import { Admin } from '../../../models/admins/entities/admin.entity';
   exports: [OnboardingStatusService],
 })
 export class OnboardingStatusModule {}
-

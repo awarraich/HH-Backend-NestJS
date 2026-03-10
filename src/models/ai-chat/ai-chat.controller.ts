@@ -10,7 +10,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 export class AiChatController {
   @Get('user-chats')
   @HttpCode(HttpStatus.OK)
-  getUserChats(@Query('page') _page?: string) {
+  getUserChats(@Query('page') _page?: string): { chatsList: never[]; has_more: boolean } {
     return {
       chatsList: [],
       has_more: false,

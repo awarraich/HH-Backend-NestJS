@@ -38,89 +38,81 @@ export class OnboardingStatusService {
     private adminRepository: Repository<Admin>,
   ) {}
 
-  async getOnboardingStatus(
-    userId: string,
-    roles: string[],
-  ): Promise<OnboardingStatusResponse> {
+  async getOnboardingStatus(userId: string, roles: string[]): Promise<OnboardingStatusResponse> {
     try {
       const normalizedRoles = roles.map((r) => r.toUpperCase());
 
-    if (normalizedRoles.includes('ADMIN')) {
-      return {
-        currentStep: 'admin',
-        nextAction: 'navigate_to_admin',
-        redirectPath: '/admin',
-        requiresAction: false,
-        details: {
-          hasRole: true,
-          role: 'ADMIN',
-        },
-      };
-    }
+      if (normalizedRoles.includes('ADMIN')) {
+        return {
+          currentStep: 'admin',
+          nextAction: 'navigate_to_admin',
+          redirectPath: '/admin',
+          requiresAction: false,
+          details: {
+            hasRole: true,
+            role: 'ADMIN',
+          },
+        };
+      }
 
-    if (normalizedRoles.length === 0) {
+      if (normalizedRoles.length === 0) {
+        return {
+          currentStep: 'role_selection',
+          nextAction: 'select_role',
+          redirectPath: '/onboarding/role-selection',
+          requiresAction: true,
+          details: {
+            hasRole: false,
+          },
+        };
+      }
+
+      if (normalizedRoles.includes('ORGANIZATION')) {
+        return this.getOrganizationOnboardingStatus(userId);
+      }
+
+      if (normalizedRoles.includes('PATIENT')) {
+        return this.getPatientOnboardingStatus(userId);
+      }
+
+      if (normalizedRoles.includes('PROVIDER')) {
+        return this.getProviderOnboardingStatus(userId);
+      }
+
+      if (normalizedRoles.includes('STAFF')) {
+        return {
+          currentStep: 'completed',
+          nextAction: 'navigate_to_dashboard',
+          redirectPath: '/organization/dashboard',
+          requiresAction: false,
+          details: {
+            hasRole: true,
+            role: 'STAFF',
+          },
+        };
+      }
+
+      if (normalizedRoles.includes('EMPLOYEE')) {
+        return this.getEmployeeOnboardingStatus(userId);
+      }
+
       return {
-        currentStep: 'role_selection',
-        nextAction: 'select_role',
-        redirectPath: '/onboarding/role-selection',
+        currentStep: 'profile_setup',
+        nextAction: 'complete_profile',
+        redirectPath: '/onboarding/profile',
         requiresAction: true,
         details: {
-          hasRole: false,
-        },
-      };
-    }
-
-    if (normalizedRoles.includes('ORGANIZATION')) {
-      return this.getOrganizationOnboardingStatus(userId);
-    }
-
-    if (normalizedRoles.includes('PATIENT')) {
-      return this.getPatientOnboardingStatus(userId);
-    }
-
-    if (normalizedRoles.includes('PROVIDER')) {
-      return this.getProviderOnboardingStatus(userId);
-    }
-
-    if (normalizedRoles.includes('STAFF')) {
-      return {
-        currentStep: 'completed',
-        nextAction: 'navigate_to_dashboard',
-        redirectPath: '/organization/dashboard',
-        requiresAction: false,
-        details: {
           hasRole: true,
-          role: 'STAFF',
+          role: normalizedRoles[0],
         },
       };
-    }
-
-    if (normalizedRoles.includes('EMPLOYEE')) {
-      return this.getEmployeeOnboardingStatus(userId);
-    }
-
-    return {
-      currentStep: 'profile_setup',
-      nextAction: 'complete_profile',
-      redirectPath: '/onboarding/profile',
-      requiresAction: true,
-      details: {
-        hasRole: true,
-        role: normalizedRoles[0],
-      },
-    };
     } catch (error) {
-      this.logger.error(
-        `Error getting onboarding status for user ${userId}`,
-        error,
-      );
+      this.logger.error(`Error getting onboarding status for user ${userId}`, error);
       throw error;
     }
   }
 
-  private async getOrganizationOnboardingStatus(
-    userId: string,
-  ): Promise<OnboardingStatusResponse> {
+  private async getOrganizationOnboardingStatus(userId: string): Promise<OnboardingStatusResponse> {
     const organization = await this.organizationRepository.findByUserId(userId);
 
     if (!organization) {
@@ -138,8 +130,7 @@ export class OnboardingStatusService {
     }
 
     const hasOrganizationType =
-      organization.typeAssignments &&
-      organization.typeAssignments.length > 0;
+      organization.typeAssignments && organization.typeAssignments.length > 0;
 
     if (!hasOrganizationType) {
       return {
@@ -203,9 +194,7 @@ export class OnboardingStatusService {
     };
   }
 
-  private async getPatientOnboardingStatus(
-    userId: string,
-  ): Promise<OnboardingStatusResponse> {
+  private async getPatientOnboardingStatus(userId: string): Promise<OnboardingStatusResponse> {
     const patient = await this.patientRepository.findOne({
       where: { user_id: userId },
       relations: ['profile'],
@@ -254,9 +243,7 @@ export class OnboardingStatusService {
     };
   }
 
-  private async getProviderOnboardingStatus(
-    userId: string,
-  ): Promise<OnboardingStatusResponse> {
+  private async getProviderOnboardingStatus(userId: string): Promise<OnboardingStatusResponse> {
     const provider = await this.providerRepository.findOne({
       where: { user_id: userId },
       relations: ['profile'],
@@ -305,9 +292,7 @@ export class OnboardingStatusService {
     };
   }
 
-  private async getEmployeeOnboardingStatus(
-    userId: string,
-  ): Promise<OnboardingStatusResponse> {
+  private async getEmployeeOnboardingStatus(userId: string): Promise<OnboardingStatusResponse> {
     const employee = await this.employeeRepository.findOne({
       where: { user_id: userId },
       relations: ['profile'],

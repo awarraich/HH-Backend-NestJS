@@ -42,6 +42,7 @@ export class BlogImageStorageService {
     storedName: string,
     originalFilename: string,
   ): Promise<{ file_name: string; file_url: string }> {
+    await Promise.resolve(); // satisfy require-await (sync work below)
     const dir = path.join(this.storageConfig.path, BLOG_IMAGES_SUBDIR);
     fs.mkdirSync(dir, { recursive: true });
     const filePath = path.join(dir, storedName);

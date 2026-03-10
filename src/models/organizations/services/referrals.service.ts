@@ -182,10 +182,10 @@ export class ReferralsService {
   async findAll(
     organizationId: string,
     queryDto: QueryReferralDto,
-    userId?: string,
-    ipAddress?: string,
-    userAgent?: string,
-  ): Promise<{ data: any[]; total: number; page: number; limit: number }> {
+    _userId?: string,
+    _ipAddress?: string,
+    _userAgent?: string,
+  ): Promise<{ data: unknown[]; total: number; page: number; limit: number }> {
     const filters: ReferralListFilters = {
       status: queryDto.status,
       organization_type_id: queryDto.organization_type_id,
@@ -209,10 +209,10 @@ export class ReferralsService {
   async findOne(
     organizationId: string,
     referralId: string,
-    userId?: string,
-    ipAddress?: string,
-    userAgent?: string,
-  ): Promise<any> {
+    _userId?: string,
+    _ipAddress?: string,
+    _userAgent?: string,
+  ): Promise<unknown> {
     const referral = await this.referralRepository.findByIdWithRelations(referralId);
     if (!referral) throw new NotFoundException('Referral not found');
     const isSender = referral.sending_organization_id === organizationId;
@@ -229,10 +229,10 @@ export class ReferralsService {
     organizationId: string,
     referralId: string,
     dto: UpdateReferralResponseDto,
-    userId?: string,
-    ipAddress?: string,
-    userAgent?: string,
-  ): Promise<any> {
+    _userId?: string,
+    _ipAddress?: string,
+    _userAgent?: string,
+  ): Promise<unknown> {
     const referral = await this.referralRepository.findOne({
       where: { id: referralId },
       relations: ['referralOrganizations'],
@@ -253,10 +253,10 @@ export class ReferralsService {
     organizationId: string,
     referralId: string,
     dto: AssignReferralDto,
-    userId?: string,
-    ipAddress?: string,
-    userAgent?: string,
-  ): Promise<any> {
+    _userId?: string,
+    _ipAddress?: string,
+    _userAgent?: string,
+  ): Promise<unknown> {
     const referral = await this.referralRepository.findOne({
       where: { id: referralId },
       relations: ['referralOrganizations'],
@@ -280,10 +280,10 @@ export class ReferralsService {
   async getResponses(
     organizationId: string,
     referralId: string,
-    userId?: string,
-    ipAddress?: string,
-    userAgent?: string,
-  ): Promise<any> {
+    _userId?: string,
+    _ipAddress?: string,
+    _userAgent?: string,
+  ): Promise<unknown> {
     const referral = await this.referralRepository.findByIdWithRelations(referralId);
     if (!referral) throw new NotFoundException('Referral not found');
     if (referral.sending_organization_id !== organizationId) {

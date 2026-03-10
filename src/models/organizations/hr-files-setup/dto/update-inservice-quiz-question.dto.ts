@@ -1,12 +1,4 @@
-import {
-  IsString,
-  IsOptional,
-  IsInt,
-  Min,
-  IsIn,
-  IsArray,
-  IsBoolean,
-} from 'class-validator';
+import { IsString, IsOptional, IsInt, Min, IsIn, IsArray, IsBoolean } from 'class-validator';
 import { INSERVICE_QUESTION_TYPES } from '../entities/inservice-quiz-question.entity';
 
 export class UpdateInserviceQuizQuestionDto {

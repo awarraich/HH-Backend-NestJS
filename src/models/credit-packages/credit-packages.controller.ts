@@ -30,15 +30,9 @@ export class CreditPackagesController {
   async create(
     @Body() createCreditPackageDto: CreateCreditPackageDto,
     @LoggedInUser() user: UserWithRolesInterface,
-  ) {
-    const result = await this.creditPackagesService.create(
-      createCreditPackageDto,
-      user.userId,
-    );
-    return SuccessHelper.createSuccessResponse(
-      result,
-      'Credit package created successfully',
-    );
+  ): Promise<unknown> {
+    const result = await this.creditPackagesService.create(createCreditPackageDto, user.userId);
+    return SuccessHelper.createSuccessResponse(result, 'Credit package created successfully');
   }
 
   @Get()
@@ -55,7 +49,7 @@ export class CreditPackagesController {
 
   @Get(':id')
   @HttpCode(HttpStatus.OK)
-  async findOne(@Param('id') id: string) {
+  async findOne(@Param('id') id: string): Promise<unknown> {
     const result = await this.creditPackagesService.findOne(id);
     return SuccessHelper.createSuccessResponse(result);
   }
@@ -67,15 +61,8 @@ export class CreditPackagesController {
     @Body() updateCreditPackageDto: UpdateCreditPackageDto,
     @LoggedInUser() user: UserWithRolesInterface,
   ) {
-    const result = await this.creditPackagesService.update(
-      id,
-      updateCreditPackageDto,
-      user.userId,
-    );
-    return SuccessHelper.createSuccessResponse(
-      result,
-      'Credit package updated successfully',
-    );
+    const result = await this.creditPackagesService.update(id, updateCreditPackageDto, user.userId);
+    return SuccessHelper.createSuccessResponse(result, 'Credit package updated successfully');
   }
 
   @Delete(':id')
@@ -83,12 +70,8 @@ export class CreditPackagesController {
   async remove(
     @Param('id') id: string,
     @LoggedInUser() user: UserWithRolesInterface,
-  ) {
+  ): Promise<unknown> {
     await this.creditPackagesService.remove(id, user.userId);
-    return SuccessHelper.createSuccessResponse(
-      null,
-      'Credit package deleted successfully',
-    );
+    return SuccessHelper.createSuccessResponse(null, 'Credit package deleted successfully');
   }
 }
-

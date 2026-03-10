@@ -54,14 +54,8 @@ export class InserviceQuizQuestionService {
     };
   }
 
-  async findAll(
-    inserviceId: string,
-    userId: string,
-  ): Promise<InserviceQuizQuestionResponse[]> {
-    await this.inserviceTrainingService.ensureInserviceAccess(
-      inserviceId,
-      userId,
-    );
+  async findAll(inserviceId: string, userId: string): Promise<InserviceQuizQuestionResponse[]> {
+    await this.inserviceTrainingService.ensureInserviceAccess(inserviceId, userId);
 
     const questions = await this.quizQuestionRepository.find({
       where: { inservice_training_id: inserviceId },
@@ -76,10 +70,7 @@ export class InserviceQuizQuestionService {
     questionId: string,
     userId: string,
   ): Promise<InserviceQuizQuestionResponse> {
-    await this.inserviceTrainingService.ensureInserviceAccess(
-      inserviceId,
-      userId,
-    );
+    await this.inserviceTrainingService.ensureInserviceAccess(inserviceId, userId);
 
     const question = await this.quizQuestionRepository.findOne({
       where: {
@@ -100,10 +91,7 @@ export class InserviceQuizQuestionService {
     dto: CreateInserviceQuizQuestionDto,
     userId: string,
   ): Promise<InserviceQuizQuestionResponse> {
-    await this.inserviceTrainingService.ensureInserviceAccess(
-      inserviceId,
-      userId,
-    );
+    await this.inserviceTrainingService.ensureInserviceAccess(inserviceId, userId);
 
     const existingCount = await this.quizQuestionRepository.count({
       where: { inservice_training_id: inserviceId },
@@ -125,9 +113,7 @@ export class InserviceQuizQuestionService {
       explanation: dto.explanation ?? null,
     } as Partial<InserviceQuizQuestion>);
 
-    const saved = await this.quizQuestionRepository.save(
-      question as InserviceQuizQuestion,
-    );
+    const saved = await this.quizQuestionRepository.save(question);
 
     if (existingCount === 0) {
       await this.inserviceTrainingService.setHasQuiz(inserviceId, true);
@@ -142,10 +128,7 @@ export class InserviceQuizQuestionService {
     dto: UpdateInserviceQuizQuestionDto,
     userId: string,
   ): Promise<InserviceQuizQuestionResponse> {
-    await this.inserviceTrainingService.ensureInserviceAccess(
-      inserviceId,
-      userId,
-    );
+    await this.inserviceTrainingService.ensureInserviceAccess(inserviceId, userId);
 
     const question = await this.quizQuestionRepository.findOne({
       where: {
@@ -187,15 +170,8 @@ export class InserviceQuizQuestionService {
     return this.toResponse(saved);
   }
 
-  async remove(
-    inserviceId: string,
-    questionId: string,
-    userId: string,
-  ): Promise<void> {
-    await this.inserviceTrainingService.ensureInserviceAccess(
-      inserviceId,
-      userId,
-    );
+  async remove(inserviceId: string, questionId: string, userId: string): Promise<void> {
+    await this.inserviceTrainingService.ensureInserviceAccess(inserviceId, userId);
 
     const question = await this.quizQuestionRepository.findOne({
       where: {
