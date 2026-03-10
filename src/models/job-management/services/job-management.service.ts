@@ -1,12 +1,12 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { JobPosting } from './entities/job-posting.entity';
-import { JobApplication } from './entities/job-application.entity';
-import { CreateJobPostingDto } from './dto/create-job-posting.dto';
-import { CreateJobApplicationDto } from './dto/create-job-application.dto';
-import { UpdateJobPostingDto } from './dto/update-job-posting.dto';
-import { QueryJobPostingDto } from './dto/query-job-posting.dto';
+import { JobPosting } from '../entities/job-posting.entity';
+import { JobApplication } from '../entities/job-application.entity';
+import { CreateJobPostingDto } from '../dto/create-job-posting.dto';
+import { CreateJobApplicationDto } from '../dto/create-job-application.dto';
+import { UpdateJobPostingDto } from '../dto/update-job-posting.dto';
+import { QueryJobPostingDto } from '../dto/query-job-posting.dto';
 
 @Injectable()
 export class JobManagementService {

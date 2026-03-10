@@ -1,12 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { PatientChatConversation } from './entities/patient-chat-conversation.entity';
-import { PatientChatMessage } from './entities/patient-chat-message.entity';
-import { CreateConversationDto } from './dto/create-conversation.dto';
-import { CreateMessageDto } from './dto/create-message.dto';
-import { QueryConversationsDto } from './dto/query-conversations.dto';
-import type { RecipientType } from './entities/patient-chat-conversation.entity';
+import { PatientChatConversation } from '../entities/patient-chat-conversation.entity';
+import { PatientChatMessage } from '../entities/patient-chat-message.entity';
+import { CreateConversationDto } from '../dto/create-conversation.dto';
+import { CreateMessageDto } from '../dto/create-message.dto';
+import { QueryConversationsDto } from '../dto/query-conversations.dto';
+import type { RecipientType } from '../entities/patient-chat-conversation.entity';
 
 export interface ConversationListItem {
   id: string;

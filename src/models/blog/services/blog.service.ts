@@ -1,12 +1,12 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Blog } from './entities/blog.entity';
-import { User } from '../../authentication/entities/user.entity';
-import { CreateBlogDto } from './dto/create-blog.dto';
-import { UpdateBlogDto } from './dto/update-blog.dto';
-import { QueryBlogDto } from './dto/query-blog.dto';
-import { BlogSerializer, type SerializedBlog } from './serializers/blog.serializer';
+import { Blog } from '../entities/blog.entity';
+import { User } from '../../../authentication/entities/user.entity';
+import { CreateBlogDto } from '../dto/create-blog.dto';
+import { UpdateBlogDto } from '../dto/update-blog.dto';
+import { QueryBlogDto } from '../dto/query-blog.dto';
+import { BlogSerializer, type SerializedBlog } from '../serializers/blog.serializer';
 
 @Injectable()
 export class BlogService {

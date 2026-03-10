@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { BlogController } from './blog.controller';
-import { BlogService } from './blog.service';
+import { BlogController } from './controllers/blog.controller';
+import { BlogService } from './services/blog.service';
 import { BlogImageStorageService } from './services/blog-image-storage.service';
 import { Blog } from './entities/blog.entity';
 import { User } from '../../authentication/entities/user.entity';

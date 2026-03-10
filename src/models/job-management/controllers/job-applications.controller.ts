@@ -1,7 +1,7 @@
 import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
-import { SuccessHelper } from '../../common/helpers/responses/success.helper';
-import { JobManagementService } from './job-management.service';
-import { CreateJobApplicationDto } from './dto/create-job-application.dto';
+import { SuccessHelper } from '../../../common/helpers/responses/success.helper';
+import { JobManagementService } from '../services/job-management.service';
+import { CreateJobApplicationDto } from '../dto/create-job-application.dto';
 
 /**
  * Controller at /api/job-management so that POST /api/job-management/job-applications

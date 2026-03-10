@@ -9,15 +9,15 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { LoggedInUser } from '../../common/decorators/requests/logged-in-user.decorator';
-import type { UserWithRolesInterface } from '../../common/interfaces/user-with-roles.interface';
-import { SuccessHelper } from '../../common/helpers/responses/success.helper';
-import { PatientChatService } from './patient-chat.service';
-import { CreateConversationDto } from './dto/create-conversation.dto';
-import { CreateMessageDto } from './dto/create-message.dto';
-import { QueryConversationsDto } from './dto/query-conversations.dto';
-import { QueryRecipientsDto } from './dto/query-recipients.dto';
+import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
+import { LoggedInUser } from '../../../common/decorators/requests/logged-in-user.decorator';
+import type { UserWithRolesInterface } from '../../../common/interfaces/user-with-roles.interface';
+import { SuccessHelper } from '../../../common/helpers/responses/success.helper';
+import { PatientChatService } from '../services/patient-chat.service';
+import { CreateConversationDto } from '../dto/create-conversation.dto';
+import { CreateMessageDto } from '../dto/create-message.dto';
+import { QueryConversationsDto } from '../dto/query-conversations.dto';
+import { QueryRecipientsDto } from '../dto/query-recipients.dto';
 
 @Controller('v1/api/patient-chat')
 @UseGuards(JwtAuthGuard)

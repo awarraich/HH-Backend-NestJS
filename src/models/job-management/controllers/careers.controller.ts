@@ -1,7 +1,7 @@
 import { Controller, Get, Query, HttpCode, HttpStatus } from '@nestjs/common';
-import { JobManagementService } from './job-management.service';
-import { QueryJobPostingDto } from './dto/query-job-posting.dto';
-import { SuccessHelper } from '../../common/helpers/responses/success.helper';
+import { JobManagementService } from '../services/job-management.service';
+import { QueryJobPostingDto } from '../dto/query-job-posting.dto';
+import { SuccessHelper } from '../../../common/helpers/responses/success.helper';
 
 /**
  * Public careers API – same URL structure as blogs: /v1/api/careers.

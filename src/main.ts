@@ -30,8 +30,8 @@ import { HttpExceptionFilter } from './common/exceptions/http-exception.filter';
 import { AuthService } from './authentication/services/auth.service';
 import { GoogleOAuthGuard } from './common/guards/google-oauth.guard';
 import { SocketIoAdapter } from './common/adapters/socket-io.adapter';
-import { JobManagementService } from './models/job-management/job-management.service';
-import { BlogService } from './models/blog/blog.service';
+import { JobManagementService } from './models/job-management/services/job-management.service';
+import { BlogService } from './models/blog/services/blog.service';
 import { SuccessHelper } from './common/helpers/responses/success.helper';
 import { McpHttpHandlerService } from './mcp/mcp-http-handler.service';
 
