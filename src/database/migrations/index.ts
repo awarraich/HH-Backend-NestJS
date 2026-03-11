@@ -21,6 +21,7 @@ import { SeedOrganizationTypesTable20260219100001 } from './20260219100001-seed-
 import { CreateBlogsTable1708000000000 } from './20260220000000-create-blogs-table.js';
 import { CreatePatientChatTables20260302000000 } from './20260302000000-create-patient-chat-tables.js';
 import { CreateJobPostingsTable20260304000000 } from './20260304000000-create-job-postings-table.js';
+import { CreateInserviceCompletionsAndQuizAttempts20260311100000 } from './20260311100000-create-inservice-completions-and-quiz-attempts.js';
 
 /** Type for migration class constructors (TypeORM instantiates these at runtime). */
 type MigrationConstructor = new () => MigrationInterface;
@@ -52,4 +53,5 @@ export const migrations: MigrationConstructor[] = [
   CreateBlogsTable1708000000000,
   CreatePatientChatTables20260302000000,
   CreateJobPostingsTable20260304000000,
+  CreateInserviceCompletionsAndQuizAttempts20260311100000,
 ];

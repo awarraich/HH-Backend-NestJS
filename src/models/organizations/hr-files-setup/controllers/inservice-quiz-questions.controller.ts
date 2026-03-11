@@ -10,6 +10,7 @@ import {
   Req,
   HttpCode,
   HttpStatus,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import { JwtAuthGuard } from '../../../../common/guards/jwt-auth.guard';
@@ -28,7 +29,7 @@ export class InserviceQuizQuestionsController {
   @Get()
   @HttpCode(HttpStatus.OK)
   async findAll(
-    @Param('inserviceId') inserviceId: string,
+    @Param('inserviceId', ParseUUIDPipe) inserviceId: string,
     @Req() req: FastifyRequest & { user?: { userId?: string; sub?: string } },
   ) {
     const userId = req.user?.userId ?? req.user?.sub ?? '';
@@ -40,8 +41,8 @@ export class InserviceQuizQuestionsController {
   @Get(':questionId')
   @HttpCode(HttpStatus.OK)
   async findOne(
-    @Param('inserviceId') inserviceId: string,
-    @Param('questionId') questionId: string,
+    @Param('inserviceId', ParseUUIDPipe) inserviceId: string,
+    @Param('questionId', ParseUUIDPipe) questionId: string,
     @Req() req: FastifyRequest & { user?: { userId?: string; sub?: string } },
   ) {
     const userId = req.user?.userId ?? req.user?.sub ?? '';
@@ -56,7 +57,7 @@ export class InserviceQuizQuestionsController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async create(
-    @Param('inserviceId') inserviceId: string,
+    @Param('inserviceId', ParseUUIDPipe) inserviceId: string,
     @Body() dto: CreateInserviceQuizQuestionDto,
     @Req() req: FastifyRequest & { user?: { userId?: string; sub?: string } },
   ) {
@@ -75,8 +76,8 @@ export class InserviceQuizQuestionsController {
   @Patch(':questionId')
   @HttpCode(HttpStatus.OK)
   async update(
-    @Param('inserviceId') inserviceId: string,
-    @Param('questionId') questionId: string,
+    @Param('inserviceId', ParseUUIDPipe) inserviceId: string,
+    @Param('questionId', ParseUUIDPipe) questionId: string,
     @Body() dto: UpdateInserviceQuizQuestionDto,
     @Req() req: FastifyRequest & { user?: { userId?: string; sub?: string } },
   ) {
@@ -96,8 +97,8 @@ export class InserviceQuizQuestionsController {
   @Delete(':questionId')
   @HttpCode(HttpStatus.OK)
   async remove(
-    @Param('inserviceId') inserviceId: string,
-    @Param('questionId') questionId: string,
+    @Param('inserviceId', ParseUUIDPipe) inserviceId: string,
+    @Param('questionId', ParseUUIDPipe) questionId: string,
     @Req() req: FastifyRequest & { user?: { userId?: string; sub?: string } },
   ) {
     const userId = req.user?.userId ?? req.user?.sub ?? '';
