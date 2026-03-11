@@ -182,7 +182,7 @@ export class EmployeesService {
 
       const employeeWithRelations = await this.employeeRepository.findOne({
         where: { id: saved.id },
-        relations: ['user', 'organization', 'profile', 'providerRole'],
+        relations: ['user', 'organization', 'profile', 'providerRole', 'employeeRequirementTags'],
       });
 
       return this.employeeSerializer.serialize(employeeWithRelations!);
@@ -366,7 +366,7 @@ export class EmployeesService {
 
       const employeeWithRelations = await this.employeeRepository.findOne({
         where: { id: savedEmployee.id },
-        relations: ['user', 'organization', 'profile', 'providerRole'],
+        relations: ['user', 'organization', 'profile', 'providerRole', 'employeeRequirementTags'],
       });
       return this.employeeSerializer.serialize(employeeWithRelations!);
     } catch (error) {
@@ -417,6 +417,7 @@ export class EmployeesService {
       .leftJoinAndSelect('employee.organization', 'organization')
       .leftJoinAndSelect('employee.profile', 'profile')
       .leftJoinAndSelect('employee.providerRole', 'providerRole')
+      .leftJoinAndSelect('employee.employeeRequirementTags', 'employeeRequirementTags')
       .where('employee.organization_id = :organizationId', { organizationId });
 
     if (searchTerm) {
@@ -452,7 +453,7 @@ export class EmployeesService {
         id: employeeId,
         organization_id: organizationId,
       },
-      relations: ['user', 'organization', 'profile', 'providerRole'],
+      relations: ['user', 'organization', 'profile', 'providerRole', 'employeeRequirementTags'],
     });
 
     if (!employee) {
@@ -538,7 +539,34 @@ export class EmployeesService {
       employee.notes = updateDto.notes ?? null;
     }
 
-    const updated = await this.employeeRepository.save(employee);
+    const shouldSyncTags = updateDto.requirement_tag_ids !== undefined;
+
+    if (shouldSyncTags) {
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+      try {
+        await queryRunner.manager.save(Employee, employee);
+        await this.employeeRequirementTagService.syncRequirementTagsForEmployee(
+          employeeId,
+          organizationId,
+          updateDto.requirement_tag_ids ?? [],
+          queryRunner.manager,
+        );
+        await queryRunner.commitTransaction();
+      } catch (error) {
+        await queryRunner.rollbackTransaction();
+        throw error;
+      } finally {
+        await queryRunner.release();
+      }
+    } else {
+      await this.employeeRepository.save(employee);
+    }
+
+    const updated = await this.employeeRepository.findOne({
+      where: { id: employeeId },
+    });
 
     // HIPAA Compliance: Log operation with before/after values
     try {
@@ -568,7 +596,7 @@ export class EmployeesService {
 
     const employeeWithRelations = await this.employeeRepository.findOne({
       where: { id: employeeId },
-      relations: ['user', 'organization', 'profile', 'providerRole'],
+      relations: ['user', 'organization', 'profile', 'providerRole', 'employeeRequirementTags'],
     });
 
     return this.employeeSerializer.serialize(employeeWithRelations!);

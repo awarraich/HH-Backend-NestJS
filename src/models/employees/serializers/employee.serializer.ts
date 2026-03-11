@@ -10,6 +10,7 @@ export class EmployeeSerializer {
       employment_type: employee.employment_type,
       notes: employee.notes,
       provider_role_id: employee.provider_role_id,
+      requirement_tag_ids: this.getRequirementTagIds(employee),
       start_date: employee.start_date,
       end_date: employee.end_date,
       department: employee.department,
@@ -46,6 +47,11 @@ export class EmployeeSerializer {
 
   serializeMany(employees: Employee[]): any[] {
     return employees.map((employee) => this.serialize(employee));
+  }
+
+  private getRequirementTagIds(employee: Employee): string[] {
+    if (!employee.employeeRequirementTags?.length) return [];
+    return employee.employeeRequirementTags.map((ert) => ert.requirement_tag_id);
   }
 
   private serializeProfile(profile: any): any {

@@ -10,6 +10,7 @@ import {
   Req,
   HttpCode,
   HttpStatus,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import { JwtAuthGuard } from '../../../../common/guards/jwt-auth.guard';
@@ -27,13 +28,18 @@ import { UpdateInserviceQuizQuestionDto } from '../dto/update-inservice-quiz-que
 @Controller('v1/api/organizations/:organizationId/inservice-trainings/:inserviceId/quiz-questions')
 @UseGuards(JwtAuthGuard, OrganizationRoleGuard)
 @Roles('OWNER', 'HR', 'MANAGER')
+@Controller(
+  'v1/api/organizations/:organizationId/inservice-trainings/:inserviceId/quiz-questions',
+)
+// @UseGuards(JwtAuthGuard)
+// @Roles('OWNER', 'HR', 'MANAGER')
 export class InserviceQuizQuestionsOrgController {
   constructor(private readonly inserviceQuizQuestionService: InserviceQuizQuestionService) {}
 
   @Get()
   @HttpCode(HttpStatus.OK)
   async findAll(
-    @Param('inserviceId') inserviceId: string,
+    @Param('inserviceId', ParseUUIDPipe) inserviceId: string,
     @Req() req: FastifyRequest & { user?: { userId?: string; sub?: string } },
   ) {
     const userId = req.user?.userId ?? req.user?.sub ?? '';
@@ -44,8 +50,8 @@ export class InserviceQuizQuestionsOrgController {
   @Get(':questionId')
   @HttpCode(HttpStatus.OK)
   async findOne(
-    @Param('inserviceId') inserviceId: string,
-    @Param('questionId') questionId: string,
+    @Param('inserviceId', ParseUUIDPipe) inserviceId: string,
+    @Param('questionId', ParseUUIDPipe) questionId: string,
     @Req() req: FastifyRequest & { user?: { userId?: string; sub?: string } },
   ) {
     const userId = req.user?.userId ?? req.user?.sub ?? '';
@@ -56,7 +62,7 @@ export class InserviceQuizQuestionsOrgController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async create(
-    @Param('inserviceId') inserviceId: string,
+    @Param('inserviceId', ParseUUIDPipe) inserviceId: string,
     @Body() dto: CreateInserviceQuizQuestionDto,
     @Req() req: FastifyRequest & { user?: { userId?: string; sub?: string } },
   ) {
@@ -68,8 +74,8 @@ export class InserviceQuizQuestionsOrgController {
   @Patch(':questionId')
   @HttpCode(HttpStatus.OK)
   async update(
-    @Param('inserviceId') inserviceId: string,
-    @Param('questionId') questionId: string,
+    @Param('inserviceId', ParseUUIDPipe) inserviceId: string,
+    @Param('questionId', ParseUUIDPipe) questionId: string,
     @Body() dto: UpdateInserviceQuizQuestionDto,
     @Req() req: FastifyRequest & { user?: { userId?: string; sub?: string } },
   ) {
@@ -86,8 +92,8 @@ export class InserviceQuizQuestionsOrgController {
   @Delete(':questionId')
   @HttpCode(HttpStatus.OK)
   async remove(
-    @Param('inserviceId') inserviceId: string,
-    @Param('questionId') questionId: string,
+    @Param('inserviceId', ParseUUIDPipe) inserviceId: string,
+    @Param('questionId', ParseUUIDPipe) questionId: string,
     @Req() req: FastifyRequest & { user?: { userId?: string; sub?: string } },
   ) {
     const userId = req.user?.userId ?? req.user?.sub ?? '';

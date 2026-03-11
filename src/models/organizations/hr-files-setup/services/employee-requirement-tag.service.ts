@@ -50,4 +50,45 @@ export class EmployeeRequirementTagService {
     );
     await repo.save(entities);
   }
+
+  /**
+   * Replaces the employee's requirement tags with the given list.
+   * Use for updates; validates all tag IDs belong to the organization.
+   */
+  async syncRequirementTagsForEmployee(
+    employeeId: string,
+    organizationId: string,
+    tagIds: string[],
+    manager?: EntityManager,
+  ): Promise<void> {
+    const uniqueTagIds = tagIds?.length ? [...new Set(tagIds)] : [];
+
+    const repo = manager
+      ? manager.getRepository(EmployeeRequirementTag)
+      : this.employeeRequirementTagRepository;
+    const tagRepo = manager
+      ? manager.getRepository(RequirementTag)
+      : this.requirementTagRepository;
+
+    if (uniqueTagIds.length > 0) {
+      const tags = await tagRepo.find({
+        where: { id: In(uniqueTagIds), organization_id: organizationId },
+        select: ['id'],
+      });
+      if (tags.length !== uniqueTagIds.length) {
+        throw new BadRequestException(
+          'One or more requirement tag IDs are invalid or do not belong to this organization.',
+        );
+      }
+    }
+
+    await repo.delete({ employee_id: employeeId });
+
+    if (uniqueTagIds.length === 0) return;
+
+    const entities = uniqueTagIds.map((requirement_tag_id) =>
+      repo.create({ employee_id: employeeId, requirement_tag_id }),
+    );
+    await repo.save(entities);
+  }
 }

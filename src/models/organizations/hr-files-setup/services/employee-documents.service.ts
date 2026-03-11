@@ -22,6 +22,7 @@ import { Organization } from '../../entities/organization.entity';
 import { OrganizationRoleService } from '../../services/organization-role.service';
 import { EmbeddingService } from '../../../../common/services/embedding/embedding.service';
 import { EmployeeDocumentStorageService } from './employee-document-storage.service';
+import { InserviceCompletionService } from './inservice-completion.service';
 import { UpdateEmployeeDocumentDto } from '../dto/update-employee-document.dto';
 
 const VECTOR_SEARCH_LIMIT = 10;
@@ -125,6 +126,7 @@ export class EmployeeDocumentsService {
     private readonly storageService: EmployeeDocumentStorageService,
     private readonly configService: ConfigService,
     private readonly dataSource: DataSource,
+    private readonly inserviceCompletionService: InserviceCompletionService,
   ) {
     const apiKey = this.configService.get<string>('apiKeys.openai')?.trim();
     if (apiKey) {
@@ -289,6 +291,14 @@ export class EmployeeDocumentsService {
       video_url: string | null;
       sort_order: number;
       is_active: boolean;
+      has_quiz: boolean;
+      passing_score_percent: number | null;
+      status: 'not_started' | 'in_progress' | 'completed' | 'expired';
+      progress_percent: number;
+      completed_at: string | null;
+      expiration_at: string | null;
+      last_quiz_score_percent: number | null;
+      quiz_attempts_count: number;
       created_at: Date;
       updated_at: Date;
     }>
@@ -318,23 +328,50 @@ export class EmployeeDocumentsService {
       order: { sort_order: 'ASC', created_at: 'DESC' },
     });
 
-    return inservices.map((it) => ({
-      id: it.id,
-      organization_id: it.organization_id,
-      code: it.code,
-      title: it.title,
-      description: it.description,
-      completion_frequency: it.completion_frequency,
-      expiry_months: it.expiry_months,
-      pdf_file_name: it.pdf_file_name,
-      pdf_file_path: it.pdf_file_path,
-      pdf_file_size_bytes: it.pdf_file_size_bytes ? Number(it.pdf_file_size_bytes) : null,
-      video_url: it.video_url,
-      sort_order: it.sort_order,
-      is_active: it.is_active,
-      created_at: it.created_at,
-      updated_at: it.updated_at,
-    }));
+    const completionMap =
+      await this.inserviceCompletionService.getCompletionMap(
+        employeeId,
+        inservices.map((it) => it.id),
+      );
+
+    return inservices.map((it) => {
+      const entry = completionMap.get(it.id)!;
+      const status = this.inserviceCompletionService.getStatus(
+        entry,
+        it.has_quiz,
+      );
+      return {
+        id: it.id,
+        organization_id: it.organization_id,
+        code: it.code,
+        title: it.title,
+        description: it.description,
+        completion_frequency: it.completion_frequency,
+        expiry_months: it.expiry_months,
+        pdf_file_name: it.pdf_file_name,
+        pdf_file_path: it.pdf_file_path,
+        pdf_file_size_bytes: it.pdf_file_size_bytes
+          ? Number(it.pdf_file_size_bytes)
+          : null,
+        video_url: it.video_url,
+        sort_order: it.sort_order,
+        is_active: it.is_active,
+        has_quiz: it.has_quiz,
+        passing_score_percent: it.passing_score_percent,
+        status,
+        progress_percent: entry.progress_percent,
+        completed_at: entry.completed_at
+          ? entry.completed_at.toISOString()
+          : null,
+        expiration_at: entry.expiration_at
+          ? entry.expiration_at.toISOString()
+          : null,
+        last_quiz_score_percent: entry.last_quiz_score_percent,
+        quiz_attempts_count: entry.quiz_attempts_count,
+        created_at: it.created_at,
+        updated_at: it.updated_at,
+      };
+    });
   }
 
   async getExpirationStatus(

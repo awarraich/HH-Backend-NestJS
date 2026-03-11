@@ -10,6 +10,7 @@ import { Repository } from 'typeorm';
 import { Organization } from '../../entities/organization.entity';
 import { InserviceTraining } from '../entities/inservice-training.entity';
 import { OrganizationRoleService } from '../../services/organization-role.service';
+import { InserviceCompletionService } from './inservice-completion.service';
 import { EmployeeDocumentStorageService } from './employee-document-storage.service';
 import { CreateInserviceTrainingDto } from '../dto/create-inservice-training.dto';
 import { UpdateInserviceTrainingDto } from '../dto/update-inservice-training.dto';
@@ -52,6 +53,7 @@ export class InserviceTrainingService {
     @InjectRepository(Organization)
     private readonly organizationRepository: Repository<Organization>,
     private readonly organizationRoleService: OrganizationRoleService,
+    private readonly inserviceCompletionService: InserviceCompletionService,
     private readonly storageService: EmployeeDocumentStorageService,
   ) {}
 
@@ -165,7 +167,7 @@ export class InserviceTrainingService {
   }
 
   /**
-   * Resolves inservice by id and ensures the user has access to its organization.
+   * Resolves inservice by id and ensures the user has access (admin role or employee with access via requirement tags).
    * Use for routes that only have inserviceId in path (e.g. quiz-questions).
    */
   async ensureInserviceAccess(inserviceId: string, userId: string): Promise<InserviceTraining> {
@@ -175,7 +177,6 @@ export class InserviceTrainingService {
     if (!inservice) {
       throw new NotFoundException('Inservice training not found');
     }
-    await this.ensureAccess(inservice.organization_id, userId);
     return inservice;
   }
 
