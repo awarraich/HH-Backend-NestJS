@@ -7,9 +7,7 @@ import {
   TableIndex,
 } from 'typeorm';
 
-export class LinkStaffRolePermissionsToOrganizationFeatures20260219110001
-  implements MigrationInterface
-{
+export class LinkStaffRolePermissionsToOrganizationFeatures20260219110001 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.addColumn(
       'organization_staff_role_permissions',

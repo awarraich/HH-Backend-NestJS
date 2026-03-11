@@ -49,8 +49,6 @@ export class EmployeeDocumentAccessGuard implements CanActivate {
     });
     if (employee?.user_id === user.userId) return true;
 
-    throw new ForbiddenException(
-      'You do not have permission to access this employee\'s documents.',
-    );
+    throw new ForbiddenException("You do not have permission to access this employee's documents.");
   }
 }

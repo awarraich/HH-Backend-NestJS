@@ -44,7 +44,7 @@ export class AuthenticationController {
 
   private setAuthCookies(res: any, accessToken: string, refreshToken?: string): void {
     const isProduction = process.env.NODE_ENV === 'production';
-    
+
     if (accessToken) {
       res.cookie('accessToken', accessToken, {
         httpOnly: true,
@@ -84,16 +84,18 @@ export class AuthenticationController {
   async login(@Body() loginDto: LoginDto, @Req() req: any, @Res() res: any) {
     const clientIp = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
     const result = await this.authService.login(loginDto, undefined, clientIp);
-    
+
     this.setAuthCookies(res, result.accessToken, result.refreshToken);
-    
-    return res.send(SuccessHelper.createSuccessResponse({
-      accessToken: result.accessToken,
-      refreshToken: result.refreshToken,
-      user: result.user,
-      requiresTwoFactor: result.requiresTwoFactor,
-      redirectPath: result.redirectPath,
-    }));
+
+    return res.send(
+      SuccessHelper.createSuccessResponse({
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        user: result.user,
+        requiresTwoFactor: result.requiresTwoFactor,
+        redirectPath: result.redirectPath,
+      }),
+    );
   }
 
   @Get('recaptcha/site-key')
@@ -104,7 +106,7 @@ export class AuthenticationController {
       const enabled = this.recaptchaService.isEnabled();
       return SuccessHelper.createSuccessResponse({
         siteKey: siteKey || '',
-        enabled: enabled,
+        enabled,
       });
     } catch (error) {
       throw new BadRequestException(
@@ -129,9 +131,7 @@ export class AuthenticationController {
 
     const frontendUrl = this.appConfigService.frontendUrl;
     if (!frontendUrl) {
-      throw new Error(
-        'HOME_HEALTH_AI_URL or FRONTEND_URL environment variable is required',
-      );
+      throw new Error('HOME_HEALTH_AI_URL or FRONTEND_URL environment variable is required');
     }
     const fragmentParams = new URLSearchParams({
       accessToken: result.accessToken,
@@ -154,31 +154,39 @@ export class AuthenticationController {
   @HttpCode(HttpStatus.OK)
   async loginWith2FA(@Body() loginDto: LoginDto & Authenticate2FADto, @Res() res: any) {
     const result = await this.authService.login(loginDto, loginDto.token);
-    
+
     this.setAuthCookies(res, result.accessToken, result.refreshToken);
-    
-    return res.send(SuccessHelper.createSuccessResponse({
-      accessToken: result.accessToken,
-      refreshToken: result.refreshToken,
-      user: result.user,
-      redirectPath: result.redirectPath,
-    }));
+
+    return res.send(
+      SuccessHelper.createSuccessResponse({
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        user: result.user,
+        redirectPath: result.redirectPath,
+      }),
+    );
   }
 
   @Post('login/2fa/verify')
   @UseGuards(Jwt2FAPendingGuard)
   @HttpCode(HttpStatus.OK)
-  async verify2FALogin(@Request() req: any, @Body() authenticate2FADto: Authenticate2FADto, @Res() res: any) {
+  async verify2FALogin(
+    @Request() req: any,
+    @Body() authenticate2FADto: Authenticate2FADto,
+    @Res() res: any,
+  ) {
     const result = await this.authService.verify2FALogin(req.user.userId, authenticate2FADto.token);
-    
+
     this.setAuthCookies(res, result.accessToken, result.refreshToken);
-    
-    return res.send(SuccessHelper.createSuccessResponse({
-      accessToken: result.accessToken,
-      refreshToken: result.refreshToken,
-      user: result.user,
-      redirectPath: result.redirectPath,
-    }));
+
+    return res.send(
+      SuccessHelper.createSuccessResponse({
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        user: result.user,
+        redirectPath: result.redirectPath,
+      }),
+    );
   }
 
   @Post('verify-email')
@@ -202,9 +210,7 @@ export class AuthenticationController {
 
     if (!token) {
       return {
-        url: `${frontendUrl}/login?error=${encodeURIComponent(
-          'Verification link is invalid',
-        )}`,
+        url: `${frontendUrl}/login?error=${encodeURIComponent('Verification link is invalid')}`,
       };
     }
 
@@ -212,9 +218,7 @@ export class AuthenticationController {
       const result = await this.authService.verifyEmail({ token });
 
       return {
-        url: `${frontendUrl}/login?verified=true&message=${encodeURIComponent(
-          result.message,
-        )}`,
+        url: `${frontendUrl}/login?verified=true&message=${encodeURIComponent(result.message)}`,
       };
     } catch (err) {
       return {
@@ -224,7 +228,6 @@ export class AuthenticationController {
       };
     }
   }
-  
 
   @Post('resend-verification')
   @HttpCode(HttpStatus.OK)
@@ -254,16 +257,18 @@ export class AuthenticationController {
     if (!token) {
       throw new BadRequestException('Refresh token is required');
     }
-    
+
     const result = await this.authService.refreshToken(token);
-    
+
     this.setAuthCookies(res, result.accessToken, result.refreshToken);
-    
-    return res.send(SuccessHelper.createSuccessResponse({
-      accessToken: result.accessToken,
-      refreshToken: result.refreshToken,
-      user: result.user,
-    }));
+
+    return res.send(
+      SuccessHelper.createSuccessResponse({
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        user: result.user,
+      }),
+    );
   }
 
   @Post('2fa/enable')

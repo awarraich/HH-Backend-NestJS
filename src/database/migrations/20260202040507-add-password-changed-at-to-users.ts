@@ -16,4 +16,3 @@ export class AddPasswordChangedAtToUsers20260202040507 implements MigrationInter
     await queryRunner.dropColumn('users', 'password_changed_at');
   }
 }
-

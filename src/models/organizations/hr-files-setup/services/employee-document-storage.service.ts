@@ -42,7 +42,7 @@ export class EmployeeDocumentStorageService {
     return base || 'document';
   }
 
-  private async saveToLocal(
+  private saveToLocal(
     buffer: Buffer,
     relativePath: string,
     originalFilename: string,
@@ -51,27 +51,20 @@ export class EmployeeDocumentStorageService {
     const dir = path.dirname(fullPath);
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(fullPath, buffer);
-    return { file_name: originalFilename, file_path: relativePath };
+    return Promise.resolve({ file_name: originalFilename, file_path: relativePath });
   }
 
-  private async saveToS3(
-    buffer: Buffer,
-    key: string,
-    originalFilename: string,
-  ): Promise<void> {
+  private async saveToS3(buffer: Buffer, key: string, originalFilename: string): Promise<void> {
     const bucket = this.storageConfig.s3Bucket;
     const region = this.storageConfig.s3Region;
     if (!bucket) {
-      throw new Error(
-        'S3 bucket not configured (STORAGE_TYPE=s3 requires S3_BUCKET_NAME)',
-      );
+      throw new Error('S3 bucket not configured (STORAGE_TYPE=s3 requires S3_BUCKET_NAME)');
     }
 
     const client = new S3Client({
       region,
       credentials:
-        this.storageConfig.s3AccessKeyId &&
-        this.storageConfig.s3SecretAccessKey
+        this.storageConfig.s3AccessKeyId && this.storageConfig.s3SecretAccessKey
           ? {
               accessKeyId: this.storageConfig.s3AccessKeyId,
               secretAccessKey: this.storageConfig.s3SecretAccessKey,
@@ -94,8 +87,7 @@ export class EmployeeDocumentStorageService {
     const map: Record<string, string> = {
       '.pdf': 'application/pdf',
       '.doc': 'application/msword',
-      '.docx':
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       '.jpg': 'image/jpeg',
       '.jpeg': 'image/jpeg',
       '.png': 'image/png',
@@ -164,8 +156,7 @@ export class EmployeeDocumentStorageService {
       if (!response.Body) {
         throw new Error('File not found in storage');
       }
-      const contentType =
-        response.ContentType ?? this.guessContentType(fileName);
+      const contentType = response.ContentType ?? this.guessContentType(fileName);
       return { stream: response.Body as NodeJS.ReadableStream, contentType };
     }
     const fullPath = this.getLocalFilePath(relativePath);

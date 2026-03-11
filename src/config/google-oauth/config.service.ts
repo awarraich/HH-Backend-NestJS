@@ -21,4 +21,3 @@ export class GoogleOAuthConfigService {
     return this.configService.get<boolean>('googleOAuth.enabled', false);
   }
 }
-

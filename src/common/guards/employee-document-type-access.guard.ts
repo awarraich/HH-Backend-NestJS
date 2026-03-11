@@ -49,7 +49,7 @@ export class EmployeeDocumentTypeAccessGuard implements CanActivate {
       if (hasRole) return true;
     }
     throw new ForbiddenException(
-      'You do not have permission to access this employee\'s document types.',
+      "You do not have permission to access this employee's document types.",
     );
   }
 }

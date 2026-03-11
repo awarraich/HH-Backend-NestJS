@@ -7,9 +7,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * The GET /v1/api/organization-types endpoint and the frontend
  * OrganizationProfileStep rely on these rows existing.
  */
-export class SeedOrganizationTypesTable20260219100001
-  implements MigrationInterface
-{
+export class SeedOrganizationTypesTable20260219100001 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     const types = [
       { id: 1, name: 'HOME HEALTH' },
@@ -27,10 +25,10 @@ export class SeedOrganizationTypesTable20260219100001
       );
 
       if (exists.length === 0) {
-        await queryRunner.query(
-          `INSERT INTO organization_types (id, name) VALUES ($1, $2)`,
-          [type.id, type.name],
-        );
+        await queryRunner.query(`INSERT INTO organization_types (id, name) VALUES ($1, $2)`, [
+          type.id,
+          type.name,
+        ]);
       }
     }
   }

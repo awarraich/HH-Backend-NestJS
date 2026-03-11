@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner, TableColumn, TableForeignKey } from 'typeorm';
 
-export class AddRecordedByToMedicationAdministrations20260218000002
-  implements MigrationInterface
-{
+export class AddRecordedByToMedicationAdministrations20260218000002 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.addColumn(
       'medication_administrations',

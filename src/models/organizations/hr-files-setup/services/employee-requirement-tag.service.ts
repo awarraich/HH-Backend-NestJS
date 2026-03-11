@@ -25,9 +25,7 @@ export class EmployeeRequirementTagService {
     const repo = manager
       ? manager.getRepository(EmployeeRequirementTag)
       : this.employeeRequirementTagRepository;
-    const tagRepo = manager
-      ? manager.getRepository(RequirementTag)
-      : this.requirementTagRepository;
+    const tagRepo = manager ? manager.getRepository(RequirementTag) : this.requirementTagRepository;
 
     const tags = await tagRepo.find({
       where: { id: In(uniqueTagIds), organization_id: organizationId },

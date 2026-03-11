@@ -1,4 +1,4 @@
-import { MigrationInterface, QueryRunner, TableColumn, TableIndex } from 'typeorm';
+import { MigrationInterface, QueryRunner, TableColumn } from 'typeorm';
 
 export class AddGoogleIdToUsers20260128060000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -30,4 +30,3 @@ export class AddGoogleIdToUsers20260128060000 implements MigrationInterface {
     await queryRunner.dropColumn('users', 'google_id');
   }
 }
-

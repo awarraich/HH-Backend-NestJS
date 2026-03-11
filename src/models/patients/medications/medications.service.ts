@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  NotFoundException,
-  BadRequestException,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, IsNull } from 'typeorm';
 import { PatientMedication } from './entities/patient-medication.entity';
@@ -90,10 +85,7 @@ export class MedicationsService {
     return parts.join(' ');
   }
 
-  private async persistEmbedding(
-    medicationId: string,
-    embedding: number[],
-  ): Promise<void> {
+  private async persistEmbedding(medicationId: string, embedding: number[]): Promise<void> {
     const vectorStr = `[${embedding.join(',')}]`;
     await this.medicationRepository.query(
       'UPDATE patient_medications SET embedding = $2::vector WHERE id = $1',
@@ -140,13 +132,9 @@ export class MedicationsService {
       timeSlots,
       takenForDate,
       createdAt:
-        med.created_at instanceof Date
-          ? med.created_at.toISOString()
-          : String(med.created_at),
+        med.created_at instanceof Date ? med.created_at.toISOString() : String(med.created_at),
       updatedAt:
-        med.updated_at instanceof Date
-          ? med.updated_at.toISOString()
-          : String(med.updated_at),
+        med.updated_at instanceof Date ? med.updated_at.toISOString() : String(med.updated_at),
     };
   }
 
@@ -171,8 +159,7 @@ export class MedicationsService {
       relations: ['time_slots'],
       order: { created_at: 'DESC' },
     });
-    const queryDate =
-      date ?? new Date().toISOString().slice(0, 10);
+    const queryDate = date ?? new Date().toISOString().slice(0, 10);
     const medIds = list.map((m) => m.id);
     let administrations: MedicationAdministration[] = [];
     if (medIds.length > 0) {
@@ -206,9 +193,7 @@ export class MedicationsService {
         // ignore audit failure
       }
     }
-    return list.map((m) =>
-      this.toResponse(m, byMedId.get(m.id) ?? []),
-    );
+    return list.map((m) => this.toResponse(m, byMedId.get(m.id) ?? []));
   }
 
   async create(
@@ -328,7 +313,8 @@ export class MedicationsService {
     if (dto.frequency !== undefined) med.frequency = dto.frequency;
     if (dto.prescribedBy !== undefined) med.prescribed_by = dto.prescribedBy;
     if (dto.instructions !== undefined) med.instructions = dto.instructions;
-    if (dto.startDate !== undefined) med.start_date = dto.startDate ? new Date(dto.startDate) : null;
+    if (dto.startDate !== undefined)
+      med.start_date = dto.startDate ? new Date(dto.startDate) : null;
     if (dto.onHand !== undefined) med.on_hand = dto.onHand;
     if (dto.totalQuantity !== undefined) med.total_quantity = dto.totalQuantity;
     if (dto.unit !== undefined) med.unit = dto.unit;
@@ -403,7 +389,7 @@ export class MedicationsService {
          LIMIT 20`,
         [patientId, vectorStr],
       );
-      const ids = (rows as { id: string }[]).map((r) => r.id);
+      const ids: string[] = rows.map((r: { id: string }) => r.id);
       if (ids.length === 0) {
         return [];
       }
@@ -411,7 +397,7 @@ export class MedicationsService {
         where: { id: In(ids), patient_id: patientId, deleted_at: IsNull() },
         relations: ['time_slots'],
       });
-      const orderMap = new Map(ids.map((id, i) => [id, i]));
+      const orderMap = new Map<string, number>(ids.map((id, i) => [id, i]));
       list.sort((a, b) => (orderMap.get(a.id) ?? 0) - (orderMap.get(b.id) ?? 0));
       const queryDate = new Date().toISOString().slice(0, 10);
       const administrations = await this.administrationRepository.find({
@@ -428,10 +414,7 @@ export class MedicationsService {
       }
       return list.map((m) => this.toResponse(m, byMedId.get(m.id) ?? []));
     } catch (err) {
-      this.logger.warn(
-        'Medication search by embedding failed, falling back to list',
-        err,
-      );
+      this.logger.warn('Medication search by embedding failed, falling back to list', err);
       return this.findAll(patientId, undefined, auditContext);
     }
   }

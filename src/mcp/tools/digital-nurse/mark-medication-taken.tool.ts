@@ -12,15 +12,17 @@ const markMedicationTakenInputSchema = {
 export const markMedicationTakenTool = {
   name: TOOL_NAMES.MARK_MEDICATION_TAKEN,
   description:
-    "Record that the patient took a medication at a time slot on a given date. Use when the user says they took a dose or to log adherence.",
+    'Record that the patient took a medication at a time slot on a given date. Use when the user says they took a dose or to log adherence.',
   inputSchema: markMedicationTakenInputSchema,
 };
+
+export type MarkMedicationTakenResult = Promise<{ content: Array<{ type: 'text'; text: string }> }>;
 
 export function createMarkMedicationTakenHandler(
   medicationsService: MedicationsService,
   patientId: string,
   auditContext?: MedicationAuditContext,
-) {
+): (args: { medicationId: string; timeSlot: string; date: string }) => MarkMedicationTakenResult {
   return async (args: { medicationId: string; timeSlot: string; date: string }) => {
     const { medicationId, timeSlot, date } = args;
     const result = await medicationsService.markAsTaken(

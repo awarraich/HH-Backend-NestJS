@@ -48,7 +48,9 @@ export class ReferralRepository extends Repository<Referral> {
       }
     }
     if (organization_type_id !== undefined) {
-      qb.andWhere('referral.organization_type_id = :organization_type_id', { organization_type_id });
+      qb.andWhere('referral.organization_type_id = :organization_type_id', {
+        organization_type_id,
+      });
     }
     if (search && search.trim()) {
       qb.andWhere(
@@ -92,7 +94,9 @@ export class ReferralRepository extends Repository<Referral> {
       qb.andWhere('referral.selected_organization_id = :organizationId', { organizationId });
     }
     if (organization_type_id !== undefined) {
-      qb.andWhere('referral.organization_type_id = :organization_type_id', { organization_type_id });
+      qb.andWhere('referral.organization_type_id = :organization_type_id', {
+        organization_type_id,
+      });
     }
     if (search && search.trim()) {
       qb.andWhere(
@@ -130,7 +134,10 @@ export class ReferralRepository extends Repository<Referral> {
 
   async getNextPublicId(): Promise<string> {
     const result = await this.createQueryBuilder('referral')
-      .select("COALESCE(MAX(CAST(REPLACE(referral.public_id, 'REF-', '') AS INTEGER)), 0) + 1", 'next')
+      .select(
+        "COALESCE(MAX(CAST(REPLACE(referral.public_id, 'REF-', '') AS INTEGER)), 0) + 1",
+        'next',
+      )
       .where("referral.public_id LIKE 'REF-%'")
       .getRawOne<{ next: string }>();
     const num = result?.next ? parseInt(result.next, 10) : 1;

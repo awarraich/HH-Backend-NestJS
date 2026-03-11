@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner, TableColumn } from 'typeorm';
 
-export class EmployeeDocumentTypesNoOrg20260305100000
-  implements MigrationInterface
-{
+export class EmployeeDocumentTypesNoOrg20260305100000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.changeColumn(
       'hr_document_types',
@@ -13,9 +11,7 @@ export class EmployeeDocumentTypesNoOrg20260305100000
         isNullable: true,
       }),
     );
-    await queryRunner.query(
-      `DROP INDEX IF EXISTS uq_hr_document_types_org_employee_code`,
-    );
+    await queryRunner.query(`DROP INDEX IF EXISTS uq_hr_document_types_org_employee_code`);
     await queryRunner.query(
       `CREATE UNIQUE INDEX uq_hr_document_types_employee_code
        ON hr_document_types (employee_id, code)
@@ -24,9 +20,7 @@ export class EmployeeDocumentTypesNoOrg20260305100000
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(
-      `DROP INDEX IF EXISTS uq_hr_document_types_employee_code`,
-    );
+    await queryRunner.query(`DROP INDEX IF EXISTS uq_hr_document_types_employee_code`);
     await queryRunner.query(
       `CREATE UNIQUE INDEX uq_hr_document_types_org_employee_code
        ON hr_document_types (organization_id, employee_id, code)

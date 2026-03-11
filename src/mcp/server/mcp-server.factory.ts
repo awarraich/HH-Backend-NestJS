@@ -53,7 +53,9 @@ export class McpServerFactory {
           tool.name,
           {
             description: tool.description,
-            inputSchema: tool.inputSchema,
+            inputSchema: tool.inputSchema as Parameters<
+              McpServer['registerTool']
+            >[1]['inputSchema'],
           },
           async (args: Record<string, unknown>) => {
             try {
@@ -69,17 +71,15 @@ export class McpServerFactory {
         );
       }
     } else if (patientId) {
-      const tools = registerDigitalNurseHandlers(
-        this.medicationsService,
-        patientId,
-        auditContext,
-      );
+      const tools = registerDigitalNurseHandlers(this.medicationsService, patientId, auditContext);
       for (const tool of tools) {
         server.registerTool(
           tool.name,
           {
             description: tool.description,
-            inputSchema: tool.inputSchema,
+            inputSchema: tool.inputSchema as Parameters<
+              McpServer['registerTool']
+            >[1]['inputSchema'],
           },
           async (args: Record<string, unknown>) => {
             try {

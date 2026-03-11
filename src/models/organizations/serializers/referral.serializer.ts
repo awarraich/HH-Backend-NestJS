@@ -25,11 +25,12 @@ export class ReferralSerializer {
       selected_organization_id: referral.selected_organization_id,
       created_at: referral.created_at,
       updated_at: referral.updated_at,
-      ...(referral.referralOrganizations && referral.referralOrganizations.length > 0 && {
-        receiving_orgs: referral.referralOrganizations.map((ro) =>
-          this.serializeReferralOrg(ro, referral.selected_organization_id),
-        ),
-      }),
+      ...(referral.referralOrganizations &&
+        referral.referralOrganizations.length > 0 && {
+          receiving_orgs: referral.referralOrganizations.map((ro) =>
+            this.serializeReferralOrg(ro, referral.selected_organization_id),
+          ),
+        }),
       documents: (referral.referralDocuments ?? []).map((d) => ({
         id: d.id,
         file_name: d.file_name,

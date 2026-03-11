@@ -11,8 +11,16 @@ import {
   Request,
   HttpCode,
   HttpStatus,
+  UnauthorizedException,
 } from '@nestjs/common';
+import type { FastifyRequest } from 'fastify';
 import { JwtAuthGuard } from '../../../../common/guards/jwt-auth.guard';
+
+type RequestWithUser = FastifyRequest & {
+  user?: { userId?: string; sub?: string };
+  connection?: { remoteAddress?: string };
+  get?: (name: string) => string | undefined;
+};
 import { OrganizationRoleGuard } from '../../../../common/guards/organization-role.guard';
 import { Roles } from '../../../../common/decorators/roles.decorator';
 import { SuccessHelper } from '../../../../common/helpers/responses/success.helper';
@@ -41,9 +49,10 @@ export class OrganizationStaffController {
   async createStaff(
     @Param('organizationId') organizationId: string,
     @Body() dto: CreateOrganizationStaffDto,
-    @Request() req: any,
+    @Request() req: RequestWithUser,
   ) {
     const userId = req.user?.userId ?? req.user?.sub;
+    if (!userId) throw new UnauthorizedException('User ID not found');
     const ipAddress = req.ip ?? req.connection?.remoteAddress;
     const userAgent = req.get?.('user-agent');
     const result = await this.organizationStaffService.createStaff(
@@ -53,7 +62,10 @@ export class OrganizationStaffController {
       ipAddress,
       userAgent,
     );
-    return SuccessHelper.createSuccessResponse(result, 'Staff created. An email with temporary password has been sent.');
+    return SuccessHelper.createSuccessResponse(
+      result,
+      'Staff created. An email with temporary password has been sent.',
+    );
   }
 
   @Get()
@@ -61,11 +73,17 @@ export class OrganizationStaffController {
   async findAll(
     @Param('organizationId') organizationId: string,
     @Query() query: QueryOrganizationStaffDto,
-    @Request() req: any,
+    @Request() req: RequestWithUser,
   ) {
     const userId = req.user?.userId ?? req.user?.sub;
+    if (!userId) throw new UnauthorizedException('User ID not found');
     const result = await this.organizationStaffService.findAll(organizationId, query, userId);
-    return SuccessHelper.createPaginatedResponse(result.data, result.total, result.page, result.limit);
+    return SuccessHelper.createPaginatedResponse(
+      result.data,
+      result.total,
+      result.page,
+      result.limit,
+    );
   }
 
   @Get('users/:userId')
@@ -73,10 +91,15 @@ export class OrganizationStaffController {
   async findOne(
     @Param('organizationId') organizationId: string,
     @Param('userId') staffUserId: string,
-    @Request() req: any,
+    @Request() req: RequestWithUser,
   ) {
     const userId = req.user?.userId ?? req.user?.sub;
-    const staff = await this.organizationStaffService.findOneByUserId(organizationId, staffUserId, userId);
+    if (!userId) throw new UnauthorizedException('User ID not found');
+    const staff = await this.organizationStaffService.findOneByUserId(
+      organizationId,
+      staffUserId,
+      userId,
+    );
     return SuccessHelper.createSuccessResponse(staff);
   }
 
@@ -86,9 +109,10 @@ export class OrganizationStaffController {
     @Param('organizationId') organizationId: string,
     @Param('userId') staffUserId: string,
     @Body() dto: UpdateOrganizationStaffDto,
-    @Request() req: any,
+    @Request() req: RequestWithUser,
   ) {
     const userId = req.user?.userId ?? req.user?.sub;
+    if (!userId) throw new UnauthorizedException('User ID not found');
     const ipAddress = req.ip ?? req.connection?.remoteAddress;
     const userAgent = req.get?.('user-agent');
     const result = await this.organizationStaffService.updateStaff(
@@ -108,9 +132,10 @@ export class OrganizationStaffController {
     @Param('organizationId') organizationId: string,
     @Param('userId') staffUserId: string,
     @Body() dto: AssignStaffRoleDto,
-    @Request() req: any,
+    @Request() req: RequestWithUser,
   ) {
     const userId = req.user?.userId ?? req.user?.sub;
+    if (!userId) throw new UnauthorizedException('User ID not found');
     const ipAddress = req.ip ?? req.connection?.remoteAddress;
     const userAgent = req.get?.('user-agent');
     const result = await this.organizationStaffService.assignRole(
@@ -130,9 +155,10 @@ export class OrganizationStaffController {
     @Param('organizationId') organizationId: string,
     @Param('userId') staffUserId: string,
     @Param('staffRoleId') staffRoleId: string,
-    @Request() req: any,
+    @Request() req: RequestWithUser,
   ) {
     const userId = req.user?.userId ?? req.user?.sub;
+    if (!userId) throw new UnauthorizedException('User ID not found');
     const ipAddress = req.ip ?? req.connection?.remoteAddress;
     const userAgent = req.get?.('user-agent');
     const result = await this.organizationStaffService.removeRole(

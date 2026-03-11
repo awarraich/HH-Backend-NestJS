@@ -15,11 +15,13 @@ export const searchMedicationsTool = {
   inputSchema: searchMedicationsInputSchema,
 };
 
+export type SearchMedicationsResult = Promise<{ content: Array<{ type: 'text'; text: string }> }>;
+
 export function createSearchMedicationsHandler(
   medicationsService: MedicationsService,
   patientId: string,
   auditContext?: MedicationAuditContext,
-) {
+): (args: { query: string }) => SearchMedicationsResult {
   return async (args: { query: string }) => {
     const query = (args?.query ?? '').trim();
     const list = await medicationsService.searchByQuery(patientId, query, auditContext);

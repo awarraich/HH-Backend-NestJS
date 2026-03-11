@@ -12,7 +12,7 @@ export type McpCorsHeaders = Record<string, string>;
 function readBody(req: IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('data', (chunk: Buffer) => chunks.push(chunk));
     req.on('end', () => {
       const raw = Buffer.concat(chunks).toString('utf8');
       if (!raw.trim()) {
@@ -58,34 +58,26 @@ export class McpHttpHandlerService {
     }
 
     const authHeader = req.headers['authorization'];
-    const token = authHeader?.startsWith('Bearer ')
-      ? authHeader.slice(7).trim()
-      : '';
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
     if (!token) {
       res.writeHead(401, jsonHeaders);
-      res.end(
-        JSON.stringify({ error: MCP_ERROR_MESSAGES.UNAUTHORIZED }),
-      );
+      res.end(JSON.stringify({ error: MCP_ERROR_MESSAGES.UNAUTHORIZED }));
       return;
     }
 
     let payload: { sub?: string };
     try {
-      payload = this.jwtService.verify(token) as { sub?: string };
+      payload = this.jwtService.verify(token);
     } catch {
       res.writeHead(401, jsonHeaders);
-      res.end(
-        JSON.stringify({ error: MCP_ERROR_MESSAGES.UNAUTHORIZED }),
-      );
+      res.end(JSON.stringify({ error: MCP_ERROR_MESSAGES.UNAUTHORIZED }));
       return;
     }
 
     const userId = payload.sub;
     if (!userId) {
       res.writeHead(401, jsonHeaders);
-      res.end(
-        JSON.stringify({ error: MCP_ERROR_MESSAGES.UNAUTHORIZED }),
-      );
+      res.end(JSON.stringify({ error: MCP_ERROR_MESSAGES.UNAUTHORIZED }));
       return;
     }
 

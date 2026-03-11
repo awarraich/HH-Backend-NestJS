@@ -42,7 +42,7 @@ export class UpdateEmployeeProfileDto {
   age?: number;
 
   @IsOptional()
-  emergency_contact?: Record<string, any>;
+  emergency_contact?: Record<string, unknown>;
 
   @IsOptional()
   @IsDateString()
@@ -67,4 +67,3 @@ export class UpdateEmployeeProfileDto {
   @IsOptional()
   board_certifications?: Record<string, unknown>;
 }
-

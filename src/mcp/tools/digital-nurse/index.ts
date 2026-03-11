@@ -13,11 +13,18 @@ export const digitalNurseTools = [
   markMedicationTakenTool,
 ];
 
+export type McpToolResult = Promise<{ content: Array<{ type: 'text'; text: string }> }>;
+
 export function registerDigitalNurseHandlers(
   medicationsService: MedicationsService,
   patientId: string,
   auditContext?: MedicationAuditContext,
-) {
+): Array<{
+  name: string;
+  description: string;
+  inputSchema: object;
+  handler: (args: unknown) => McpToolResult;
+}> {
   return [
     {
       ...listMedicationsTool,

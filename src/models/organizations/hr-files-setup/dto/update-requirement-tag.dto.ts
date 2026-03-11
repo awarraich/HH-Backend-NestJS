@@ -1,10 +1,4 @@
-import {
-  IsString,
-  IsOptional,
-  IsArray,
-  IsUUID,
-  MaxLength,
-} from 'class-validator';
+import { IsString, IsOptional, IsArray, IsUUID, MaxLength } from 'class-validator';
 
 export class UpdateRequirementTagDto {
   @IsOptional()

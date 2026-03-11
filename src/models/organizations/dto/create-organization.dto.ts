@@ -1,10 +1,4 @@
-import {
-  IsString,
-  IsNotEmpty,
-  IsOptional,
-  MaxLength,
-  Matches,
-} from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, MaxLength, Matches } from 'class-validator';
 
 export class CreateOrganizationDto {
   @IsString()
@@ -34,4 +28,3 @@ export class CreateOrganizationDto {
   @IsOptional()
   description?: string;
 }
-

@@ -38,8 +38,7 @@ const TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
         properties: {
           query: {
             type: 'string',
-            description:
-              'Search query (e.g. "blood pressure", "evening pills")',
+            description: 'Search query (e.g. "blood pressure", "evening pills")',
           },
         },
         required: ['query'],
@@ -73,8 +72,7 @@ const TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   },
 ];
 
-const UUID_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function normalizeTimeSlot(s: string): string {
   const trimmed = s.trim().toLowerCase();
@@ -88,10 +86,7 @@ function normalizeTimeSlot(s: string): string {
   return `${h.toString().padStart(2, '0')}:${m}`;
 }
 
-function resolveTimeSlot(
-  requested: string,
-  configuredSlots: string[],
-): string | null {
+function resolveTimeSlot(requested: string, configuredSlots: string[]): string | null {
   const normalized = normalizeTimeSlot(requested);
   for (const slot of configuredSlots) {
     if (normalizeTimeSlot(slot) === normalized) return slot;
@@ -127,8 +122,7 @@ export class DigitalNurseChatService {
     private readonly medicationsService: MedicationsService,
   ) {
     const apiKey = this.configService.get<string>('apiKeys.openai')?.trim();
-    this.model =
-      this.configService.get<string>('llm.model') ?? 'gpt-4o-mini';
+    this.model = this.configService.get<string>('llm.model') ?? 'gpt-4o-mini';
     if (apiKey) {
       this.openai = new OpenAI({ apiKey });
     }
@@ -148,10 +142,13 @@ export class DigitalNurseChatService {
 
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       { role: 'system', content: SYSTEM_PROMPT },
-      ...(history ?? []).map((h) => ({
-        role: h.role,
-        content: h.content,
-      }) as OpenAI.Chat.Completions.ChatCompletionMessageParam),
+      ...(history ?? []).map(
+        (h) =>
+          ({
+            role: h.role,
+            content: h.content,
+          }) as OpenAI.Chat.Completions.ChatCompletionMessageParam,
+      ),
       { role: 'user', content: message },
     ];
 
@@ -181,8 +178,8 @@ export class DigitalNurseChatService {
             ? raw
             : Array.isArray(raw)
               ? (raw as Array<{ type?: string; text?: string } | string>)
-                .map((c) => (typeof c === 'string' ? c : c?.text ?? ''))
-                .join('')
+                  .map((c) => (typeof c === 'string' ? c : (c?.text ?? '')))
+                  .join('')
               : '';
         return { reply: reply || '' };
       }
@@ -192,9 +189,10 @@ export class DigitalNurseChatService {
         const name = tc.function.name;
         let args: Record<string, unknown> = {};
         try {
-          args = tc.function.arguments
-            ? JSON.parse(tc.function.arguments)
-            : {};
+          args = (tc.function.arguments ? JSON.parse(tc.function.arguments) : {}) as Record<
+            string,
+            unknown
+          >;
         } catch {
           this.logger.warn(`Invalid tool arguments for ${name}`);
         }
@@ -223,51 +221,31 @@ export class DigitalNurseChatService {
       switch (name) {
         case 'list_medications': {
           const date =
-            typeof args.date === 'string'
-              ? args.date
-              : new Date().toISOString().slice(0, 10);
-          const list = await this.medicationsService.findAll(
-            patientId,
-            date,
-            auditContext,
-          );
+            typeof args.date === 'string' ? args.date : new Date().toISOString().slice(0, 10);
+          const list = await this.medicationsService.findAll(patientId, date, auditContext);
           return formatMedicationList(list);
         }
         case 'search_medications': {
           const query = typeof args.query === 'string' ? args.query.trim() : '';
-          const list = await this.medicationsService.searchByQuery(
-            patientId,
-            query,
-            auditContext,
-          );
+          const list = await this.medicationsService.searchByQuery(patientId, query, auditContext);
           return formatMedicationList(list);
         }
         case 'mark_medication_taken': {
-          const medicationIdOrName = String(args.medicationId ?? '').trim();
-          const requestedSlot = String(args.timeSlot ?? '').trim();
-          const date = String(args.date ?? '').slice(0, 10);
+          const medicationIdOrName = (
+            typeof args.medicationId === 'string' ? args.medicationId : ''
+          ).trim();
+          const requestedSlot = (typeof args.timeSlot === 'string' ? args.timeSlot : '').trim();
+          const date = (typeof args.date === 'string' ? args.date : '').slice(0, 10);
           let resolvedId: string;
           let list: MedicationResponse[];
           if (UUID_REGEX.test(medicationIdOrName)) {
             resolvedId = medicationIdOrName;
-            list = await this.medicationsService.findAll(
-              patientId,
-              date,
-              auditContext,
-            );
+            list = await this.medicationsService.findAll(patientId, date, auditContext);
           } else {
-            list = await this.medicationsService.findAll(
-              patientId,
-              date,
-              auditContext,
-            );
+            list = await this.medicationsService.findAll(patientId, date, auditContext);
             const query = medicationIdOrName.toLowerCase();
-            const byName = list.filter((m) =>
-              m.name.toLowerCase().includes(query),
-            );
-            const exact = list.find(
-              (m) => m.name.toLowerCase() === query,
-            );
+            const byName = list.filter((m) => m.name.toLowerCase().includes(query));
+            const exact = list.find((m) => m.name.toLowerCase() === query);
             const match = exact ?? byName[0];
             if (!match) {
               return `No medication found matching "${medicationIdOrName}". Use list_medications to see ids and names.`;
@@ -281,14 +259,9 @@ export class DigitalNurseChatService {
           if (!med) {
             return `Medication ${resolvedId} not found for this patient.`;
           }
-          const resolvedSlot = resolveTimeSlot(
-            requestedSlot,
-            med.timeSlots ?? [],
-          );
+          const resolvedSlot = resolveTimeSlot(requestedSlot, med.timeSlots ?? []);
           if (!resolvedSlot) {
-            const valid = (med.timeSlots ?? []).length
-              ? (med.timeSlots ?? []).join(', ')
-              : 'none';
+            const valid = (med.timeSlots ?? []).length ? (med.timeSlots ?? []).join(', ') : 'none';
             return `Time slot "${requestedSlot}" is not configured for this medication. Valid slots: ${valid}. Use one of these exact values.`;
           }
           const result = await this.medicationsService.markAsTaken(

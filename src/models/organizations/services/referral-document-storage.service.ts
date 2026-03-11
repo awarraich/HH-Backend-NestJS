@@ -37,7 +37,7 @@ export class ReferralDocumentStorageService {
     return base || 'document';
   }
 
-  private async saveToLocal(
+  private saveToLocal(
     buffer: Buffer,
     storedName: string,
     originalFilename: string,
@@ -54,7 +54,7 @@ export class ReferralDocumentStorageService {
     const apiPrefix = this.configService.get<string>('API_PREFIX', 'v1/api');
     const fileUrl = `${baseUrl.replace(/\/$/, '')}/${apiPrefix}/referrals/documents/files/${storedName}`;
 
-    return { file_name: originalFilename, file_url: fileUrl };
+    return Promise.resolve({ file_name: originalFilename, file_url: fileUrl });
   }
 
   private async saveToS3(

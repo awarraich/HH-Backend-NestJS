@@ -26,9 +26,6 @@ export class OrganizationFeature {
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
 
-  @OneToMany(
-    () => OrganizationStaffRolePermission,
-    (perm) => perm.organizationFeature,
-  )
+  @OneToMany(() => OrganizationStaffRolePermission, (perm) => perm.organizationFeature)
   staffRolePermissions: OrganizationStaffRolePermission[];
 }

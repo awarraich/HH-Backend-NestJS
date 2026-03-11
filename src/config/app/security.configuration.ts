@@ -3,4 +3,3 @@ export default () => ({
     secretKey: process.env.SECURITY_SECRET_KEY || '',
   },
 });
-

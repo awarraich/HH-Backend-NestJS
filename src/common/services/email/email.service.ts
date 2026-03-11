@@ -32,12 +32,12 @@ export class EmailService implements OnModuleInit {
   private async verifyConnection(): Promise<void> {
     try {
       const auth = this.emailConfigService.auth;
-      
+
       // Check if credentials are provided
       if (!auth.user || !auth.pass) {
         this.logger.warn(
           'Email credentials not configured. Email sending will fail. ' +
-          'Please set EMAIL_USER and EMAIL_PASSWORD environment variables.',
+            'Please set EMAIL_USER and EMAIL_PASSWORD environment variables.',
         );
         return;
       }
@@ -50,7 +50,7 @@ export class EmailService implements OnModuleInit {
     } catch (error) {
       this.logger.error(
         `Failed to verify SMTP connection. Email sending may fail. ` +
-        `Please check your EMAIL_HOST, EMAIL_PORT, EMAIL_USER, and EMAIL_PASSWORD configuration.`,
+          `Please check your EMAIL_HOST, EMAIL_PORT, EMAIL_USER, and EMAIL_PASSWORD configuration.`,
         error instanceof Error ? error.stack : String(error),
       );
     }
@@ -92,8 +92,7 @@ export class EmailService implements OnModuleInit {
         `Verification email sent to: ${this.maskEmail(email)}. MessageId: ${info.messageId}`,
       );
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(
         `Failed to send verification email to: ${this.maskEmail(email)}. Error: ${errorMessage}`,
         error instanceof Error ? error.stack : undefined,
@@ -140,8 +139,7 @@ export class EmailService implements OnModuleInit {
         `Password reset email sent to: ${this.maskEmail(email)}. MessageId: ${info.messageId}`,
       );
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(
         `Failed to send password reset email to: ${this.maskEmail(email)}. Error: ${errorMessage}`,
         error instanceof Error ? error.stack : undefined,
@@ -192,8 +190,7 @@ export class EmailService implements OnModuleInit {
         `Admin-created user email sent to: ${this.maskEmail(email)}. MessageId: ${info.messageId}`,
       );
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(
         `Failed to send admin-created user email to: ${this.maskEmail(email)}. Error: ${errorMessage}`,
         error instanceof Error ? error.stack : undefined,
@@ -238,12 +235,9 @@ export class EmailService implements OnModuleInit {
 
       await this.transporter.sendMail(mailOptions);
 
-      this.logger.log(
-        `Organization staff created email sent to: ${this.maskEmail(email)}`,
-      );
+      this.logger.log(`Organization staff created email sent to: ${this.maskEmail(email)}`);
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(
         `Failed to send organization staff created email to: ${this.maskEmail(email)}. Error: ${errorMessage}`,
         error instanceof Error ? error.stack : undefined,
@@ -285,12 +279,9 @@ export class EmailService implements OnModuleInit {
 
       await this.transporter.sendMail(mailOptions);
 
-      this.logger.log(
-        `Google sign-in invite email sent to: ${this.maskEmail(email)}`,
-      );
+      this.logger.log(`Google sign-in invite email sent to: ${this.maskEmail(email)}`);
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(
         `Failed to send Google sign-in invite email to: ${this.maskEmail(email)}. Error: ${errorMessage}`,
         error instanceof Error ? error.stack : undefined,
@@ -344,8 +335,7 @@ export class EmailService implements OnModuleInit {
         `Admin-updated user email sent to: ${this.maskEmail(email)}. MessageId: ${info.messageId}`,
       );
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(
         `Failed to send admin-updated user email to: ${this.maskEmail(email)}. Error: ${errorMessage}`,
         error instanceof Error ? error.stack : undefined,

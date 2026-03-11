@@ -28,4 +28,3 @@ export class QueryEmployeeDto {
   @Type(() => Number)
   limit?: number = 20;
 }
-

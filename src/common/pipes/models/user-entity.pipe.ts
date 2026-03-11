@@ -2,7 +2,7 @@ import { PipeTransform, Injectable, ArgumentMetadata, BadRequestException } from
 
 @Injectable()
 export class UserEntityPipe implements PipeTransform {
-  transform(value: any, metadata: ArgumentMetadata) {
+  transform(value: unknown, _metadata: ArgumentMetadata) {
     // Implement user entity transformation/validation
     if (!value) {
       throw new BadRequestException('User entity is required');

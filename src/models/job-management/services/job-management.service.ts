@@ -1,16 +1,20 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { JobPosting } from './entities/job-posting.entity';
-import { CreateJobPostingDto } from './dto/create-job-posting.dto';
-import { UpdateJobPostingDto } from './dto/update-job-posting.dto';
-import { QueryJobPostingDto } from './dto/query-job-posting.dto';
+import { JobPosting } from '../entities/job-posting.entity';
+import { JobApplication } from '../entities/job-application.entity';
+import { CreateJobPostingDto } from '../dto/create-job-posting.dto';
+import { CreateJobApplicationDto } from '../dto/create-job-application.dto';
+import { UpdateJobPostingDto } from '../dto/update-job-posting.dto';
+import { QueryJobPostingDto } from '../dto/query-job-posting.dto';
 
 @Injectable()
 export class JobManagementService {
   constructor(
     @InjectRepository(JobPosting)
     private jobPostingRepository: Repository<JobPosting>,
+    @InjectRepository(JobApplication)
+    private jobApplicationRepository: Repository<JobApplication>,
   ) {}
 
   async create(organizationId: string, dto: CreateJobPostingDto): Promise<JobPosting> {
@@ -70,7 +74,7 @@ export class JobManagementService {
     query: QueryJobPostingDto,
   ): Promise<{ data: JobPosting[]; total: number; page: number; limit: number }> {
     const page = query.page ?? 1;
-    const limit = Math.min(query.limit ?? 20, 50);
+    const limit = Math.min(query.limit ?? 20, 100);
     const skip = (page - 1) * limit;
 
     const qb = this.jobPostingRepository
@@ -139,11 +143,22 @@ export class JobManagementService {
     return job;
   }
 
-  async update(
-    organizationId: string,
-    id: string,
-    dto: UpdateJobPostingDto,
-  ): Promise<JobPosting> {
+  /**
+   * Public: get one active job by id with organization (for apply page).
+   * Returns 404 if not found or not active.
+   */
+  async findOneByIdPublic(id: string): Promise<JobPosting> {
+    const job = await this.jobPostingRepository.findOne({
+      where: { id, status: 'active' },
+      relations: ['organization'],
+    });
+    if (!job) {
+      throw new NotFoundException(`Job posting ${id} not found or not active`);
+    }
+    return job;
+  }
+
+  async update(organizationId: string, id: string, dto: UpdateJobPostingDto): Promise<JobPosting> {
     const job = await this.findOne(organizationId, id);
     if (dto.status !== undefined) {
       job.status = dto.status;
@@ -154,5 +169,77 @@ export class JobManagementService {
   async remove(organizationId: string, id: string): Promise<void> {
     const job = await this.findOne(organizationId, id);
     await this.jobPostingRepository.remove(job);
+  }
+
+  /**
+   * Public: create a job application (apply form submit). Job must exist and be active.
+   */
+  async createApplication(dto: CreateJobApplicationDto): Promise<JobApplication> {
+    const job = await this.jobPostingRepository.findOne({
+      where: { id: dto.job_posting_id, status: 'active' },
+    });
+    if (!job) {
+      throw new BadRequestException('Job posting not found or not accepting applications');
+    }
+    const submittedFields =
+      dto.submitted_fields != null &&
+      typeof dto.submitted_fields === 'object' &&
+      !Array.isArray(dto.submitted_fields)
+        ? dto.submitted_fields
+        : null;
+    const application = this.jobApplicationRepository.create({
+      job_posting_id: dto.job_posting_id,
+      applicant_name: String(dto.applicant_name).trim(),
+      applicant_email: String(dto.applicant_email).trim(),
+      applicant_phone: dto.applicant_phone ? String(dto.applicant_phone).trim() : null,
+      notes: dto.notes != null ? String(dto.notes) : null,
+      submitted_fields: submittedFields,
+      status: 'pending',
+    });
+    try {
+      return await this.jobApplicationRepository.save(application);
+    } catch (err: unknown) {
+      const ex = err as { message?: string; code?: string };
+      const msg = ex?.message || String(err);
+      if (ex?.code === '42P01' || (typeof msg === 'string' && msg.includes('does not exist'))) {
+        throw new BadRequestException(
+          'Database table job_applications may not exist. Run migrations or set DB_SYNCHRONIZE=true and restart.',
+        );
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * List applications for a job posting. Job must belong to the organization.
+   */
+  async findApplicationsByJobPosting(
+    organizationId: string,
+    jobId: string,
+  ): Promise<JobApplication[]> {
+    const job = await this.jobPostingRepository.findOne({
+      where: { id: jobId, organization_id: organizationId },
+    });
+    if (!job) {
+      throw new NotFoundException('Job posting not found');
+    }
+    const list = await this.jobApplicationRepository.find({
+      where: { job_posting_id: jobId },
+      order: { created_at: 'DESC' },
+      relations: ['job_posting'],
+    });
+    return list;
+  }
+
+  /**
+   * List all applications for an organization (across all job postings).
+   */
+  async findAllApplicationsByOrganization(organizationId: string): Promise<JobApplication[]> {
+    return this.jobApplicationRepository
+      .createQueryBuilder('ja')
+      .leftJoinAndSelect('ja.job_posting', 'jp')
+      .where('jp.organization_id = :organizationId', { organizationId })
+      .orderBy('ja.created_at', 'DESC')
+      .getMany();
   }
 }

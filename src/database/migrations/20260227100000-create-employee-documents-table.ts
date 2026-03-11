@@ -7,9 +7,7 @@ import {
   TableUnique,
 } from 'typeorm';
 
-export class CreateEmployeeDocumentsTable20260227100000
-  implements MigrationInterface
-{
+export class CreateEmployeeDocumentsTable20260227100000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.createTable(
       new Table({
@@ -131,34 +129,16 @@ export class CreateEmployeeDocumentsTable20260227100000
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.dropIndex(
-      'employee_documents',
-      'idx_employee_documents_document_type_id',
-    );
-    await queryRunner.dropIndex(
-      'employee_documents',
-      'idx_employee_documents_employee_id',
-    );
-    await queryRunner.dropIndex(
-      'employee_documents',
-      'idx_employee_documents_organization_id',
-    );
-    await queryRunner.dropForeignKey(
-      'employee_documents',
-      'fk_employee_documents_uploaded_by',
-    );
+    await queryRunner.dropIndex('employee_documents', 'idx_employee_documents_document_type_id');
+    await queryRunner.dropIndex('employee_documents', 'idx_employee_documents_employee_id');
+    await queryRunner.dropIndex('employee_documents', 'idx_employee_documents_organization_id');
+    await queryRunner.dropForeignKey('employee_documents', 'fk_employee_documents_uploaded_by');
     await queryRunner.dropForeignKey(
       'employee_documents',
       'fk_employee_documents_document_type_id',
     );
-    await queryRunner.dropForeignKey(
-      'employee_documents',
-      'fk_employee_documents_employee_id',
-    );
-    await queryRunner.dropForeignKey(
-      'employee_documents',
-      'fk_employee_documents_organization_id',
-    );
+    await queryRunner.dropForeignKey('employee_documents', 'fk_employee_documents_employee_id');
+    await queryRunner.dropForeignKey('employee_documents', 'fk_employee_documents_organization_id');
     await queryRunner.dropTable('employee_documents', true);
   }
 }

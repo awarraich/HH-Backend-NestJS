@@ -1,10 +1,4 @@
-import {
-  MigrationInterface,
-  QueryRunner,
-  Table,
-  TableIndex,
-  TableForeignKey,
-} from 'typeorm';
+import { MigrationInterface, QueryRunner, Table, TableIndex, TableForeignKey } from 'typeorm';
 
 export class CreatePatientChatTables20260302000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -19,7 +13,13 @@ export class CreatePatientChatTables20260302000000 implements MigrationInterface
           { name: 'recipient_entity_id', type: 'uuid', isNullable: true },
           { name: 'recipient_display_name', type: 'varchar', length: '255', isNullable: false },
           { name: 'recipient_role', type: 'varchar', length: '255', isNullable: true },
-          { name: 'subject', type: 'varchar', length: '500', isNullable: true, default: "'(No subject)'" },
+          {
+            name: 'subject',
+            type: 'varchar',
+            length: '500',
+            isNullable: true,
+            default: "'(No subject)'",
+          },
           { name: 'created_at', type: 'timestamptz', default: 'CURRENT_TIMESTAMP' },
           { name: 'updated_at', type: 'timestamptz', default: 'CURRENT_TIMESTAMP' },
         ],

@@ -13,7 +13,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { OrganizationRoleGuard } from './common/guards/organization-role.guard';
 import { Roles } from './common/decorators/roles.decorator';
 import { SuccessHelper } from './common/helpers/responses/success.helper';
-import { JobManagementService } from './models/job-management/job-management.service';
+import { JobManagementService } from './models/job-management/services/job-management.service';
 import { CreateJobPostingDto } from './models/job-management/dto/create-job-posting.dto';
 import { QueryJobPostingDto } from './models/job-management/dto/query-job-posting.dto';
 
@@ -51,10 +51,7 @@ export class AppController {
     @Param('organizationId') organizationId: string,
     @Query() queryDto: QueryJobPostingDto,
   ) {
-    const result = await this.jobManagementService.findAllByOrganization(
-      organizationId,
-      queryDto,
-    );
+    const result = await this.jobManagementService.findAllByOrganization(organizationId, queryDto);
     return SuccessHelper.createPaginatedResponse(
       result.data,
       result.total,

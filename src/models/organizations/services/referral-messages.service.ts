@@ -54,17 +54,26 @@ export class ReferralMessagesService {
   async getThreads(
     organizationId: string,
     referralId: string,
-    userId?: string,
-    ipAddress?: string,
-    userAgent?: string,
-  ): Promise<any[]> {
+    _userId?: string,
+    _ipAddress?: string,
+    _userAgent?: string,
+  ): Promise<
+    Array<{
+      organization_id: string;
+      last_message: { message: string; created_at: Date } | null;
+      unread_count: number;
+    }>
+  > {
     const referral = await this.ensureAccess(referralId, organizationId);
     const sendingOrgId = referral.sending_organization_id;
     const receiverOrgIds = referral.referralOrganizations?.map((ro) => ro.organization_id) ?? [];
-    const otherOrgIds =
-      organizationId === sendingOrgId ? receiverOrgIds : [sendingOrgId];
+    const otherOrgIds = organizationId === sendingOrgId ? receiverOrgIds : [sendingOrgId];
 
-    const threads: any[] = [];
+    const threads: Array<{
+      organization_id: string;
+      last_message: { message: string; created_at: Date } | null;
+      unread_count: number;
+    }> = [];
     for (const otherId of otherOrgIds) {
       const lastMsg = await this.referralMessageRepository
         .createQueryBuilder('m')
@@ -98,9 +107,7 @@ export class ReferralMessagesService {
 
       threads.push({
         organization_id: otherId,
-        last_message: lastMsg
-          ? { message: lastMsg.message, created_at: lastMsg.created_at }
-          : null,
+        last_message: lastMsg ? { message: lastMsg.message, created_at: lastMsg.created_at } : null,
         unread_count: unreadCount,
       });
     }
@@ -111,10 +118,23 @@ export class ReferralMessagesService {
     organizationId: string,
     referralId: string,
     queryDto: QueryReferralMessagesDto,
-    userId?: string,
-    ipAddress?: string,
-    userAgent?: string,
-  ): Promise<{ data: any[]; total: number; page: number; limit: number }> {
+    _userId?: string,
+    _ipAddress?: string,
+    _userAgent?: string,
+  ): Promise<{
+    data: Array<{
+      id: string;
+      message: string;
+      is_system: boolean;
+      sender_user_id: string | null;
+      sender_organization_id: string | null;
+      sender_name: string | null;
+      created_at: Date;
+    }>;
+    total: number;
+    page: number;
+    limit: number;
+  }> {
     await this.ensureAccess(referralId, organizationId);
     if (!queryDto.receiver_organization_id) {
       return {
@@ -133,10 +153,9 @@ export class ReferralMessagesService {
       .leftJoinAndSelect('m.senderUser', 'senderUser')
       .leftJoinAndSelect('m.senderOrganization', 'senderOrg')
       .where('m.referral_id = :referralId', { referralId })
-      .andWhere(
-        '(m.receiver_organization_id = :otherId OR m.sender_organization_id = :otherId)',
-        { otherId },
-      )
+      .andWhere('(m.receiver_organization_id = :otherId OR m.sender_organization_id = :otherId)', {
+        otherId,
+      })
       .orderBy('m.created_at', 'ASC');
 
     const [data, total] = await qb
@@ -151,8 +170,8 @@ export class ReferralMessagesService {
       sender_user_id: m.sender_user_id,
       sender_organization_id: m.sender_organization_id,
       sender_name: m.senderUser
-        ? `${(m.senderUser as any).firstName} ${(m.senderUser as any).lastName}`
-        : m.senderOrganization?.organization_name ?? null,
+        ? `${(m.senderUser as { firstName: string; lastName: string }).firstName} ${(m.senderUser as { firstName: string; lastName: string }).lastName}`
+        : (m.senderOrganization?.organization_name ?? null),
       created_at: m.created_at,
     }));
 
@@ -164,9 +183,9 @@ export class ReferralMessagesService {
     userId: string,
     referralId: string,
     dto: CreateReferralMessageDto,
-    ipAddress?: string,
-    userAgent?: string,
-  ): Promise<any> {
+    _ipAddress?: string,
+    _userAgent?: string,
+  ): Promise<{ id: string; message: string; created_at: Date; receiver_organization_id?: string }> {
     const referral = await this.ensureAccess(referralId, organizationId);
     const receiverOrgId = dto.receiver_organization_id ?? null;
 
@@ -179,14 +198,13 @@ export class ReferralMessagesService {
         sender_organization_id: organizationId,
       });
       const saved = await this.referralMessageRepository.save(msg);
-      this.emitNewMessageSafe(referralId, null, organizationId, saved);
+      void this.emitNewMessageSafe(referralId, null, organizationId, saved);
       return { id: saved.id, message: saved.message, created_at: saved.created_at };
     }
 
     const receiverIds = referral.referralOrganizations?.map((ro) => ro.organization_id) ?? [];
     const validOther =
-      receiverIds.includes(receiverOrgId) ||
-      referral.sending_organization_id === receiverOrgId;
+      receiverIds.includes(receiverOrgId) || referral.sending_organization_id === receiverOrgId;
     if (!validOther) {
       throw new BadRequestException('Invalid receiver_organization_id for this referral');
     }
@@ -200,11 +218,11 @@ export class ReferralMessagesService {
       is_system: false,
     });
     const saved = await this.referralMessageRepository.save(msg);
-    this.emitNewMessageSafe(referralId, receiverOrgId, organizationId, saved);
+    void this.emitNewMessageSafe(referralId, receiverOrgId, organizationId, saved);
     return {
       id: saved.id,
       message: saved.message,
-      receiver_organization_id: saved.receiver_organization_id,
+      receiver_organization_id: saved.receiver_organization_id ?? undefined,
       created_at: saved.created_at,
     };
   }
@@ -222,8 +240,8 @@ export class ReferralMessagesService {
         relations: ['senderUser', 'senderOrganization'],
       });
       const senderName = withRelations?.senderUser
-        ? `${(withRelations.senderUser as any).firstName} ${(withRelations.senderUser as any).lastName}`
-        : withRelations?.senderOrganization?.organization_name ?? null;
+        ? `${(withRelations.senderUser as { firstName: string; lastName: string }).firstName} ${(withRelations.senderUser as { firstName: string; lastName: string }).lastName}`
+        : (withRelations?.senderOrganization?.organization_name ?? null);
       this.referralMessagesGateway.emitNewMessage(
         referralId,
         receiverOrganizationId,
@@ -247,9 +265,9 @@ export class ReferralMessagesService {
   async markRead(
     organizationId: string,
     referralId: string,
-    userId?: string,
-    ipAddress?: string,
-    userAgent?: string,
+    _userId?: string,
+    _ipAddress?: string,
+    _userAgent?: string,
   ): Promise<void> {
     await this.ensureAccess(referralId, organizationId);
     let lastRead = await this.referralLastReadRepository.findOne({

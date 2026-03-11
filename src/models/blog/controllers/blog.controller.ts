@@ -18,16 +18,16 @@ import {
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import * as fs from 'fs';
 import * as path from 'path';
-import { BlogService } from './blog.service';
-import { BlogImageStorageService } from './services/blog-image-storage.service';
-import { CreateBlogDto } from './dto/create-blog.dto';
-import { UpdateBlogDto } from './dto/update-blog.dto';
-import { QueryBlogDto } from './dto/query-blog.dto';
-import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { OptionalJwtAuthGuard } from '../../common/guards/optional-jwt-auth.guard';
-import { LoggedInUser } from '../../common/decorators/requests/logged-in-user.decorator';
-import { SuccessHelper } from '../../common/helpers/responses/success.helper';
-import type { UserWithRolesInterface } from '../../common/interfaces/user-with-roles.interface';
+import { BlogService } from '../services/blog.service';
+import { BlogImageStorageService } from '../services/blog-image-storage.service';
+import { CreateBlogDto } from '../dto/create-blog.dto';
+import { UpdateBlogDto } from '../dto/update-blog.dto';
+import { QueryBlogDto } from '../dto/query-blog.dto';
+import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../../../common/guards/optional-jwt-auth.guard';
+import { LoggedInUser } from '../../../common/decorators/requests/logged-in-user.decorator';
+import { SuccessHelper } from '../../../common/helpers/responses/success.helper';
+import type { UserWithRolesInterface } from '../../../common/interfaces/user-with-roles.interface';
 
 @Controller('v1/api/blogs')
 export class BlogController {
@@ -37,19 +37,45 @@ export class BlogController {
   ) {}
 
   /**
-   * Upload a blog featured image
+   * Upload a blog featured image.
+   * With Fastify multipart attachFieldsToBody: true, the file is on request.body, not request.file().
    */
   @Post('images/upload')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.CREATED)
-  async uploadImage(@Req() request: FastifyRequest) {
+  async uploadImage(@Req() request: FastifyRequest): Promise<unknown> {
     const multipartRequest = request as FastifyRequest & {
-      file: () => Promise<{ filename: string; toBuffer: () => Promise<Buffer> } | undefined>;
+      isMultipart?: () => boolean;
+      body?: Record<
+        string,
+        | { value?: string; toBuffer?: () => Promise<Buffer>; filename?: string; _buf?: Buffer }
+        | Array<{ toBuffer?: () => Promise<Buffer>; filename?: string; _buf?: Buffer }>
+      >;
     };
-    const data = await multipartRequest.file();
-    if (!data) throw new BadRequestException('No file uploaded');
-    const buffer = await data.toBuffer();
-    const result = await this.blogImageStorage.saveBlogImage(buffer, data.filename);
+
+    if (!multipartRequest.isMultipart?.()) {
+      throw new BadRequestException('Content-Type must be multipart/form-data');
+    }
+
+    const body = multipartRequest.body;
+    const filePart = body?.file;
+    const singleFile = Array.isArray(filePart) ? filePart[0] : filePart;
+
+    if (!singleFile?.filename) {
+      throw new BadRequestException('No file uploaded. Send a field named "file".');
+    }
+
+    const buffer =
+      singleFile._buf != null
+        ? singleFile._buf
+        : typeof singleFile.toBuffer === 'function'
+          ? await singleFile.toBuffer()
+          : null;
+    if (!buffer || !Buffer.isBuffer(buffer)) {
+      throw new BadRequestException('Could not read file data');
+    }
+
+    const result = await this.blogImageStorage.saveBlogImage(buffer, singleFile.filename);
     return SuccessHelper.createSuccessResponse(result, 'Image uploaded successfully');
   }
 
@@ -61,7 +87,7 @@ export class BlogController {
   async serveImage(
     @Param('filename') filename: string,
     @Res() reply: FastifyReply,
-  ) {
+  ): Promise<unknown> {
     const filePath = this.blogImageStorage.getLocalFilePath(filename);
     if (!filePath) throw new NotFoundException('File not found');
     const ext = path.extname(filename).toLowerCase();
@@ -86,15 +112,9 @@ export class BlogController {
   async create(
     @Body() createBlogDto: CreateBlogDto,
     @LoggedInUser() user: UserWithRolesInterface,
-  ) {
-    const result = await this.blogService.create(
-      createBlogDto,
-      user.userId,
-    );
-    return SuccessHelper.createSuccessResponse(
-      result,
-      'Blog post created successfully',
-    );
+  ): Promise<unknown> {
+    const result = await this.blogService.create(createBlogDto, user.userId);
+    return SuccessHelper.createSuccessResponse(result, 'Blog post created successfully');
   }
 
   /**
@@ -107,7 +127,7 @@ export class BlogController {
   async findAll(
     @Query() queryDto: QueryBlogDto,
     @LoggedInUser() user?: UserWithRolesInterface,
-  ) {
+  ): Promise<unknown> {
     if (!user) {
       queryDto.is_published = true;
     }
@@ -126,7 +146,7 @@ export class BlogController {
   async findBySlug(
     @Param('slug') slug: string,
     @LoggedInUser() user?: UserWithRolesInterface,
-  ) {
+  ): Promise<unknown> {
     const result = await this.blogService.findBySlug(slug, {
       allowDraft: !!user,
     });
@@ -143,7 +163,7 @@ export class BlogController {
     @LoggedInUser() user: UserWithRolesInterface,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ) {
+  ): Promise<unknown> {
     const result = await this.blogService.findMyBlogs(
       user.userId,
       page ? Number(page) : 1,
@@ -163,7 +183,7 @@ export class BlogController {
   async findOne(
     @Param('id') id: string,
     @LoggedInUser() user?: UserWithRolesInterface,
-  ) {
+  ): Promise<unknown> {
     const result = await this.blogService.findOne(id, {
       allowDraft: !!user,
     });
@@ -177,16 +197,9 @@ export class BlogController {
     @Param('id') id: string,
     @Body() updateBlogDto: UpdateBlogDto,
     @LoggedInUser() user: UserWithRolesInterface,
-  ) {
-    const result = await this.blogService.update(
-      id,
-      updateBlogDto,
-      user.userId,
-    );
-    return SuccessHelper.createSuccessResponse(
-      result,
-      'Blog post updated successfully',
-    );
+  ): Promise<unknown> {
+    const result = await this.blogService.update(id, updateBlogDto, user.userId);
+    return SuccessHelper.createSuccessResponse(result, 'Blog post updated successfully');
   }
 
   @Delete(':id')
@@ -195,11 +208,8 @@ export class BlogController {
   async remove(
     @Param('id') id: string,
     @LoggedInUser() user: UserWithRolesInterface,
-  ) {
+  ): Promise<unknown> {
     await this.blogService.remove(id, user.userId);
-    return SuccessHelper.createSuccessResponse(
-      null,
-      'Blog post deleted successfully',
-    );
+    return SuccessHelper.createSuccessResponse(null, 'Blog post deleted successfully');
   }
 }

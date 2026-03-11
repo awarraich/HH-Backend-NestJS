@@ -46,4 +46,3 @@ export class UpdateEmployeeDto {
   @IsUUID('4', { each: true })
   requirement_tag_ids?: string[];
 }
-

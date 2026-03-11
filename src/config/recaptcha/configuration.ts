@@ -7,4 +7,3 @@ export default () => ({
     verifyUrl: 'https://www.google.com/recaptcha/api/siteverify',
   },
 });
-

@@ -15,7 +15,7 @@ export class EmployeeContextController {
   async getContext(
     @Query('currentOrganizationId') currentOrganizationId: string | undefined,
     @LoggedInUser() user: UserWithRolesInterface,
-  ) {
+  ): Promise<unknown> {
     const result = await this.employeeContextService.getContextByUserId(
       user.userId,
       currentOrganizationId ?? null,

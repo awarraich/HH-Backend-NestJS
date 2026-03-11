@@ -22,9 +22,7 @@ import { UpdateInserviceQuizQuestionDto } from '../dto/update-inservice-quiz-que
 @Controller('v1/api/inservice-trainings/:inserviceId/quiz-questions')
 @UseGuards(JwtAuthGuard)
 export class InserviceQuizQuestionsController {
-  constructor(
-    private readonly inserviceQuizQuestionService: InserviceQuizQuestionService,
-  ) {}
+  constructor(private readonly inserviceQuizQuestionService: InserviceQuizQuestionService) {}
 
   @Get()
   @HttpCode(HttpStatus.OK)
@@ -33,8 +31,7 @@ export class InserviceQuizQuestionsController {
     @Req() req: FastifyRequest & { user?: { userId?: string; sub?: string } },
   ) {
     const userId = req.user?.userId ?? req.user?.sub ?? '';
-    const result =
-      await this.inserviceQuizQuestionService.findAll(inserviceId, userId);
+    const result = await this.inserviceQuizQuestionService.findAll(inserviceId, userId);
     return SuccessHelper.createSuccessResponse(result);
   }
 
@@ -46,11 +43,7 @@ export class InserviceQuizQuestionsController {
     @Req() req: FastifyRequest & { user?: { userId?: string; sub?: string } },
   ) {
     const userId = req.user?.userId ?? req.user?.sub ?? '';
-    const result = await this.inserviceQuizQuestionService.findOne(
-      inserviceId,
-      questionId,
-      userId,
-    );
+    const result = await this.inserviceQuizQuestionService.findOne(inserviceId, questionId, userId);
     return SuccessHelper.createSuccessResponse(result);
   }
 
@@ -62,15 +55,8 @@ export class InserviceQuizQuestionsController {
     @Req() req: FastifyRequest & { user?: { userId?: string; sub?: string } },
   ) {
     const userId = req.user?.userId ?? req.user?.sub ?? '';
-    const result = await this.inserviceQuizQuestionService.create(
-      inserviceId,
-      dto,
-      userId,
-    );
-    return SuccessHelper.createSuccessResponse(
-      result,
-      'Quiz question created successfully',
-    );
+    const result = await this.inserviceQuizQuestionService.create(inserviceId, dto, userId);
+    return SuccessHelper.createSuccessResponse(result, 'Quiz question created successfully');
   }
 
   @Patch(':questionId')
@@ -88,10 +74,7 @@ export class InserviceQuizQuestionsController {
       dto,
       userId,
     );
-    return SuccessHelper.createSuccessResponse(
-      result,
-      'Quiz question updated successfully',
-    );
+    return SuccessHelper.createSuccessResponse(result, 'Quiz question updated successfully');
   }
 
   @Delete(':questionId')
@@ -102,14 +85,7 @@ export class InserviceQuizQuestionsController {
     @Req() req: FastifyRequest & { user?: { userId?: string; sub?: string } },
   ) {
     const userId = req.user?.userId ?? req.user?.sub ?? '';
-    await this.inserviceQuizQuestionService.remove(
-      inserviceId,
-      questionId,
-      userId,
-    );
-    return SuccessHelper.createSuccessResponse(
-      null,
-      'Quiz question deleted successfully',
-    );
+    await this.inserviceQuizQuestionService.remove(inserviceId, questionId, userId);
+    return SuccessHelper.createSuccessResponse(null, 'Quiz question deleted successfully');
   }
 }

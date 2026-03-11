@@ -37,7 +37,7 @@ export class UserRepository extends Repository<User> {
     const user = await this.createQueryBuilder('user')
       .where('user.email_verification_token = :token', { token })
       .getOne();
-    
+
     return user;
   }
 

@@ -9,4 +9,3 @@ import configuration from './configuration';
   exports: [GoogleOAuthConfigService],
 })
 export class GoogleOAuthConfigModule {}
-

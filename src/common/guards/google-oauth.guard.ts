@@ -21,16 +21,16 @@ export class GoogleOAuthGuard extends AuthGuard('google') {
   getResponse(context: ExecutionContext): ExpressCompatibleResponse {
     const response = context.switchToHttp().getResponse<FastifyReply>();
     const expressResponse = response as ExpressCompatibleResponse;
-    
+
     // Add Express-compatible methods to Fastify response for Passport compatibility
     if (!expressResponse.setHeader) {
       expressResponse.setHeader = (name: string, value: string) => {
         response.header(name, value);
       };
     }
-    
+
     if (!expressResponse.end) {
-      expressResponse.end = (chunk?: any, encoding?: any) => {
+      expressResponse.end = (chunk?: unknown, _encoding?: string) => {
         if (chunk) {
           response.send(chunk);
         } else {
@@ -48,4 +48,3 @@ export class GoogleOAuthGuard extends AuthGuard('google') {
     return super.handleRequest(err, user, info, context);
   }
 }
-

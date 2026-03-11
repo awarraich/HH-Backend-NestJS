@@ -1,19 +1,6 @@
-import {
-  IsString,
-  IsNotEmpty,
-  IsOptional,
-  IsUUID,
-  IsIn,
-  MaxLength,
-} from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsUUID, IsIn, MaxLength } from 'class-validator';
 
-const RECIPIENT_TYPES = [
-  'organization',
-  'lab',
-  'doctor',
-  'clinical',
-  'therapist',
-] as const;
+const RECIPIENT_TYPES = ['organization', 'lab', 'doctor', 'clinical', 'therapist'] as const;
 
 export class CreateConversationDto {
   @IsOptional()

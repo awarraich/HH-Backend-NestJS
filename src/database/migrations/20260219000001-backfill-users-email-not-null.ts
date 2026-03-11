@@ -6,9 +6,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * - Backfills NULL emails with a unique placeholder (e.g. OAuth-only users).
  * - Sets NOT NULL on users.email.
  */
-export class BackfillUsersEmailNotNull20260219000001
-  implements MigrationInterface
-{
+export class BackfillUsersEmailNotNull20260219000001 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Add column if it does not exist (nullable)
     await queryRunner.query(`

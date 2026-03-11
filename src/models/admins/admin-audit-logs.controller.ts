@@ -17,7 +17,7 @@ export class AdminAuditLogsController {
 
   @Get()
   @HttpCode(HttpStatus.OK)
-  async getAuditLogs(@Query() queryDto: QueryAuditLogsDto) {
+  async getAuditLogs(@Query() queryDto: QueryAuditLogsDto): Promise<unknown> {
     const page = queryDto.page ?? 1;
     const limit = queryDto.limit ?? 20;
     const result = await this.auditLogService.getAuditLogsForAdmin({

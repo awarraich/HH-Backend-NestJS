@@ -14,12 +14,13 @@ import {
 @ValidatorConstraint({ name: 'matchPassword', async: false })
 export class MatchPasswordConstraint implements ValidatorConstraintInterface {
   validate(confirmPassword: string, args: ValidationArguments): boolean {
-    const [relatedPropertyName] = args.constraints;
-    const relatedValue = (args.object as any)[relatedPropertyName];
+    const [relatedPropertyName] = args.constraints as [string];
+    const obj = args.object as Record<string, unknown>;
+    const relatedValue = obj[relatedPropertyName];
     return confirmPassword === relatedValue;
   }
 
-  defaultMessage(args: ValidationArguments): string {
+  defaultMessage(_args: ValidationArguments): string {
     return 'Passwords do not match';
   }
 }
@@ -55,4 +56,3 @@ export class CreateUserByAdminDto {
   @IsNotEmpty()
   roleId: number;
 }
-

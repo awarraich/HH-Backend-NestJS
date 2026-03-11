@@ -1,7 +1,18 @@
 import { CreditPackage } from '../entities/credit-package.entity';
 
+export interface SerializedCreditPackage {
+  id: string;
+  name: string;
+  credits: number;
+  price_usd: number;
+  stripe_price_id: string;
+  is_active: boolean;
+  created_at: Date;
+  updated_at: Date;
+}
+
 export class CreditPackageSerializer {
-  serialize(creditPackage: CreditPackage): any {
+  serialize(creditPackage: CreditPackage): SerializedCreditPackage {
     return {
       id: creditPackage.id,
       name: creditPackage.name,
@@ -14,8 +25,7 @@ export class CreditPackageSerializer {
     };
   }
 
-  serializeMany(creditPackages: CreditPackage[]): any[] {
+  serializeMany(creditPackages: CreditPackage[]): SerializedCreditPackage[] {
     return creditPackages.map((package_) => this.serialize(package_));
   }
 }
-

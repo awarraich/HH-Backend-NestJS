@@ -6,7 +6,7 @@ export class UserMiddleware implements NestMiddleware {
   use(req: FastifyRequest['raw'], res: FastifyReply['raw'], next: () => void) {
     // HIPAA Compliance: Log user access for audit trail
     // Implement user context extraction and logging
-    console.log('User middleware executed');
+    console.warn('User middleware executed');
     next();
   }
 }

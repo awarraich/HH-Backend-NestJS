@@ -4,7 +4,7 @@ import { PipeTransform, Injectable, ArgumentMetadata, BadRequestException } from
 // npm install class-validator class-transformer
 @Injectable()
 export class ValidationPipe implements PipeTransform<any> {
-  transform(value: any, metadata: ArgumentMetadata) {
+  transform(value: unknown, _metadata: ArgumentMetadata) {
     // Basic validation - extend this with class-validator for full validation
     if (!value) {
       throw new BadRequestException('Validation failed: value is required');

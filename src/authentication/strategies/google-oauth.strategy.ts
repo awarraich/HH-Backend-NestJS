@@ -21,19 +21,13 @@ export class GoogleOAuthStrategy extends PassportStrategy(Strategy, 'google') {
     done: VerifyCallback,
   ): Promise<any> {
     if (!profile) {
-      return done(
-        new UnauthorizedException('No profile received from Google'),
-        undefined,
-      );
+      return done(new UnauthorizedException('No profile received from Google'), undefined);
     }
 
     const { id, name, emails, photos } = profile;
 
     if (!emails || emails.length === 0) {
-      return done(
-        new UnauthorizedException('No email found in Google profile'),
-        undefined,
-      );
+      return done(new UnauthorizedException('No email found in Google profile'), undefined);
     }
 
     const email = emails[0].value;
@@ -53,4 +47,3 @@ export class GoogleOAuthStrategy extends PassportStrategy(Strategy, 'google') {
     done(null, user);
   }
 }
-

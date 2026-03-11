@@ -8,21 +8,13 @@ import { OnboardingStatusService } from './onboarding-status.service';
 @Controller('v1/api/onboarding')
 @UseGuards(JwtAuthGuard)
 export class OnboardingStatusController {
-  constructor(
-    private readonly onboardingStatusService: OnboardingStatusService,
-  ) {}
+  constructor(private readonly onboardingStatusService: OnboardingStatusService) {}
 
   @Get('status')
   @HttpCode(HttpStatus.OK)
-  async getOnboardingStatus(
-    @LoggedInUser() user: UserWithRolesInterface,
-  ) {
-    const status = await this.onboardingStatusService.getOnboardingStatus(
-      user.userId,
-      user.roles,
-    );
+  async getOnboardingStatus(@LoggedInUser() user: UserWithRolesInterface) {
+    const status = await this.onboardingStatusService.getOnboardingStatus(user.userId, user.roles);
 
     return SuccessHelper.createSuccessResponse(status);
   }
 }
-
