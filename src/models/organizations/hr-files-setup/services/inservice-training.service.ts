@@ -170,7 +170,7 @@ export class InserviceTrainingService {
    * Resolves inservice by id and ensures the user has access (admin role or employee with access via requirement tags).
    * Use for routes that only have inserviceId in path (e.g. quiz-questions).
    */
-  async ensureInserviceAccess(inserviceId: string, userId: string): Promise<InserviceTraining> {
+  async ensureInserviceAccess(inserviceId: string, _userId: string): Promise<InserviceTraining> {
     const inservice = await this.inserviceTrainingRepository.findOne({
       where: { id: inserviceId },
     });

@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  NotFoundException,
-  ForbiddenException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { InserviceCompletion } from '../entities/inservice-completion.entity';
@@ -19,11 +15,7 @@ export interface InserviceCompletionMapEntry {
   quiz_attempts_count: number;
 }
 
-export type InserviceTrainingStatus =
-  | 'not_started'
-  | 'in_progress'
-  | 'completed'
-  | 'expired';
+export type InserviceTrainingStatus = 'not_started' | 'in_progress' | 'completed' | 'expired';
 
 @Injectable()
 export class InserviceCompletionService {
@@ -90,19 +82,12 @@ export class InserviceCompletionService {
       },
     });
     if (!training) {
-      throw new NotFoundException(
-        `Inservice training with ID ${inserviceTrainingId} not found.`,
-      );
+      throw new NotFoundException(`Inservice training with ID ${inserviceTrainingId} not found.`);
     }
 
-    const allowedIds = await this.getAllowedInserviceIdsForEmployee(
-      organizationId,
-      employeeId,
-    );
+    const allowedIds = await this.getAllowedInserviceIdsForEmployee(organizationId, employeeId);
     if (!allowedIds.has(inserviceTrainingId)) {
-      throw new ForbiddenException(
-        'You do not have access to this inservice training.',
-      );
+      throw new ForbiddenException('You do not have access to this inservice training.');
     }
     return training;
   }
@@ -152,10 +137,7 @@ export class InserviceCompletionService {
   /**
    * Derives status from completion and current time.
    */
-  getStatus(
-    entry: InserviceCompletionMapEntry,
-    hasQuiz: boolean,
-  ): InserviceTrainingStatus {
+  getStatus(entry: InserviceCompletionMapEntry, _hasQuiz: boolean): InserviceTrainingStatus {
     const now = new Date();
     if (entry.completed_at) {
       if (entry.expiration_at && entry.expiration_at < now) {
@@ -173,11 +155,7 @@ export class InserviceCompletionService {
     inserviceTrainingId: string,
     progressPercent: number,
   ): Promise<InserviceCompletion> {
-    await this.ensureEmployeeHasAccessToInservice(
-      organizationId,
-      employeeId,
-      inserviceTrainingId,
-    );
+    await this.ensureEmployeeHasAccessToInservice(organizationId, employeeId, inserviceTrainingId);
 
     const clamped = Math.min(100, Math.max(0, Math.round(progressPercent)));
     let completion = await this.completionRepository.findOne({

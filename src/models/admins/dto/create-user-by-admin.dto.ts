@@ -5,6 +5,8 @@ import {
   MinLength,
   Matches,
   IsNumber,
+  IsOptional,
+  MaxLength,
   Validate,
   ValidationArguments,
   ValidatorConstraint,
@@ -33,6 +35,12 @@ export class CreateUserByAdminDto {
   @IsString()
   @IsNotEmpty()
   lastName: string;
+
+  /** Display name for blog byline (e.g. "Dr. Jane Smith"). Shown as author on blog posts. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  displayName?: string;
 
   @IsEmail()
   @IsNotEmpty()

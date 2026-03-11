@@ -328,18 +328,14 @@ export class EmployeeDocumentsService {
       order: { sort_order: 'ASC', created_at: 'DESC' },
     });
 
-    const completionMap =
-      await this.inserviceCompletionService.getCompletionMap(
-        employeeId,
-        inservices.map((it) => it.id),
-      );
+    const completionMap = await this.inserviceCompletionService.getCompletionMap(
+      employeeId,
+      inservices.map((it) => it.id),
+    );
 
     return inservices.map((it) => {
       const entry = completionMap.get(it.id)!;
-      const status = this.inserviceCompletionService.getStatus(
-        entry,
-        it.has_quiz,
-      );
+      const status = this.inserviceCompletionService.getStatus(entry, it.has_quiz);
       return {
         id: it.id,
         organization_id: it.organization_id,
@@ -350,9 +346,7 @@ export class EmployeeDocumentsService {
         expiry_months: it.expiry_months,
         pdf_file_name: it.pdf_file_name,
         pdf_file_path: it.pdf_file_path,
-        pdf_file_size_bytes: it.pdf_file_size_bytes
-          ? Number(it.pdf_file_size_bytes)
-          : null,
+        pdf_file_size_bytes: it.pdf_file_size_bytes ? Number(it.pdf_file_size_bytes) : null,
         video_url: it.video_url,
         sort_order: it.sort_order,
         is_active: it.is_active,
@@ -360,12 +354,8 @@ export class EmployeeDocumentsService {
         passing_score_percent: it.passing_score_percent,
         status,
         progress_percent: entry.progress_percent,
-        completed_at: entry.completed_at
-          ? entry.completed_at.toISOString()
-          : null,
-        expiration_at: entry.expiration_at
-          ? entry.expiration_at.toISOString()
-          : null,
+        completed_at: entry.completed_at ? entry.completed_at.toISOString() : null,
+        expiration_at: entry.expiration_at ? entry.expiration_at.toISOString() : null,
         last_quiz_score_percent: entry.last_quiz_score_percent,
         quiz_attempts_count: entry.quiz_attempts_count,
         created_at: it.created_at,
