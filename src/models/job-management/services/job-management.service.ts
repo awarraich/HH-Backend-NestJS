@@ -5,6 +5,7 @@ import { JobPosting } from '../entities/job-posting.entity';
 import { JobApplication } from '../entities/job-application.entity';
 import { CreateJobPostingDto } from '../dto/create-job-posting.dto';
 import { CreateJobApplicationDto } from '../dto/create-job-application.dto';
+import { UpdateJobApplicationDto } from '../dto/update-job-application.dto';
 import { UpdateJobPostingDto } from '../dto/update-job-posting.dto';
 import { QueryJobPostingDto } from '../dto/query-job-posting.dto';
 
@@ -49,6 +50,7 @@ export class JobManagementService {
       background_check_required: dto.background_check_required,
       hiring_timeline: dto.hiring_timeline,
       people_to_hire: dto.people_to_hire,
+      application_fields: dto.application_fields ?? undefined,
     };
 
     const entity = this.jobPostingRepository.create({
@@ -160,9 +162,62 @@ export class JobManagementService {
 
   async update(organizationId: string, id: string, dto: UpdateJobPostingDto): Promise<JobPosting> {
     const job = await this.findOne(organizationId, id);
-    if (dto.status !== undefined) {
-      job.status = dto.status;
+
+    if (dto.title !== undefined) job.title = dto.title;
+    if (dto.description !== undefined) job.description = dto.description ?? null;
+    if (dto.location !== undefined) job.location = dto.location ?? null;
+    if (dto.location_type !== undefined) job.location_type = dto.location_type ?? 'in_person';
+    if (dto.salary_range !== undefined) job.salary_range = dto.salary_range ?? null;
+    if (dto.application_deadline !== undefined) {
+      job.application_deadline = dto.application_deadline
+        ? new Date(dto.application_deadline)
+        : null;
     }
+    if (dto.status !== undefined) job.status = dto.status;
+
+    const details: Record<string, unknown> = {
+      ...((job.details as Record<string, unknown>) || {}),
+    };
+    if (dto.expand_candidate_search !== undefined)
+      details.expand_candidate_search = dto.expand_candidate_search;
+    if (dto.required_fields !== undefined) details.required_fields = dto.required_fields;
+    if (dto.optional_fields !== undefined) details.optional_fields = dto.optional_fields;
+    if (dto.job_types !== undefined) details.job_types = dto.job_types;
+    if (dto.expected_hours_type !== undefined)
+      details.expected_hours_type = dto.expected_hours_type;
+    if (dto.expected_hours_value !== undefined)
+      details.expected_hours_value = dto.expected_hours_value;
+    if (dto.pay_type !== undefined) details.pay_type = dto.pay_type;
+    if (dto.pay_minimum !== undefined) details.pay_minimum = dto.pay_minimum;
+    if (dto.pay_maximum !== undefined) details.pay_maximum = dto.pay_maximum;
+    if (dto.pay_rate !== undefined) details.pay_rate = dto.pay_rate;
+    if (dto.benefits !== undefined) details.benefits = dto.benefits;
+    if (dto.education_level !== undefined) details.education_level = dto.education_level;
+    if (dto.licenses_certifications !== undefined)
+      details.licenses_certifications = dto.licenses_certifications;
+    if (dto.field_of_study !== undefined) details.field_of_study = dto.field_of_study;
+    if (dto.experience !== undefined) details.experience = dto.experience;
+    if (dto.required_qualifications !== undefined)
+      details.required_qualifications = dto.required_qualifications;
+    if (dto.preferred_qualifications !== undefined)
+      details.preferred_qualifications = dto.preferred_qualifications;
+    if (dto.skills !== undefined) details.skills = dto.skills;
+    if (dto.communication_emails !== undefined)
+      details.communication_emails = dto.communication_emails;
+    if (dto.send_individual_emails !== undefined)
+      details.send_individual_emails = dto.send_individual_emails;
+    if (dto.resume_required !== undefined) details.resume_required = dto.resume_required;
+    if (dto.allow_candidate_contact !== undefined)
+      details.allow_candidate_contact = dto.allow_candidate_contact;
+    if (dto.criminal_record_encouraged !== undefined)
+      details.criminal_record_encouraged = dto.criminal_record_encouraged;
+    if (dto.background_check_required !== undefined)
+      details.background_check_required = dto.background_check_required;
+    if (dto.hiring_timeline !== undefined) details.hiring_timeline = dto.hiring_timeline;
+    if (dto.people_to_hire !== undefined) details.people_to_hire = dto.people_to_hire;
+    if (dto.application_fields !== undefined) details.application_fields = dto.application_fields;
+
+    job.details = details;
     return this.jobPostingRepository.save(job);
   }
 
@@ -241,5 +296,31 @@ export class JobManagementService {
       .where('jp.organization_id = :organizationId', { organizationId })
       .orderBy('ja.created_at', 'DESC')
       .getMany();
+  }
+
+  /**
+   * Update a job application (e.g. status). Application must belong to a job posting of the organization.
+   */
+  async updateApplicationStatus(
+    organizationId: string,
+    applicationId: string,
+    dto: UpdateJobApplicationDto,
+  ): Promise<JobApplication> {
+    const application = await this.jobApplicationRepository.findOne({
+      where: { id: applicationId },
+      relations: ['job_posting'],
+    });
+    if (!application) {
+      throw new NotFoundException(`Job application ${applicationId} not found`);
+    }
+    if (application.job_posting?.organization_id !== organizationId) {
+      throw new NotFoundException(
+        `Job application ${applicationId} not found for this organization`,
+      );
+    }
+    if (dto.status !== undefined) {
+      application.status = dto.status;
+    }
+    return this.jobApplicationRepository.save(application);
   }
 }

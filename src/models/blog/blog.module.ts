@@ -4,11 +4,13 @@ import { BlogController } from './controllers/blog.controller';
 import { BlogService } from './services/blog.service';
 import { BlogImageStorageService } from './services/blog-image-storage.service';
 import { Blog } from './entities/blog.entity';
+import { BlogLike } from './entities/blog-like.entity';
+import { BlogComment } from './entities/blog-comment.entity';
 import { User } from '../../authentication/entities/user.entity';
 import { StorageConfigModule } from '../../config/storage/config.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Blog, User]), StorageConfigModule],
+  imports: [TypeOrmModule.forFeature([Blog, BlogLike, BlogComment, User]), StorageConfigModule],
   controllers: [BlogController],
   providers: [BlogService, BlogImageStorageService],
   exports: [BlogService, BlogImageStorageService],

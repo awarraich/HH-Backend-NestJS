@@ -24,9 +24,11 @@ import { Roles } from '../../../common/decorators/roles.decorator';
 import { SuccessHelper } from '../../../common/helpers/responses/success.helper';
 import { JobManagementService } from '../services/job-management.service';
 import { JobApplicationDocumentStorageService } from '../services/job-application-document-storage.service';
+import { CreateJobPostingDto } from '../dto/create-job-posting.dto';
 import { UpdateJobPostingDto } from '../dto/update-job-posting.dto';
 import { QueryJobPostingDto } from '../dto/query-job-posting.dto';
 import { CreateJobApplicationDto } from '../dto/create-job-application.dto';
+import { UpdateJobApplicationDto } from '../dto/update-job-application.dto';
 
 @Controller('v1/api/job-management')
 export class JobManagementController {
@@ -34,6 +36,18 @@ export class JobManagementController {
     private readonly jobManagementService: JobManagementService,
     private readonly jobApplicationDocumentStorage: JobApplicationDocumentStorageService,
   ) {}
+
+  @Post('organization/:organizationId/job-postings')
+  @UseGuards(JwtAuthGuard, OrganizationRoleGuard)
+  @Roles('OWNER', 'HR', 'ADMIN')
+  @HttpCode(HttpStatus.CREATED)
+  async create(
+    @Param('organizationId') organizationId: string,
+    @Body() createDto: CreateJobPostingDto,
+  ): Promise<unknown> {
+    const result = await this.jobManagementService.create(organizationId, createDto);
+    return SuccessHelper.createSuccessResponse(result, 'Job posting created successfully');
+  }
 
   @Get('organization/:organizationId/job-postings')
   @UseGuards(JwtAuthGuard, OrganizationRoleGuard)
@@ -199,5 +213,19 @@ export class JobManagementController {
     const applications =
       await this.jobManagementService.findAllApplicationsByOrganization(organizationId);
     return SuccessHelper.createSuccessResponse({ applications });
+  }
+
+  /** Update job application (e.g. status: rejected | interview | offer_sent). Persists so reload keeps it. */
+  @Patch('organization/:organizationId/job-applications/:id')
+  @UseGuards(JwtAuthGuard, OrganizationRoleGuard)
+  @Roles('OWNER', 'HR', 'ADMIN')
+  @HttpCode(HttpStatus.OK)
+  async updateApplicationStatus(
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateJobApplicationDto,
+  ): Promise<unknown> {
+    const result = await this.jobManagementService.updateApplicationStatus(organizationId, id, dto);
+    return SuccessHelper.createSuccessResponse(result, 'Application status updated');
   }
 }

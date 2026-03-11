@@ -843,6 +843,7 @@ export class AuthService {
     createUserDto: {
       firstName: string;
       lastName: string;
+      displayName?: string;
       email: string;
       password: string;
       confirmPassword: string;
@@ -885,6 +886,7 @@ export class AuthService {
       const user = this.userRepository.create({
         firstName: createUserDto.firstName,
         lastName: createUserDto.lastName,
+        displayName: createUserDto.displayName?.trim() || null,
         email: createUserDto.email,
         password: hashedPassword,
         email_verification_token: verificationToken,

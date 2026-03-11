@@ -2,6 +2,8 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Blog } from '../entities/blog.entity';
+import { BlogLike } from '../entities/blog-like.entity';
+import { BlogComment } from '../entities/blog-comment.entity';
 import { User } from '../../../authentication/entities/user.entity';
 import { CreateBlogDto } from '../dto/create-blog.dto';
 import { UpdateBlogDto } from '../dto/update-blog.dto';
@@ -17,6 +19,10 @@ export class BlogService {
     private blogRepository: Repository<Blog>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
+    @InjectRepository(BlogLike)
+    private blogLikeRepository: Repository<BlogLike>,
+    @InjectRepository(BlogComment)
+    private blogCommentRepository: Repository<BlogComment>,
   ) {}
 
   async create(createBlogDto: CreateBlogDto, userId: string): Promise<SerializedBlog> {
@@ -55,14 +61,20 @@ export class BlogService {
     const skip = (page - 1) * limit;
     const queryBuilder = this.blogRepository
       .createQueryBuilder('blog')
+      .leftJoinAndSelect('blog.author', 'author')
       .where('blog.author_id = :userId', { userId })
       .orderBy('blog.created_at', 'DESC')
       .skip(skip)
       .take(limit);
 
     const [blogs, total] = await queryBuilder.getManyAndCount();
+    const countMap = await this.getLikeAndCommentCountMap(blogs.map((b) => b.id));
     return {
-      data: this.blogSerializer.serializeMany(blogs),
+      data: this.blogSerializer.serializeMany(
+        blogs as (Blog & { author?: User })[],
+        undefined,
+        countMap,
+      ),
       total,
       page,
       limit,
@@ -78,7 +90,9 @@ export class BlogService {
     const { is_published, category, search, page = 1, limit = 20 } = queryDto;
     const skip = (page - 1) * limit;
 
-    const queryBuilder = this.blogRepository.createQueryBuilder('blog');
+    const queryBuilder = this.blogRepository
+      .createQueryBuilder('blog')
+      .leftJoinAndSelect('blog.author', 'author');
 
     if (is_published !== undefined) {
       queryBuilder.andWhere('blog.is_published = :is_published', {
@@ -101,16 +115,23 @@ export class BlogService {
     queryBuilder.skip(skip).take(limit);
 
     const [blogs, total] = await queryBuilder.getManyAndCount();
-
+    const countMap = await this.getLikeAndCommentCountMap(blogs.map((b) => b.id));
     return {
-      data: this.blogSerializer.serializeMany(blogs),
+      data: this.blogSerializer.serializeMany(
+        blogs as (Blog & { author?: User })[],
+        undefined,
+        countMap,
+      ),
       total,
       page,
       limit,
     };
   }
 
-  async findOne(id: string, options?: { allowDraft?: boolean }): Promise<SerializedBlog> {
+  async findOne(
+    id: string,
+    options?: { allowDraft?: boolean; userId?: string },
+  ): Promise<SerializedBlog> {
     const blog = await this.blogRepository.findOne({
       where: { id },
       relations: ['author'],
@@ -124,10 +145,22 @@ export class BlogService {
       throw new NotFoundException(`Blog post with ID ${id} not found`);
     }
 
-    return this.blogSerializer.serialize(blog);
+    const [likeCount, commentCount, userHasLiked] = await Promise.all([
+      this.getLikeCount(id),
+      this.getCommentCount(id),
+      options?.userId ? this.userHasLiked(id, options.userId) : Promise.resolve(undefined),
+    ]);
+    return this.blogSerializer.serialize(blog, (blog as Blog & { author?: User }).author, {
+      likeCount,
+      commentCount,
+      userHasLiked,
+    });
   }
 
-  async findBySlug(slug: string, options?: { allowDraft?: boolean }): Promise<SerializedBlog> {
+  async findBySlug(
+    slug: string,
+    options?: { allowDraft?: boolean; userId?: string },
+  ): Promise<SerializedBlog> {
     const blog = await this.blogRepository.findOne({
       where: { slug },
       relations: ['author'],
@@ -141,7 +174,148 @@ export class BlogService {
       throw new NotFoundException(`Blog post with slug "${slug}" not found`);
     }
 
-    return this.blogSerializer.serialize(blog);
+    const [likeCount, commentCount, userHasLiked] = await Promise.all([
+      this.getLikeCount(blog.id),
+      this.getCommentCount(blog.id),
+      options?.userId ? this.userHasLiked(blog.id, options.userId) : Promise.resolve(undefined),
+    ]);
+    return this.blogSerializer.serialize(blog, (blog as Blog & { author?: User }).author, {
+      likeCount,
+      commentCount,
+      userHasLiked,
+    });
+  }
+
+  /** Get like and comment counts for multiple blogs (for list responses). */
+  private async getLikeAndCommentCountMap(
+    blogIds: string[],
+  ): Promise<Map<string, { likeCount: number; commentCount: number }>> {
+    if (blogIds.length === 0) return new Map();
+    const [likeRows, commentRows] = await Promise.all([
+      this.blogLikeRepository
+        .createQueryBuilder('l')
+        .select('l.blog_id', 'blog_id')
+        .addSelect('COUNT(*)', 'count')
+        .where('l.blog_id IN (:...ids)', { ids: blogIds })
+        .groupBy('l.blog_id')
+        .getRawMany<{ blog_id: string; count: string }>(),
+      this.blogCommentRepository
+        .createQueryBuilder('c')
+        .select('c.blog_id', 'blog_id')
+        .addSelect('COUNT(*)', 'count')
+        .where('c.blog_id IN (:...ids)', { ids: blogIds })
+        .groupBy('c.blog_id')
+        .getRawMany<{ blog_id: string; count: string }>(),
+    ]);
+    const map = new Map<string, { likeCount: number; commentCount: number }>();
+    for (const id of blogIds) {
+      map.set(id, { likeCount: 0, commentCount: 0 });
+    }
+    for (const row of likeRows) {
+      const cur = map.get(row.blog_id);
+      if (cur) cur.likeCount = parseInt(row.count, 10);
+    }
+    for (const row of commentRows) {
+      const cur = map.get(row.blog_id);
+      if (cur) cur.commentCount = parseInt(row.count, 10);
+    }
+    return map;
+  }
+
+  private async getLikeCount(blogId: string): Promise<number> {
+    return this.blogLikeRepository.count({ where: { blog_id: blogId } });
+  }
+
+  private async getCommentCount(blogId: string): Promise<number> {
+    return this.blogCommentRepository.count({ where: { blog_id: blogId } });
+  }
+
+  private async userHasLiked(blogId: string, userId: string): Promise<boolean> {
+    const one = await this.blogLikeRepository.findOne({
+      where: { blog_id: blogId, user_id: userId },
+    });
+    return !!one;
+  }
+
+  async toggleLike(blogId: string, userId: string): Promise<{ liked: boolean; likeCount: number }> {
+    const blog = await this.blogRepository.findOne({ where: { id: blogId } });
+    if (!blog) throw new NotFoundException('Blog not found');
+    const existing = await this.blogLikeRepository.findOne({
+      where: { blog_id: blogId, user_id: userId },
+    });
+    if (existing) {
+      await this.blogLikeRepository.remove(existing);
+      const likeCount = await this.getLikeCount(blogId);
+      return { liked: false, likeCount };
+    }
+    await this.blogLikeRepository.save({
+      blog_id: blogId,
+      user_id: userId,
+    });
+    const likeCount = await this.getLikeCount(blogId);
+    return { liked: true, likeCount };
+  }
+
+  async removeLike(blogId: string, userId: string): Promise<{ likeCount: number }> {
+    const existing = await this.blogLikeRepository.findOne({
+      where: { blog_id: blogId, user_id: userId },
+    });
+    if (existing) await this.blogLikeRepository.remove(existing);
+    const likeCount = await this.getLikeCount(blogId);
+    return { likeCount };
+  }
+
+  async createComment(
+    blogId: string,
+    userId: string,
+    content: string,
+  ): Promise<{ id: string; content: string; created_at: Date; author_name: string }> {
+    const blog = await this.blogRepository.findOne({ where: { id: blogId } });
+    if (!blog) throw new NotFoundException('Blog not found');
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+      select: ['id', 'firstName', 'lastName', 'displayName'],
+    });
+    if (!user) throw new NotFoundException('User not found');
+    const trimmed = (content || '').trim();
+    if (!trimmed) throw new BadRequestException('Comment content is required');
+    const comment = await this.blogCommentRepository.save({
+      blog_id: blogId,
+      user_id: userId,
+      content: trimmed,
+    });
+    const authorName =
+      user.displayName?.trim() || `${user.firstName} ${user.lastName}`.trim() || 'Anonymous';
+    return {
+      id: comment.id,
+      content: comment.content,
+      created_at: comment.created_at,
+      author_name: authorName,
+    };
+  }
+
+  async getComments(
+    blogId: string,
+  ): Promise<Array<{ id: string; content: string; created_at: Date; author_name: string }>> {
+    const blog = await this.blogRepository.findOne({ where: { id: blogId } });
+    if (!blog) throw new NotFoundException('Blog not found');
+    const comments = await this.blogCommentRepository.find({
+      where: { blog_id: blogId },
+      relations: ['user'],
+      order: { created_at: 'ASC' },
+    });
+    return comments.map((c) => {
+      const u = c.user as User | undefined;
+      const authorName = u
+        ? u.displayName?.trim() || `${u.firstName} ${u.lastName}`.trim() || 'Anonymous'
+        : 'Anonymous';
+      return {
+        id: c.id,
+        content: c.content,
+        created_at: c.created_at,
+        author_name: authorName,
+      };
+    });
   }
 
   async update(id: string, updateBlogDto: UpdateBlogDto, _userId: string): Promise<SerializedBlog> {

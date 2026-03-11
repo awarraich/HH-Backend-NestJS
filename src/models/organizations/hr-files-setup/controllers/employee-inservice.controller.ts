@@ -18,9 +18,7 @@ import { CreateInserviceQuizAttemptDto } from '../dto/create-inservice-quiz-atte
 @Controller('v1/api/organizations/:organizationId/employees/:employeeId')
 @UseGuards(JwtAuthGuard, EmployeeDocumentAccessGuard)
 export class EmployeeInserviceController {
-  constructor(
-    private readonly inserviceCompletionService: InserviceCompletionService,
-  ) {}
+  constructor(private readonly inserviceCompletionService: InserviceCompletionService) {}
 
   @Patch('inservice-completions/:inserviceTrainingId')
   @HttpCode(HttpStatus.OK)
@@ -30,13 +28,12 @@ export class EmployeeInserviceController {
     @Param('inserviceTrainingId') inserviceTrainingId: string,
     @Body() dto: UpdateInserviceCompletionProgressDto,
   ) {
-    const completion =
-      await this.inserviceCompletionService.updateProgress(
-        organizationId,
-        employeeId,
-        inserviceTrainingId,
-        dto.progress_percent,
-      );
+    const completion = await this.inserviceCompletionService.updateProgress(
+      organizationId,
+      employeeId,
+      inserviceTrainingId,
+      dto.progress_percent,
+    );
     return SuccessHelper.createSuccessResponse(
       this.serializeCompletion(completion),
       'Progress updated',
@@ -50,12 +47,11 @@ export class EmployeeInserviceController {
     @Param('employeeId') employeeId: string,
     @Param('inserviceTrainingId') inserviceTrainingId: string,
   ) {
-    const completion =
-      await this.inserviceCompletionService.markComplete(
-        organizationId,
-        employeeId,
-        inserviceTrainingId,
-      );
+    const completion = await this.inserviceCompletionService.markComplete(
+      organizationId,
+      employeeId,
+      inserviceTrainingId,
+    );
     return SuccessHelper.createSuccessResponse(
       this.serializeCompletion(completion),
       'Training marked complete',
@@ -70,14 +66,13 @@ export class EmployeeInserviceController {
     @Param('inserviceTrainingId') inserviceTrainingId: string,
     @Body() dto: CreateInserviceQuizAttemptDto,
   ) {
-    const { attempt, completion } =
-      await this.inserviceCompletionService.recordQuizAttempt(
-        organizationId,
-        employeeId,
-        inserviceTrainingId,
-        dto.score_percent,
-        dto.passed,
-      );
+    const { attempt } = await this.inserviceCompletionService.recordQuizAttempt(
+      organizationId,
+      employeeId,
+      inserviceTrainingId,
+      dto.score_percent,
+      dto.passed,
+    );
     return SuccessHelper.createSuccessResponse(
       {
         id: attempt.id,
@@ -108,12 +103,8 @@ export class EmployeeInserviceController {
       employee_id: completion.employee_id,
       inservice_training_id: completion.inservice_training_id,
       progress_percent: completion.progress_percent,
-      completed_at: completion.completed_at
-        ? completion.completed_at.toISOString()
-        : null,
-      expiration_at: completion.expiration_at
-        ? completion.expiration_at.toISOString()
-        : null,
+      completed_at: completion.completed_at ? completion.completed_at.toISOString() : null,
+      expiration_at: completion.expiration_at ? completion.expiration_at.toISOString() : null,
       last_quiz_score_percent: completion.last_quiz_score_percent,
       quiz_attempts_count: completion.quiz_attempts_count,
       created_at: completion.created_at,

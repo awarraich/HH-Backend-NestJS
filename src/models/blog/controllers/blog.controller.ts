@@ -149,6 +149,7 @@ export class BlogController {
   ): Promise<unknown> {
     const result = await this.blogService.findBySlug(slug, {
       allowDraft: !!user,
+      userId: user?.userId,
     });
     return SuccessHelper.createSuccessResponse(result);
   }
@@ -177,6 +178,51 @@ export class BlogController {
     );
   }
 
+  /** Toggle like on a blog (authenticated). Returns { liked, likeCount }. */
+  @Post(':id/like')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async toggleLike(
+    @Param('id') id: string,
+    @LoggedInUser() user: UserWithRolesInterface,
+  ): Promise<unknown> {
+    const result = await this.blogService.toggleLike(id, user.userId);
+    return SuccessHelper.createSuccessResponse(result);
+  }
+
+  /** Remove like. */
+  @Delete(':id/like')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async removeLike(
+    @Param('id') id: string,
+    @LoggedInUser() user: UserWithRolesInterface,
+  ): Promise<unknown> {
+    const result = await this.blogService.removeLike(id, user.userId);
+    return SuccessHelper.createSuccessResponse(result);
+  }
+
+  /** Get comments for a blog (public). */
+  @Get(':id/comments')
+  @HttpCode(HttpStatus.OK)
+  async getComments(@Param('id') id: string): Promise<unknown> {
+    const comments = await this.blogService.getComments(id);
+    return SuccessHelper.createSuccessResponse({ comments });
+  }
+
+  /** Post a comment (authenticated). */
+  @Post(':id/comments')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.CREATED)
+  async createComment(
+    @Param('id') id: string,
+    @Body() body: { content: string },
+    @LoggedInUser() user: UserWithRolesInterface,
+  ): Promise<unknown> {
+    const result = await this.blogService.createComment(id, user.userId, body.content);
+    return SuccessHelper.createSuccessResponse(result, 'Comment added');
+  }
+
   @Get(':id')
   @UseGuards(OptionalJwtAuthGuard)
   @HttpCode(HttpStatus.OK)
@@ -186,6 +232,7 @@ export class BlogController {
   ): Promise<unknown> {
     const result = await this.blogService.findOne(id, {
       allowDraft: !!user,
+      userId: user?.userId,
     });
     return SuccessHelper.createSuccessResponse(result);
   }

@@ -28,9 +28,7 @@ import { UpdateInserviceQuizQuestionDto } from '../dto/update-inservice-quiz-que
 @Controller('v1/api/organizations/:organizationId/inservice-trainings/:inserviceId/quiz-questions')
 @UseGuards(JwtAuthGuard, OrganizationRoleGuard)
 @Roles('OWNER', 'HR', 'MANAGER')
-@Controller(
-  'v1/api/organizations/:organizationId/inservice-trainings/:inserviceId/quiz-questions',
-)
+@Controller('v1/api/organizations/:organizationId/inservice-trainings/:inserviceId/quiz-questions')
 // @UseGuards(JwtAuthGuard)
 // @Roles('OWNER', 'HR', 'MANAGER')
 export class InserviceQuizQuestionsOrgController {

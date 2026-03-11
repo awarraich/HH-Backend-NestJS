@@ -15,6 +15,7 @@ export interface SerializedBlog {
   image: string;
   likes: number;
   comments: number;
+  user_has_liked?: boolean;
   slug: string;
   content: string;
   author_id: string;
@@ -26,6 +27,12 @@ export interface SerializedBlog {
   updated_at: Date;
 }
 
+export interface SerializeOptions {
+  likeCount?: number;
+  commentCount?: number;
+  userHasLiked?: boolean;
+}
+
 export class BlogSerializer {
   // Calculate read time based on content (avg 200 words per minute)
   private calculateReadTime(content: string): string {
@@ -35,7 +42,7 @@ export class BlogSerializer {
     return `${minutes} min read`;
   }
 
-  serialize(blog: Blog, author?: User): SerializedBlog {
+  serialize(blog: Blog, author?: User, options?: SerializeOptions): SerializedBlog {
     // Dashboard expects status: approved | pending | rejected | draft; backend has is_published only
     const status = blog.is_published ? 'approved' : 'draft';
     return {
@@ -43,7 +50,11 @@ export class BlogSerializer {
       title: blog.title,
       excerpt: blog.excerpt,
       short_description: blog.excerpt ?? '', // alias for blogger dashboard
-      author: author ? `${author.firstName} ${author.lastName}` : 'Unknown Author',
+      author: author
+        ? author.displayName?.trim() ||
+          `${author.firstName} ${author.lastName}`.trim() ||
+          'Unknown Author'
+        : 'Unknown Author',
       authorRole: 'Healthcare Professional', // Default role
       date: blog.published_at
         ? new Date(blog.published_at).toISOString()
@@ -52,8 +63,9 @@ export class BlogSerializer {
       category: blog.category || 'General',
       category_name: blog.category || 'General', // alias for dashboard
       image: blog.featured_image || '',
-      likes: 0, // Default - can be extended with a likes system
-      comments: 0, // Default - can be extended with a comments system
+      likes: options?.likeCount ?? 0,
+      comments: options?.commentCount ?? 0,
+      user_has_liked: options?.userHasLiked,
       slug: blog.slug,
       content: blog.content,
       author_id: blog.author_id,
@@ -66,10 +78,20 @@ export class BlogSerializer {
     };
   }
 
-  serializeMany(blogs: Blog[], authors?: Map<string, User>): SerializedBlog[] {
+  serializeMany(
+    blogs: (Blog & { author?: User })[],
+    authors?: Map<string, User>,
+    countMap?: Map<string, { likeCount: number; commentCount: number }>,
+  ): SerializedBlog[] {
     return blogs.map((blog) => {
-      const author = authors ? authors.get(blog.author_id) : undefined;
-      return this.serialize(blog, author);
+      const author = authors
+        ? authors.get(blog.author_id)
+        : (blog as Blog & { author?: User }).author;
+      const counts = countMap?.get(blog.id);
+      return this.serialize(blog, author, {
+        likeCount: counts?.likeCount,
+        commentCount: counts?.commentCount,
+      });
     });
   }
 }
