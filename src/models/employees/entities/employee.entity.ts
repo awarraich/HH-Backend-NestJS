@@ -4,6 +4,7 @@ import {
   Column,
   ManyToOne,
   OneToOne,
+  OneToMany,
   JoinColumn,
   CreateDateColumn,
   UpdateDateColumn,
@@ -14,6 +15,7 @@ import { User } from '../../../authentication/entities/user.entity';
 import { Organization } from '../../organizations/entities/organization.entity';
 import { EmployeeProfile } from './employee-profile.entity';
 import { ProviderRole } from './provider-role.entity';
+import { EmployeeRequirementTag } from '../../organizations/hr-files-setup/entities/employee-requirement-tag.entity';
 
 @Entity('employees')
 @Index(['user_id'])
@@ -77,4 +79,7 @@ export class Employee {
 
   @OneToOne(() => EmployeeProfile, (profile) => profile.employee)
   profile: EmployeeProfile;
+
+  @OneToMany(() => EmployeeRequirementTag, (ert) => ert.employee)
+  employeeRequirementTags?: EmployeeRequirementTag[];
 }
