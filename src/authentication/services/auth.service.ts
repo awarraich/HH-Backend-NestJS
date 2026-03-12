@@ -237,7 +237,12 @@ export class AuthService {
     if (usedTemporaryPassword) {
       user.must_change_password = true;
     }
-    await this.userRepository.save(user);
+    // Update only login-related fields so we don't touch displayName (may not exist on older DBs)
+    await this.userRepository.update(user.id, {
+      last_login: user.last_login,
+      ...(usedTemporaryPassword && { must_change_password: true }),
+      ...(user.last_2fa_verified_at && { last_2fa_verified_at: user.last_2fa_verified_at }),
+    });
 
     const userWithRoles = await this.userRepository.findByIdWithRoles(user.id);
     const roles = userWithRoles?.userRoles?.map((ur) => ur.role.name) || [];
