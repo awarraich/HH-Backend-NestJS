@@ -198,7 +198,11 @@ export class BlogController {
     return SuccessHelper.createSuccessResponse({ comments });
   }
 
-  /** Toggle like (authenticated or guest with guestId in body). Returns { liked, likeCount }. */
+  /**
+   * Toggle like. Only the same user or guest who liked can unlike.
+   * - When authenticated: use only userId (ignore guestId); toggles/removes only this user's like.
+   * - When not authenticated: require guestId in body; toggles/removes only this guest's like.
+   */
   @Post(':id/like')
   @UseGuards(OptionalJwtAuthGuard)
   @HttpCode(HttpStatus.OK)
@@ -209,12 +213,14 @@ export class BlogController {
   ): Promise<unknown> {
     const result = await this.blogService.toggleLike(id, {
       userId: user?.userId,
-      guestId: body?.guestId?.trim() || undefined,
+      guestId: user ? undefined : body?.guestId?.trim() || undefined,
     });
     return SuccessHelper.createSuccessResponse(result);
   }
 
-  /** Remove like (authenticated only). */
+  /**
+   * Remove like (authenticated only). Removes only this user's like; no one else's.
+   */
   @Delete(':id/like')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)

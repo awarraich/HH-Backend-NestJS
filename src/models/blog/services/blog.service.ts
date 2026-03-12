@@ -313,6 +313,10 @@ export class BlogService {
     }
   }
 
+  /**
+   * Toggle like. Only adds/removes the like for the given userId or guestId (never someone else's).
+   * Caller must pass exactly one of userId (when authenticated) or guestId (when not).
+   */
   async toggleLike(
     blogId: string,
     options: { userId?: string; guestId?: string },
@@ -379,6 +383,9 @@ export class BlogService {
     return { liked: true, likeCount };
   }
 
+  /**
+   * Remove like for this user only. Only the user who liked can remove their own like.
+   */
   async removeLike(blogId: string, userId: string): Promise<{ likeCount: number }> {
     const existing = await this.blogLikeRepository.findOne({
       where: { blog_id: blogId, user_id: userId },
