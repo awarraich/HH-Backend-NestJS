@@ -7,6 +7,8 @@ import { AdminCreatedUserEmailTemplate } from './templates/admin-created-user-em
 import { AdminUpdatedUserEmailTemplate } from './templates/admin-updated-user-email.template';
 import { OrganizationStaffCreatedEmailTemplate } from './templates/organization-staff-created-email.template';
 import { GoogleSignInInviteEmailTemplate } from './templates/google-sign-in-invite-email.template';
+import { InterviewInviteEmailTemplate } from './templates/interview-invite-email.template';
+import { OfferLetterEmailTemplate } from './templates/offer-letter-email.template';
 
 @Injectable()
 export class EmailService implements OnModuleInit {
@@ -344,6 +346,84 @@ export class EmailService implements OnModuleInit {
         `Failed to send admin-updated user email: ${errorMessage}. Please check your email configuration.`,
       );
     }
+  }
+
+  /**
+   * Send interview invite email to applicant (Schedule Interview modal content).
+   * Used when org clicks "Schedule Interview" on job applications page.
+   */
+  async sendInterviewInviteEmail(
+    toEmail: string,
+    applicantName: string,
+    jobTitle: string,
+    interviewDate: string,
+    interviewTime: string,
+    message?: string,
+  ): Promise<void> {
+    const auth = this.emailConfigService.auth;
+    if (!auth.user || !auth.pass) {
+      throw new Error(
+        'Email service not configured. Set EMAIL_USER and EMAIL_PASSWORD (e.g. in production) to send interview invites.',
+      );
+    }
+    const template = InterviewInviteEmailTemplate.generate(
+      applicantName,
+      jobTitle,
+      interviewDate,
+      interviewTime,
+      message,
+    );
+    const mailOptions = {
+      from: `"${this.emailConfigService.fromName}" <${this.emailConfigService.from}>`,
+      to: toEmail,
+      subject: template.subject,
+      html: template.html,
+      text: template.text,
+    };
+    const info = await this.transporter.sendMail(mailOptions);
+    this.logger.log(
+      `Interview invite email sent to: ${this.maskEmail(toEmail)}. MessageId: ${info.messageId}`,
+    );
+  }
+
+  /**
+   * Send offer letter email to applicant (Send Offer modal content).
+   * Used when org clicks "Send Offer" on job applications page.
+   */
+  async sendOfferLetterEmail(
+    toEmail: string,
+    applicantName: string,
+    jobTitle: string,
+    salary: string,
+    startDate: string,
+    offerContent: string,
+    attachmentUrl?: string,
+  ): Promise<void> {
+    const auth = this.emailConfigService.auth;
+    if (!auth.user || !auth.pass) {
+      throw new Error(
+        'Email service not configured. Set EMAIL_USER and EMAIL_PASSWORD (e.g. in production) to send offer letters.',
+      );
+    }
+    const template = OfferLetterEmailTemplate.generate(
+      applicantName,
+      jobTitle,
+      salary,
+      startDate,
+      offerContent,
+      attachmentUrl,
+    );
+    const mailOptions = {
+      from: `"${this.emailConfigService.fromName}" <${this.emailConfigService.from}>`,
+      to: toEmail,
+      subject: template.subject,
+      html: template.html,
+      text: template.text,
+    };
+    const info = await this.transporter.sendMail(mailOptions);
+    this.logger.log(
+      `Offer letter email sent to: ${this.maskEmail(toEmail)}. MessageId: ${info.messageId}`,
+    );
   }
 
   private maskEmail(email: string): string {

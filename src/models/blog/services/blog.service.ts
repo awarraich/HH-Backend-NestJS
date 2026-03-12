@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Blog } from '../entities/blog.entity';
@@ -12,6 +12,7 @@ import { BlogSerializer, type SerializedBlog } from '../serializers/blog.seriali
 
 @Injectable()
 export class BlogService {
+  private readonly logger = new Logger(BlogService.name);
   private blogSerializer = new BlogSerializer();
 
   constructor(
@@ -157,7 +158,7 @@ export class BlogService {
 
   async findOne(
     id: string,
-    options?: { allowDraft?: boolean; userId?: string },
+    options?: { allowDraft?: boolean; userId?: string; guestId?: string },
   ): Promise<SerializedBlog> {
     const blog = await this.blogRepository.findOne({
       where: { id },
@@ -176,11 +177,15 @@ export class BlogService {
     let commentCount = 0;
     let userHasLiked: boolean | undefined;
     try {
-      [likeCount, commentCount, userHasLiked] = await Promise.all([
+      const [count, commentCountRes, userLiked, guestLiked] = await Promise.all([
         this.getLikeCount(id),
         this.getCommentCount(id),
         options?.userId ? this.userHasLiked(id, options.userId) : Promise.resolve(undefined),
+        options?.guestId ? this.guestHasLiked(id, options.guestId) : Promise.resolve(undefined),
       ]);
+      likeCount = count;
+      commentCount = commentCountRes;
+      userHasLiked = userLiked ?? guestLiked;
     } catch {
       // Tables may not exist on older DBs; use zeros
     }
@@ -193,7 +198,7 @@ export class BlogService {
 
   async findBySlug(
     slug: string,
-    options?: { allowDraft?: boolean; userId?: string },
+    options?: { allowDraft?: boolean; userId?: string; guestId?: string },
   ): Promise<SerializedBlog> {
     const blog = await this.blogRepository.findOne({
       where: { slug },
@@ -212,13 +217,22 @@ export class BlogService {
     let commentCount = 0;
     let userHasLiked: boolean | undefined;
     try {
-      [likeCount, commentCount, userHasLiked] = await Promise.all([
+      const [count, commentCountRes, userLiked, guestLiked] = await Promise.all([
         this.getLikeCount(blog.id),
         this.getCommentCount(blog.id),
         options?.userId ? this.userHasLiked(blog.id, options.userId) : Promise.resolve(undefined),
+        options?.guestId
+          ? this.guestHasLiked(blog.id, options.guestId)
+          : Promise.resolve(undefined),
       ]);
-    } catch {
-      // Tables may not exist on older DBs; use zeros
+      likeCount = count;
+      commentCount = commentCountRes;
+      userHasLiked = userLiked ?? guestLiked;
+    } catch (err) {
+      this.logger.warn(
+        `Blog findBySlug: like/comment count failed for blog ${blog.id}, using zeros`,
+        err instanceof Error ? err.message : String(err),
+      );
     }
     return this.blogSerializer.serialize(blog, (blog as Blog & { author?: User }).author, {
       likeCount,
@@ -245,6 +259,7 @@ export class BlogService {
         .select('c.blog_id', 'blog_id')
         .addSelect('COUNT(*)', 'count')
         .where('c.blog_id IN (:...ids)', { ids: blogIds })
+        .andWhere("c.status = 'approved'")
         .groupBy('c.blog_id')
         .getRawMany<{ blog_id: string; count: string }>(),
     ]);
@@ -264,12 +279,21 @@ export class BlogService {
   }
 
   private async getLikeCount(blogId: string): Promise<number> {
-    return this.blogLikeRepository.count({ where: { blog_id: blogId } });
+    const row = await this.blogLikeRepository
+      .createQueryBuilder('l')
+      .select('COUNT(*)', 'c')
+      .where('l.blog_id = :blogId', { blogId })
+      .getRawOne<{ c: string }>();
+    return row ? parseInt(row.c, 10) || 0 : 0;
   }
 
   private async getCommentCount(blogId: string): Promise<number> {
-    return this.blogCommentRepository.count({ where: { blog_id: blogId } });
+    return this.blogCommentRepository.count({
+      where: { blog_id: blogId, status: 'approved' },
+    });
   }
+
+  private static readonly GUEST_ID_REGEX = /^[a-zA-Z0-9_-]{8,64}$/;
 
   private async userHasLiked(blogId: string, userId: string): Promise<boolean> {
     const one = await this.blogLikeRepository.findOne({
@@ -278,7 +302,42 @@ export class BlogService {
     return !!one;
   }
 
-  async toggleLike(blogId: string, userId: string): Promise<{ liked: boolean; likeCount: number }> {
+  private async guestHasLiked(blogId: string, guestId: string): Promise<boolean> {
+    try {
+      const one = await this.blogLikeRepository.findOne({
+        where: { blog_id: blogId, guest_id: guestId },
+      });
+      return !!one;
+    } catch {
+      return false;
+    }
+  }
+
+  async toggleLike(
+    blogId: string,
+    options: { userId?: string; guestId?: string },
+  ): Promise<{ liked: boolean; likeCount: number }> {
+    const { userId, guestId } = options;
+    if (userId) {
+      return this.toggleLikeForUser(blogId, userId);
+    }
+    if (guestId) {
+      if (!BlogService.GUEST_ID_REGEX.test(guestId)) {
+        throw new BadRequestException('Invalid guest ID format');
+      }
+      try {
+        return await this.toggleLikeForGuest(blogId, guestId);
+      } catch {
+        throw new BadRequestException('Unable to like as guest. Please try again or log in.');
+      }
+    }
+    throw new BadRequestException('Either log in or provide a guest ID to like');
+  }
+
+  private async toggleLikeForUser(
+    blogId: string,
+    userId: string,
+  ): Promise<{ liked: boolean; likeCount: number }> {
     const blog = await this.blogRepository.findOne({ where: { id: blogId } });
     if (!blog) throw new NotFoundException('Blog not found');
     const existing = await this.blogLikeRepository.findOne({
@@ -289,9 +348,32 @@ export class BlogService {
       const likeCount = await this.getLikeCount(blogId);
       return { liked: false, likeCount };
     }
-    await this.blogLikeRepository.save({
+    await this.blogLikeRepository.insert({
       blog_id: blogId,
       user_id: userId,
+    });
+    const likeCount = await this.getLikeCount(blogId);
+    return { liked: true, likeCount };
+  }
+
+  private async toggleLikeForGuest(
+    blogId: string,
+    guestId: string,
+  ): Promise<{ liked: boolean; likeCount: number }> {
+    const blog = await this.blogRepository.findOne({ where: { id: blogId } });
+    if (!blog) throw new NotFoundException('Blog not found');
+    const existing = await this.blogLikeRepository.findOne({
+      where: { blog_id: blogId, guest_id: guestId },
+    });
+    if (existing) {
+      await this.blogLikeRepository.remove(existing);
+      const likeCount = await this.getLikeCount(blogId);
+      return { liked: false, likeCount };
+    }
+    await this.blogLikeRepository.save({
+      blog_id: blogId,
+      user_id: null,
+      guest_id: guestId,
     });
     const likeCount = await this.getLikeCount(blogId);
     return { liked: true, likeCount };
@@ -306,40 +388,93 @@ export class BlogService {
     return { likeCount };
   }
 
+  /** Only logged-in users can comment; new comments are pending until blogger/admin approve. */
   async createComment(
     blogId: string,
-    userId: string,
     content: string,
-  ): Promise<{ id: string; content: string; created_at: Date; author_name: string }> {
+    userId: string,
+  ): Promise<{
+    id: string;
+    content: string;
+    created_at: Date;
+    author_name: string;
+    status: string;
+  }> {
     const blog = await this.blogRepository.findOne({ where: { id: blogId } });
     if (!blog) throw new NotFoundException('Blog not found');
+    const trimmed = (content || '').trim();
+    if (!trimmed) throw new BadRequestException('Comment content is required');
+    if (trimmed.length > 5000) throw new BadRequestException('Comment is too long');
+
     const user = await this.userRepository.findOne({
       where: { id: userId },
       select: ['id', 'firstName', 'lastName'],
     });
     if (!user) throw new NotFoundException('User not found');
-    const trimmed = (content || '').trim();
-    if (!trimmed) throw new BadRequestException('Comment content is required');
+
     const comment = await this.blogCommentRepository.save({
       blog_id: blogId,
       user_id: userId,
       content: trimmed,
+      status: 'pending',
     });
-    const authorName =
-      user.displayName?.trim() || `${user.firstName} ${user.lastName}`.trim() || 'Anonymous';
+    const authorName = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim() || 'Anonymous';
     return {
       id: comment.id,
       content: comment.content,
       created_at: comment.created_at,
       author_name: authorName,
+      status: comment.status,
     };
   }
 
+  /** Public list: only approved comments. */
   async getComments(
     blogId: string,
   ): Promise<Array<{ id: string; content: string; created_at: Date; author_name: string }>> {
+    try {
+      const blog = await this.blogRepository.findOne({ where: { id: blogId } });
+      if (!blog) throw new NotFoundException('Blog not found');
+      const comments = await this.blogCommentRepository.find({
+        where: { blog_id: blogId, status: 'approved' },
+        relations: ['user'],
+        order: { created_at: 'ASC' },
+      });
+      return comments.map((c) => {
+        const u = c.user as User | undefined;
+        const authorName = u
+          ? (u.displayName && String(u.displayName).trim()) ||
+            `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() ||
+            'Anonymous'
+          : (c.guest_name && String(c.guest_name).trim()) || 'Guest';
+        return {
+          id: c.id,
+          content: c.content,
+          created_at: c.created_at,
+          author_name: authorName,
+        };
+      });
+    } catch (err) {
+      if (err instanceof NotFoundException) throw err;
+      return [];
+    }
+  }
+
+  /** For blogger/admin: all comments with status. Caller must ensure user is blog author or ADMIN. */
+  async getCommentsForModeration(
+    blogId: string,
+    userId: string,
+    userRoles: string[],
+  ): Promise<
+    Array<{ id: string; content: string; created_at: Date; author_name: string; status: string }>
+  > {
     const blog = await this.blogRepository.findOne({ where: { id: blogId } });
     if (!blog) throw new NotFoundException('Blog not found');
+    const isAdmin = userRoles.some((r) => r.toUpperCase() === 'ADMIN');
+    const isAuthor = blog.author_id === userId;
+    if (!isAdmin && !isAuthor) {
+      throw new BadRequestException('Only the blog author or an admin can moderate comments');
+    }
     const comments = await this.blogCommentRepository.find({
       where: { blog_id: blogId },
       relations: ['user'],
@@ -348,13 +483,141 @@ export class BlogService {
     return comments.map((c) => {
       const u = c.user as User | undefined;
       const authorName = u
-        ? u.displayName?.trim() || `${u.firstName} ${u.lastName}`.trim() || 'Anonymous'
-        : 'Anonymous';
+        ? (u.displayName && String(u.displayName).trim()) ||
+          `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() ||
+          'Anonymous'
+        : (c.guest_name && String(c.guest_name).trim()) || 'Guest';
       return {
         id: c.id,
         content: c.content,
         created_at: c.created_at,
         author_name: authorName,
+        status: c.status ?? 'pending',
+      };
+    });
+  }
+
+  async approveComment(
+    blogId: string,
+    commentId: string,
+    userId: string,
+    userRoles: string[],
+  ): Promise<{ id: string; status: string }> {
+    const blog = await this.blogRepository.findOne({ where: { id: blogId } });
+    if (!blog) throw new NotFoundException('Blog not found');
+    const isAdmin = userRoles.some((r) => r.toUpperCase() === 'ADMIN');
+    const isAuthor = blog.author_id === userId;
+    if (!isAdmin && !isAuthor) {
+      throw new BadRequestException('Only the blog author or an admin can approve comments');
+    }
+    const comment = await this.blogCommentRepository.findOne({
+      where: { id: commentId, blog_id: blogId },
+    });
+    if (!comment) throw new NotFoundException('Comment not found');
+    comment.status = 'approved';
+    await this.blogCommentRepository.save(comment);
+    return { id: comment.id, status: comment.status };
+  }
+
+  async deleteComment(
+    blogId: string,
+    commentId: string,
+    userId: string,
+    userRoles: string[],
+  ): Promise<void> {
+    const blog = await this.blogRepository.findOne({ where: { id: blogId } });
+    if (!blog) throw new NotFoundException('Blog not found');
+    const isAdmin = userRoles.some((r) => r.toUpperCase() === 'ADMIN');
+    const isAuthor = blog.author_id === userId;
+    if (!isAdmin && !isAuthor) {
+      throw new BadRequestException('Only the blog author or an admin can delete comments');
+    }
+    const comment = await this.blogCommentRepository.findOne({
+      where: { id: commentId, blog_id: blogId },
+    });
+    if (!comment) throw new NotFoundException('Comment not found');
+    await this.blogCommentRepository.remove(comment);
+  }
+
+  /** Admin only: all comments across all blogs for moderation UI. */
+  async getAllCommentsForAdmin(userRoles: string[]): Promise<
+    Array<{
+      id: string;
+      blog_id: string;
+      blog_title: string;
+      blog_slug: string;
+      content: string;
+      author_name: string;
+      status: string;
+      created_at: Date;
+    }>
+  > {
+    const isAdmin = userRoles.some((r) => r.toUpperCase() === 'ADMIN');
+    if (!isAdmin) {
+      throw new BadRequestException('Only admins can list all blog comments');
+    }
+    const comments = await this.blogCommentRepository.find({
+      relations: ['blog', 'user'],
+      order: { created_at: 'DESC' },
+    });
+    return comments.map((c) => {
+      const blog = c.blog as Blog | undefined;
+      const u = c.user as User | undefined;
+      const authorName = u
+        ? (u.displayName && String(u.displayName).trim()) ||
+          `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() ||
+          'Anonymous'
+        : (c.guest_name && String(c.guest_name).trim()) || 'Guest';
+      return {
+        id: c.id,
+        blog_id: c.blog_id,
+        blog_title: blog?.title ?? '',
+        blog_slug: blog?.slug ?? '',
+        content: c.content,
+        author_name: authorName,
+        status: c.status ?? 'pending',
+        created_at: c.created_at,
+      };
+    });
+  }
+
+  /** Blogger: all comments on blogs authored by userId (for moderation UI). */
+  async getMyBlogsComments(userId: string): Promise<
+    Array<{
+      id: string;
+      blog_id: string;
+      blog_title: string;
+      blog_slug: string;
+      content: string;
+      author_name: string;
+      status: string;
+      created_at: Date;
+    }>
+  > {
+    const comments = await this.blogCommentRepository
+      .createQueryBuilder('c')
+      .innerJoinAndSelect('c.blog', 'blog')
+      .where('blog.author_id = :userId', { userId })
+      .leftJoinAndSelect('c.user', 'user')
+      .orderBy('c.created_at', 'DESC')
+      .getMany();
+    return comments.map((c) => {
+      const blog = c.blog as Blog | undefined;
+      const u = c.user as User | undefined;
+      const authorName = u
+        ? (u.displayName && String(u.displayName).trim()) ||
+          `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() ||
+          'Anonymous'
+        : (c.guest_name && String(c.guest_name).trim()) || 'Guest';
+      return {
+        id: c.id,
+        blog_id: c.blog_id,
+        blog_title: blog?.title ?? '',
+        blog_slug: blog?.slug ?? '',
+        content: c.content,
+        author_name: authorName,
+        status: c.status ?? 'pending',
+        created_at: c.created_at,
       };
     });
   }

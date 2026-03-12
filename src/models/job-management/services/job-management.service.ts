@@ -3,11 +3,15 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JobPosting } from '../entities/job-posting.entity';
 import { JobApplication } from '../entities/job-application.entity';
+import { Organization } from '../../organizations/entities/organization.entity';
 import { CreateJobPostingDto } from '../dto/create-job-posting.dto';
 import { CreateJobApplicationDto } from '../dto/create-job-application.dto';
 import { UpdateJobApplicationDto } from '../dto/update-job-application.dto';
 import { UpdateJobPostingDto } from '../dto/update-job-posting.dto';
 import { QueryJobPostingDto } from '../dto/query-job-posting.dto';
+import { SendInterviewInviteDto } from '../dto/send-interview-invite.dto';
+import { SendOfferLetterDto } from '../dto/send-offer-letter.dto';
+import { EmailService } from '../../../common/services/email/email.service';
 
 @Injectable()
 export class JobManagementService {
@@ -16,6 +20,9 @@ export class JobManagementService {
     private jobPostingRepository: Repository<JobPosting>,
     @InjectRepository(JobApplication)
     private jobApplicationRepository: Repository<JobApplication>,
+    @InjectRepository(Organization)
+    private organizationRepository: Repository<Organization>,
+    private readonly emailService: EmailService,
   ) {}
 
   async create(organizationId: string, dto: CreateJobPostingDto): Promise<JobPosting> {
@@ -322,5 +329,202 @@ export class JobManagementService {
       application.status = dto.status;
     }
     return this.jobApplicationRepository.save(application);
+  }
+
+  /**
+   * Send interview invite email to applicant. Application must belong to the organization.
+   * Fails with 400 if email service is not configured (e.g. missing EMAIL_USER/EMAIL_PASSWORD in production).
+   */
+  async sendInterviewInviteEmail(
+    organizationId: string,
+    applicationId: string,
+    dto: SendInterviewInviteDto,
+  ): Promise<{ message: string }> {
+    const application = await this.jobApplicationRepository.findOne({
+      where: { id: applicationId },
+      relations: ['job_posting'],
+    });
+    if (!application) {
+      throw new NotFoundException(`Job application ${applicationId} not found`);
+    }
+    if (application.job_posting?.organization_id !== organizationId) {
+      throw new NotFoundException(
+        `Job application ${applicationId} not found for this organization`,
+      );
+    }
+    try {
+      await this.emailService.sendInterviewInviteEmail(
+        dto.toEmail,
+        dto.applicantName,
+        dto.jobTitle,
+        dto.interviewDate,
+        dto.interviewTime,
+        dto.message,
+      );
+      return { message: 'Interview invite email sent successfully' };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('not configured')) {
+        throw new BadRequestException(
+          'Email is not configured. Set EMAIL_USER and EMAIL_PASSWORD in your environment to send interview invites.',
+        );
+      }
+      throw new BadRequestException(`Failed to send interview invite email: ${msg}`);
+    }
+  }
+
+  /**
+   * Send offer letter email to applicant. Application must belong to the organization.
+   * Fails with 400 if email service is not configured.
+   */
+  async sendOfferLetterEmail(
+    organizationId: string,
+    applicationId: string,
+    dto: SendOfferLetterDto,
+  ): Promise<{ message: string }> {
+    const application = await this.jobApplicationRepository.findOne({
+      where: { id: applicationId },
+      relations: ['job_posting'],
+    });
+    if (!application) {
+      throw new NotFoundException(`Job application ${applicationId} not found`);
+    }
+    if (application.job_posting?.organization_id !== organizationId) {
+      throw new NotFoundException(
+        `Job application ${applicationId} not found for this organization`,
+      );
+    }
+    try {
+      await this.emailService.sendOfferLetterEmail(
+        dto.toEmail,
+        dto.applicantName,
+        dto.jobTitle,
+        dto.salary,
+        dto.startDate,
+        dto.offerContent,
+        dto.attachmentUrl,
+      );
+      return { message: 'Offer letter email sent successfully' };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('not configured')) {
+        throw new BadRequestException(
+          'Email is not configured. Set EMAIL_USER and EMAIL_PASSWORD in your environment to send offer letters.',
+        );
+      }
+      throw new BadRequestException(`Failed to send offer letter email: ${msg}`);
+    }
+  }
+
+  /**
+   * Public: get merged application form for a job (org fields + job-specific fields).
+   * Used by apply page so all fields from application setup and job posting are returned in one call.
+   */
+  async getApplicationFormForJob(jobId: string): Promise<{
+    required: Record<string, unknown>[];
+    optional: Record<string, unknown>[];
+  }> {
+    const job = await this.findOneByIdPublic(jobId);
+    const details = (job.details as Record<string, unknown>) ?? {};
+    const orgFields = await this.getApplicationFormFields(job.organization_id);
+    const reqIds = new Set(
+      (Array.isArray(details.required_fields) ? details.required_fields : []).map((r: unknown) =>
+        typeof r === 'string' ? r : ((r as { id?: string })?.id ?? ''),
+      ),
+    );
+    const optIds = new Set(
+      (Array.isArray(details.optional_fields) ? details.optional_fields : []).map((o: unknown) =>
+        typeof o === 'string' ? o : ((o as { id?: string })?.id ?? ''),
+      ),
+    );
+    const toField = (f: Record<string, unknown>): Record<string, unknown> => {
+      const id = typeof f.id === 'string' ? f.id : '';
+      return {
+        id,
+        name: typeof f.name === 'string' ? f.name : id,
+        display_name:
+          typeof f.display_name === 'string'
+            ? f.display_name
+            : typeof f.label === 'string'
+              ? f.label
+              : '',
+        field_type:
+          typeof f.field_type === 'string'
+            ? f.field_type
+            : typeof f.type === 'string'
+              ? f.type
+              : 'text',
+        description:
+          typeof f.description === 'string'
+            ? f.description
+            : typeof f.placeholder === 'string'
+              ? f.placeholder
+              : '',
+        options: f.options,
+      };
+    };
+    const idStr = (f: Record<string, unknown>): string => (typeof f.id === 'string' ? f.id : '');
+    let required: Record<string, unknown>[] = [];
+    let optional: Record<string, unknown>[] = [];
+    if (orgFields.length > 0) {
+      if (reqIds.size > 0 || optIds.size > 0) {
+        required = orgFields.filter((f) => reqIds.has(idStr(f))).map(toField);
+        optional = orgFields.filter((f) => optIds.has(idStr(f))).map(toField);
+        const rest = orgFields
+          .filter((f) => !reqIds.has(idStr(f)) && !optIds.has(idStr(f)))
+          .map(toField);
+        optional = [...optional, ...rest];
+      } else {
+        required = orgFields
+          .filter((f) => (f as { required?: boolean }).required === true)
+          .map(toField);
+        optional = orgFields.filter((f) => !(f as { required?: boolean }).required).map(toField);
+      }
+    }
+    const jobFields = (
+      Array.isArray(details.application_fields) ? details.application_fields : []
+    ) as Record<string, unknown>[];
+    for (const f of jobFields) {
+      const field = toField(f);
+      const isReq = (f as { required?: boolean }).required !== false;
+      if (isReq) required.push(field);
+      else optional.push(field);
+    }
+    return { required, optional };
+  }
+
+  /**
+   * Get organization's job application form field definitions.
+   * Public so apply form can load fields without auth.
+   */
+  async getApplicationFormFields(organizationId: string): Promise<Record<string, unknown>[]> {
+    const org = await this.organizationRepository.findOne({
+      where: { id: organizationId },
+      select: ['id', 'application_form_fields'],
+    });
+    if (!org) return [];
+    const raw = org.application_form_fields;
+    return (Array.isArray(raw) ? raw : []) as Record<string, unknown>[];
+  }
+
+  /**
+   * Set organization's job application form field definitions.
+   * Called from Application Form Setup (org admin).
+   */
+  async setApplicationFormFields(
+    organizationId: string,
+    fields: Record<string, unknown>[],
+  ): Promise<Record<string, unknown>[]> {
+    const org = await this.organizationRepository.findOne({
+      where: { id: organizationId },
+    });
+    if (!org) {
+      throw new NotFoundException(`Organization ${organizationId} not found`);
+    }
+    const normalized = Array.isArray(fields) ? fields : [];
+    await this.organizationRepository.update(organizationId, {
+      application_form_fields: normalized as object[],
+    });
+    return normalized;
   }
 }

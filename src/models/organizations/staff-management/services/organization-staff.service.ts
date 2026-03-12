@@ -414,7 +414,12 @@ export class OrganizationStaffService {
       throw new NotFoundException('Staff member not found in this organization.');
     }
 
-    const updatePayload: Partial<OrganizationStaff> = { updated_by: userId };
+    const updatePayload: {
+      updated_by?: string;
+      status?: string;
+      department?: string;
+      position_title?: string;
+    } = { updated_by: userId };
     if (dto.status !== undefined) updatePayload.status = dto.status;
     if (dto.department !== undefined) updatePayload.department = dto.department;
     if (dto.position_title !== undefined) updatePayload.position_title = dto.position_title;

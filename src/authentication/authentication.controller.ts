@@ -44,7 +44,8 @@ export class AuthenticationController {
 
   private setAuthCookies(res: any, accessToken: string, refreshToken?: string): void {
     const isProduction = process.env.NODE_ENV === 'production';
-    const setCookie = typeof res.setCookie === 'function' ? res.setCookie.bind(res) : res.cookie?.bind(res);
+    const setCookie =
+      typeof res.setCookie === 'function' ? res.setCookie.bind(res) : res.cookie?.bind(res);
     if (!setCookie) {
       this.logger.warn('No cookie method on response (setCookie/cookie)');
       return;
@@ -64,7 +65,8 @@ export class AuthenticationController {
   }
 
   private clearAuthCookies(res: any): void {
-    const clearCookie = typeof res.clearCookie === 'function' ? res.clearCookie.bind(res) : undefined;
+    const clearCookie =
+      typeof res.clearCookie === 'function' ? res.clearCookie.bind(res) : undefined;
     if (clearCookie) {
       clearCookie('accessToken', { path: '/' });
       clearCookie('refreshToken', { path: '/' });

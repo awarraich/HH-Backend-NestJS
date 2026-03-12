@@ -29,6 +29,8 @@ import { UpdateJobPostingDto } from '../dto/update-job-posting.dto';
 import { QueryJobPostingDto } from '../dto/query-job-posting.dto';
 import { CreateJobApplicationDto } from '../dto/create-job-application.dto';
 import { UpdateJobApplicationDto } from '../dto/update-job-application.dto';
+import { SendInterviewInviteDto } from '../dto/send-interview-invite.dto';
+import { SendOfferLetterDto } from '../dto/send-offer-letter.dto';
 
 @Controller('v1/api/job-management')
 export class JobManagementController {
@@ -106,6 +108,37 @@ export class JobManagementController {
   }
 
   /**
+   * Get organization job application form fields (public for apply form; also used by setup page).
+   * Handles both /fields and /fields/ for client compatibility.
+   */
+  @Get('organization/:organizationId/application-form/fields')
+  @HttpCode(HttpStatus.OK)
+  async getApplicationFormFields(
+    @Param('organizationId') organizationId: string,
+  ): Promise<unknown> {
+    const fields = await this.jobManagementService.getApplicationFormFields(organizationId);
+    return SuccessHelper.createSuccessResponse(fields);
+  }
+
+  /**
+   * Set organization job application form fields (Application Form Setup).
+   */
+  @Patch('organization/:organizationId/application-form/fields')
+  @UseGuards(JwtAuthGuard, OrganizationRoleGuard)
+  @Roles('OWNER', 'HR', 'ADMIN')
+  @HttpCode(HttpStatus.OK)
+  async setApplicationFormFields(
+    @Param('organizationId') organizationId: string,
+    @Body() body: { fields: Record<string, unknown>[] },
+  ): Promise<unknown> {
+    const fields = await this.jobManagementService.setApplicationFormFields(
+      organizationId,
+      body.fields ?? [],
+    );
+    return SuccessHelper.createSuccessResponse(fields, 'Application form fields saved');
+  }
+
+  /**
    * Public: upload a job application document (resume, cover letter, etc.).
    * With Fastify multipart attachFieldsToBody: true, the file is on request.body.
    */
@@ -131,6 +164,13 @@ export class JobManagementController {
 
     if (!singleFile?.filename) {
       throw new BadRequestException('No file uploaded. Send a field named "file" or "document".');
+    }
+
+    const ext = path.extname(singleFile.filename).toLowerCase();
+    if (ext !== '.pdf') {
+      throw new BadRequestException(
+        'Only PDF files are allowed for job application and offer letter documents.',
+      );
     }
 
     const buffer =
@@ -227,5 +267,43 @@ export class JobManagementController {
   ): Promise<unknown> {
     const result = await this.jobManagementService.updateApplicationStatus(organizationId, id, dto);
     return SuccessHelper.createSuccessResponse(result, 'Application status updated');
+  }
+
+  /**
+   * Send interview invite email to applicant (Schedule Interview modal).
+   * POST organization/:organizationId/job-applications/:id/send-interview-invite
+   */
+  @Post('organization/:organizationId/job-applications/:id/send-interview-invite')
+  @UseGuards(JwtAuthGuard, OrganizationRoleGuard)
+  @Roles('OWNER', 'HR', 'ADMIN')
+  @HttpCode(HttpStatus.OK)
+  async sendInterviewInvite(
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @Body() dto: SendInterviewInviteDto,
+  ): Promise<unknown> {
+    const result = await this.jobManagementService.sendInterviewInviteEmail(
+      organizationId,
+      id,
+      dto,
+    );
+    return SuccessHelper.createSuccessResponse(result, result.message);
+  }
+
+  /**
+   * Send offer letter email to applicant (Send Offer modal).
+   * POST organization/:organizationId/job-applications/:id/send-offer
+   */
+  @Post('organization/:organizationId/job-applications/:id/send-offer')
+  @UseGuards(JwtAuthGuard, OrganizationRoleGuard)
+  @Roles('OWNER', 'HR', 'ADMIN')
+  @HttpCode(HttpStatus.OK)
+  async sendOfferLetter(
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @Body() dto: SendOfferLetterDto,
+  ): Promise<unknown> {
+    const result = await this.jobManagementService.sendOfferLetterEmail(organizationId, id, dto);
+    return SuccessHelper.createSuccessResponse(result, result.message);
   }
 }
