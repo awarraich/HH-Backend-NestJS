@@ -26,8 +26,9 @@ import { UpdateInserviceQuizQuestionDto } from '../dto/update-inservice-quiz-que
  * Same behavior as InserviceQuizQuestionsController; use inserviceId only for the service.
  */
 @Controller('v1/api/organizations/:organizationId/inservice-trainings/:inserviceId/quiz-questions')
-@UseGuards(JwtAuthGuard, OrganizationRoleGuard)
-@Roles('OWNER', 'HR', 'MANAGER')
+@UseGuards(JwtAuthGuard)
+// @UseGuards(JwtAuthGuard, OrganizationRoleGuard)
+// @Roles('OWNER', 'HR', 'MANAGER')
 @Controller('v1/api/organizations/:organizationId/inservice-trainings/:inserviceId/quiz-questions')
 // @UseGuards(JwtAuthGuard)
 // @Roles('OWNER', 'HR', 'MANAGER')
