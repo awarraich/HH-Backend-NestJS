@@ -88,35 +88,27 @@ export class AuthService {
       const hashedPassword = await bcrypt.hash(registerDto.password, 10);
 
       const verificationToken = crypto.randomBytes(32).toString('hex');
+      const emailVerificationSentAt = new Date();
       this.logger.log(
         `Generated verification token for ${this.maskEmail(registerDto.email)}: ${verificationToken.substring(0, 8)}... (length: ${verificationToken.length})`,
       );
 
-      const user = this.userRepository.create({
+      // Use insert() with only the columns needed for signup so registration works even when
+      // the users table has not had all migrations applied (e.g. missing displayName, password_changed_at).
+      const insertResult = await this.userRepository.insert({
         firstName: registerDto.firstName,
         lastName: registerDto.lastName,
         email: registerDto.email,
         password: hashedPassword,
         email_verification_token: verificationToken,
-        email_verification_sent_at: new Date(),
+        email_verification_sent_at: emailVerificationSentAt,
         email_verified: false,
         is_active: true,
       });
 
-      const savedUser = await this.userRepository.save(user);
-
-      // Verify the token was saved correctly
-      const verifySaved = await this.userRepository.findOne({
-        where: { id: savedUser.id },
-        select: ['id', 'email', 'email_verification_token'],
-      });
-
-      if (verifySaved && verifySaved.email_verification_token !== verificationToken) {
-        this.logger.error(
-          `Token mismatch! Saved: ${verifySaved.email_verification_token?.substring(0, 8)}..., Expected: ${verificationToken.substring(0, 8)}...`,
-        );
-      } else if (verifySaved) {
-        this.logger.log(`Token saved correctly for user: ${this.maskEmail(registerDto.email)}`);
+      const savedUserId = insertResult.identifiers?.[0]?.id;
+      if (savedUserId) {
+        this.logger.log(`User created: ${this.maskEmail(registerDto.email)} (id: ${savedUserId})`);
       }
 
       // Extract user name for email template
@@ -140,24 +132,24 @@ export class AuthService {
       this.logger.log(`User registered: ${this.maskEmail(registerDto.email)}`);
 
       return {
-        message:
-          'Registration successful. Please check your email to verify your account.',
+        message: 'Registration successful. Please check your email to verify your account.',
       };
     } catch (err) {
       // Re-throw known HTTP exceptions so client gets correct status code
-      if (
-        err instanceof BadRequestException ||
-        err instanceof ConflictException
-      ) {
+      if (err instanceof BadRequestException || err instanceof ConflictException) {
         throw err;
       }
-      // Log unexpected errors (e.g. DB schema mismatch, connection) for debugging production
+      const errMessage = err instanceof Error ? err.message : String(err);
       this.logger.error(
-        `Register failed for ${this.maskEmail(registerDto?.email ?? 'unknown')}: ${err instanceof Error ? err.message : String(err)}`,
+        `Register failed for ${this.maskEmail(registerDto?.email ?? 'unknown')}: ${errMessage}`,
         err instanceof Error ? err.stack : undefined,
       );
+      // Optional: expose error in response for debugging (set EXPOSE_REGISTER_ERROR=true temporarily)
+      const exposeError = this.configService.get<string>('EXPOSE_REGISTER_ERROR') === 'true';
       throw new InternalServerErrorException(
-        'Registration failed. Please try again or contact support.',
+        exposeError
+          ? `Registration failed: ${errMessage}`
+          : 'Registration failed. Please try again or contact support.',
       );
     }
   }
@@ -1264,7 +1256,7 @@ export class AuthService {
     } else if (organizationName && !userType) {
       const anyOrgCondition =
         '(EXISTS (SELECT 1 FROM organizations o WHERE o.user_id = user.id AND o.organization_name ILIKE :organizationNamePattern) OR ' +
-        'EXISTS (SELECT 1 FROM organization_staff os INNER JOIN organizations o ON os.organization_id = o.id WHERE os.user_id = user.id AND os.status = \'ACTIVE\' AND o.organization_name ILIKE :organizationNamePattern) OR ' +
+        "EXISTS (SELECT 1 FROM organization_staff os INNER JOIN organizations o ON os.organization_id = o.id WHERE os.user_id = user.id AND os.status = 'ACTIVE' AND o.organization_name ILIKE :organizationNamePattern) OR " +
         'EXISTS (SELECT 1 FROM employees e INNER JOIN organizations o ON e.organization_id = o.id WHERE e.user_id = user.id AND o.organization_name ILIKE :organizationNamePattern))';
       queryBuilder.andWhere(anyOrgCondition);
       queryBuilder.setParameter('organizationNamePattern', orgNamePattern);
@@ -1281,7 +1273,9 @@ export class AuthService {
 
     const ownerOrgIdsMap = new Map<string, string[]>();
     for (const [uid, associations] of associationsMap) {
-      const ownerOrgs = associations.filter((a) => a.associationType === 'OWNER').map((a) => a.organizationId);
+      const ownerOrgs = associations
+        .filter((a) => a.associationType === 'OWNER')
+        .map((a) => a.organizationId);
       if (ownerOrgs.length > 0) ownerOrgIdsMap.set(uid, ownerOrgs);
     }
 
@@ -1290,9 +1284,9 @@ export class AuthService {
       const allOrgIds = [...new Set([...ownerOrgIdsMap.values()].flat())];
       const memberIdsByOrg = await this.getStaffAndEmployeeUserIdsByOrganizationIds(allOrgIds);
       for (const [ownerId, orgIds] of ownerOrgIdsMap) {
-        const memberIds = [...new Set(orgIds.flatMap((oid) => memberIdsByOrg.get(oid) ?? []))].filter(
-          (id) => id !== ownerId,
-        );
+        const memberIds = [
+          ...new Set(orgIds.flatMap((oid) => memberIdsByOrg.get(oid) ?? [])),
+        ].filter((id) => id !== ownerId);
         if (memberIds.length > 0) ownerToMemberUserIds.set(ownerId, memberIds);
       }
     }
@@ -1305,7 +1299,10 @@ export class AuthService {
     }
 
     const usersWithRoles = users.map((user) => {
-      const formatted: FormattedUserWithRoles & { organizations: any[]; users: FormattedUserWithRoles[] | null } = {
+      const formatted: FormattedUserWithRoles & {
+        organizations: any[];
+        users: FormattedUserWithRoles[] | null;
+      } = {
         id: user.id,
         firstName: user.firstName,
         lastName: user.lastName,
@@ -1355,7 +1352,9 @@ export class AuthService {
        WHERE os.organization_id = ANY($1::uuid[]) AND os.status = 'ACTIVE'`,
       [organizationIds],
     );
-    const employeeRows = await this.dataSource.query<{ organization_id: string; user_id: string }[]>(
+    const employeeRows = await this.dataSource.query<
+      { organization_id: string; user_id: string }[]
+    >(
       `SELECT e.organization_id, e.user_id FROM employees e
        WHERE e.organization_id = ANY($1::uuid[])`,
       [organizationIds],
@@ -1406,11 +1405,18 @@ export class AuthService {
    */
   private async getUserOrganizationAssociations(
     userIds: string[],
-  ): Promise<Map<string, { organizationId: string; organizationName: string | null; associationType: string }[]>> {
+  ): Promise<
+    Map<
+      string,
+      { organizationId: string; organizationName: string | null; associationType: string }[]
+    >
+  > {
     if (userIds.length === 0) {
       return new Map();
     }
-    const ownerRows = await this.dataSource.query<{ user_id: string; id: string; organization_name: string | null }[]>(
+    const ownerRows = await this.dataSource.query<
+      { user_id: string; id: string; organization_name: string | null }[]
+    >(
       `SELECT o.user_id, o.id, o.organization_name FROM organizations o WHERE o.user_id = ANY($1::uuid[])`,
       [userIds],
     );
@@ -1430,7 +1436,10 @@ export class AuthService {
        WHERE e.user_id = ANY($1::uuid[])`,
       [userIds],
     );
-    const map = new Map<string, { organizationId: string; organizationName: string | null; associationType: string }[]>();
+    const map = new Map<
+      string,
+      { organizationId: string; organizationName: string | null; associationType: string }[]
+    >();
     for (const row of ownerRows) {
       const list = map.get(row.user_id) ?? [];
       list.push({
