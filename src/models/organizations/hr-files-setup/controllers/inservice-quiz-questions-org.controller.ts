@@ -14,8 +14,6 @@ import {
 } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import { JwtAuthGuard } from '../../../../common/guards/jwt-auth.guard';
-import { OrganizationRoleGuard } from '../../../../common/guards/organization-role.guard';
-import { Roles } from '../../../../common/decorators/roles.decorator';
 import { SuccessHelper } from '../../../../common/helpers/responses/success.helper';
 import { InserviceQuizQuestionService } from '../services/inservice-quiz-question.service';
 import { CreateInserviceQuizQuestionDto } from '../dto/create-inservice-quiz-question.dto';
