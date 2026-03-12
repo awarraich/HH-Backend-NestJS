@@ -5,6 +5,7 @@ import {
   BadRequestException,
   NotFoundException,
   ConflictException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -65,78 +66,100 @@ export class AuthService {
    * Register a new user with email verification
    */
   async register(registerDto: RegisterDto, clientIp?: string): Promise<{ message: string }> {
-    if (registerDto.recaptchaToken) {
-      const isValid = await this.recaptchaService.verifyToken(registerDto.recaptchaToken, clientIp);
-      if (!isValid) {
-        throw new BadRequestException('reCAPTCHA verification failed');
-      }
-    } else if (this.recaptchaService.isEnabled()) {
-      throw new BadRequestException('reCAPTCHA token is required');
-    }
-
-    // Check if user already exists
-    const existingUser = await this.userRepository.findByEmail(registerDto.email);
-    if (existingUser) {
-      throw new ConflictException('User with this email already exists');
-    }
-
-    const hashedPassword = await bcrypt.hash(registerDto.password, 10);
-
-    const verificationToken = crypto.randomBytes(32).toString('hex');
-    this.logger.log(
-      `Generated verification token for ${this.maskEmail(registerDto.email)}: ${verificationToken.substring(0, 8)}... (length: ${verificationToken.length})`,
-    );
-
-    const user = this.userRepository.create({
-      firstName: registerDto.firstName,
-      lastName: registerDto.lastName,
-      email: registerDto.email,
-      password: hashedPassword,
-      email_verification_token: verificationToken,
-      email_verification_sent_at: new Date(),
-      email_verified: false,
-      is_active: true,
-    });
-
-    const savedUser = await this.userRepository.save(user);
-
-    // Verify the token was saved correctly
-    const verifySaved = await this.userRepository.findOne({
-      where: { id: savedUser.id },
-      select: ['id', 'email', 'email_verification_token'],
-    });
-
-    if (verifySaved && verifySaved.email_verification_token !== verificationToken) {
-      this.logger.error(
-        `Token mismatch! Saved: ${verifySaved.email_verification_token?.substring(0, 8)}..., Expected: ${verificationToken.substring(0, 8)}...`,
-      );
-    } else if (verifySaved) {
-      this.logger.log(`Token saved correctly for user: ${this.maskEmail(registerDto.email)}`);
-    }
-
-    // Extract user name for email template
-    const userName =
-      registerDto.firstName && registerDto.lastName
-        ? `${registerDto.firstName} ${registerDto.lastName}`
-        : registerDto.firstName || registerDto.email;
-
-    // Send verification email
     try {
-      await this.emailService.sendVerificationEmail(
-        registerDto.email,
-        verificationToken,
-        userName,
-        registerDto.email,
+      if (registerDto.recaptchaToken) {
+        const isValid = await this.recaptchaService.verifyToken(
+          registerDto.recaptchaToken,
+          clientIp,
+        );
+        if (!isValid) {
+          throw new BadRequestException('reCAPTCHA verification failed');
+        }
+      } else if (this.recaptchaService.isEnabled()) {
+        throw new BadRequestException('reCAPTCHA token is required');
+      }
+
+      // Check if user already exists
+      const existingUser = await this.userRepository.findByEmail(registerDto.email);
+      if (existingUser) {
+        throw new ConflictException('User with this email already exists');
+      }
+
+      const hashedPassword = await bcrypt.hash(registerDto.password, 10);
+
+      const verificationToken = crypto.randomBytes(32).toString('hex');
+      this.logger.log(
+        `Generated verification token for ${this.maskEmail(registerDto.email)}: ${verificationToken.substring(0, 8)}... (length: ${verificationToken.length})`,
       );
-    } catch (error) {
-      this.logger.error('Failed to send verification email', error);
+
+      const user = this.userRepository.create({
+        firstName: registerDto.firstName,
+        lastName: registerDto.lastName,
+        email: registerDto.email,
+        password: hashedPassword,
+        email_verification_token: verificationToken,
+        email_verification_sent_at: new Date(),
+        email_verified: false,
+        is_active: true,
+      });
+
+      const savedUser = await this.userRepository.save(user);
+
+      // Verify the token was saved correctly
+      const verifySaved = await this.userRepository.findOne({
+        where: { id: savedUser.id },
+        select: ['id', 'email', 'email_verification_token'],
+      });
+
+      if (verifySaved && verifySaved.email_verification_token !== verificationToken) {
+        this.logger.error(
+          `Token mismatch! Saved: ${verifySaved.email_verification_token?.substring(0, 8)}..., Expected: ${verificationToken.substring(0, 8)}...`,
+        );
+      } else if (verifySaved) {
+        this.logger.log(`Token saved correctly for user: ${this.maskEmail(registerDto.email)}`);
+      }
+
+      // Extract user name for email template
+      const userName =
+        registerDto.firstName && registerDto.lastName
+          ? `${registerDto.firstName} ${registerDto.lastName}`
+          : registerDto.firstName || registerDto.email;
+
+      // Send verification email
+      try {
+        await this.emailService.sendVerificationEmail(
+          registerDto.email,
+          verificationToken,
+          userName,
+          registerDto.email,
+        );
+      } catch (error) {
+        this.logger.error('Failed to send verification email', error);
+      }
+
+      this.logger.log(`User registered: ${this.maskEmail(registerDto.email)}`);
+
+      return {
+        message:
+          'Registration successful. Please check your email to verify your account.',
+      };
+    } catch (err) {
+      // Re-throw known HTTP exceptions so client gets correct status code
+      if (
+        err instanceof BadRequestException ||
+        err instanceof ConflictException
+      ) {
+        throw err;
+      }
+      // Log unexpected errors (e.g. DB schema mismatch, connection) for debugging production
+      this.logger.error(
+        `Register failed for ${this.maskEmail(registerDto?.email ?? 'unknown')}: ${err instanceof Error ? err.message : String(err)}`,
+        err instanceof Error ? err.stack : undefined,
+      );
+      throw new InternalServerErrorException(
+        'Registration failed. Please try again or contact support.',
+      );
     }
-
-    this.logger.log(`User registered: ${this.maskEmail(registerDto.email)}`);
-
-    return {
-      message: 'Registration successful. Please check your email to verify your account.',
-    };
   }
 
   /**
