@@ -67,7 +67,7 @@ export class BlogService {
       .take(limit);
 
     const [blogs, total] = await queryBuilder.getManyAndCount();
-    const authorsMap = await this.getAuthorsMap(blogs.map((b) => b.author_id).filter(Boolean) as string[]);
+    const authorsMap = await this.getAuthorsMap(blogs.map((b) => b.author_id).filter(Boolean));
     let countMap: Map<string, { likeCount: number; commentCount: number }>;
     try {
       countMap = await this.getLikeAndCommentCountMap(blogs.map((b) => b.id));
@@ -118,7 +118,7 @@ export class BlogService {
     queryBuilder.skip(skip).take(limit);
 
     const [blogs, total] = await queryBuilder.getManyAndCount();
-    const authorsMap = await this.getAuthorsMap(blogs.map((b) => b.author_id).filter(Boolean) as string[]);
+    const authorsMap = await this.getAuthorsMap(blogs.map((b) => b.author_id).filter(Boolean));
     let countMap: Map<string, { likeCount: number; commentCount: number }>;
     try {
       countMap = await this.getLikeAndCommentCountMap(blogs.map((b) => b.id));
