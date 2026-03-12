@@ -26,8 +26,8 @@ export class User {
   @Column({ type: 'varchar', length: 255 })
   lastName: string;
 
-  /** Display name for blog byline (e.g. "Dr. Jane Smith"). Falls back to firstName + lastName if empty. */
-  @Column({ type: 'varchar', length: 255, nullable: true })
+  /** Display name for blog byline (e.g. "Dr. Jane Smith"). Falls back to firstName + lastName if empty. Not selected by default so auth queries work when column is missing on older DBs. */
+  @Column({ type: 'varchar', length: 255, nullable: true, select: false })
   displayName: string | null;
 
   @Column({ type: 'varchar', length: 254, unique: true })

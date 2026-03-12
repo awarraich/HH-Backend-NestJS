@@ -44,31 +44,31 @@ export class AuthenticationController {
 
   private setAuthCookies(res: any, accessToken: string, refreshToken?: string): void {
     const isProduction = process.env.NODE_ENV === 'production';
-
-    if (accessToken) {
-      res.cookie('accessToken', accessToken, {
-        httpOnly: true,
-        secure: isProduction,
-        sameSite: 'strict',
-        maxAge: 3600000,
-        path: '/',
-      });
+    const setCookie = typeof res.setCookie === 'function' ? res.setCookie.bind(res) : res.cookie?.bind(res);
+    if (!setCookie) {
+      this.logger.warn('No cookie method on response (setCookie/cookie)');
+      return;
     }
-
+    const opts = {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'strict' as const,
+      path: '/',
+    };
+    if (accessToken) {
+      setCookie('accessToken', accessToken, { ...opts, maxAge: 3600000 });
+    }
     if (refreshToken) {
-      res.cookie('refreshToken', refreshToken, {
-        httpOnly: true,
-        secure: isProduction,
-        sameSite: 'strict',
-        maxAge: 604800000,
-        path: '/',
-      });
+      setCookie('refreshToken', refreshToken, { ...opts, maxAge: 604800000 });
     }
   }
 
   private clearAuthCookies(res: any): void {
-    res.clearCookie('accessToken', { path: '/' });
-    res.clearCookie('refreshToken', { path: '/' });
+    const clearCookie = typeof res.clearCookie === 'function' ? res.clearCookie.bind(res) : undefined;
+    if (clearCookie) {
+      clearCookie('accessToken', { path: '/' });
+      clearCookie('refreshToken', { path: '/' });
+    }
   }
 
   @Post('register')

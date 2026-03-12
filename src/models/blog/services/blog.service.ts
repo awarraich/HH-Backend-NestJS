@@ -315,7 +315,7 @@ export class BlogService {
     if (!blog) throw new NotFoundException('Blog not found');
     const user = await this.userRepository.findOne({
       where: { id: userId },
-      select: ['id', 'firstName', 'lastName', 'displayName'],
+      select: ['id', 'firstName', 'lastName'],
     });
     if (!user) throw new NotFoundException('User not found');
     const trimmed = (content || '').trim();
