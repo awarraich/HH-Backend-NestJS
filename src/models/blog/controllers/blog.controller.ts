@@ -145,11 +145,13 @@ export class BlogController {
   @HttpCode(HttpStatus.OK)
   async findBySlug(
     @Param('slug') slug: string,
+    @Query('guestId') guestId: string | undefined,
     @LoggedInUser() user?: UserWithRolesInterface,
   ): Promise<unknown> {
     const result = await this.blogService.findBySlug(slug, {
       allowDraft: !!user,
       userId: user?.userId,
+      guestId: guestId?.trim() || undefined,
     });
     return SuccessHelper.createSuccessResponse(result);
   }
@@ -178,19 +180,41 @@ export class BlogController {
     );
   }
 
-  /** Toggle like on a blog (authenticated). Returns { liked, likeCount }. */
-  @Post(':id/like')
+  /** Admin only: list all blog comments for moderation. */
+  @Get('admin/comments')
   @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async getAllCommentsForAdmin(@LoggedInUser() user: UserWithRolesInterface): Promise<unknown> {
+    const comments = await this.blogService.getAllCommentsForAdmin(user.roles);
+    return SuccessHelper.createSuccessResponse({ comments });
+  }
+
+  /** Blogger: list all comments on my blogs for moderation. */
+  @Get('my-blogs/comments')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async getMyBlogsComments(@LoggedInUser() user: UserWithRolesInterface): Promise<unknown> {
+    const comments = await this.blogService.getMyBlogsComments(user.userId);
+    return SuccessHelper.createSuccessResponse({ comments });
+  }
+
+  /** Toggle like (authenticated or guest with guestId in body). Returns { liked, likeCount }. */
+  @Post(':id/like')
+  @UseGuards(OptionalJwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async toggleLike(
     @Param('id') id: string,
-    @LoggedInUser() user: UserWithRolesInterface,
+    @Body() body: { guestId?: string },
+    @LoggedInUser() user?: UserWithRolesInterface,
   ): Promise<unknown> {
-    const result = await this.blogService.toggleLike(id, user.userId);
+    const result = await this.blogService.toggleLike(id, {
+      userId: user?.userId,
+      guestId: body?.guestId?.trim() || undefined,
+    });
     return SuccessHelper.createSuccessResponse(result);
   }
 
-  /** Remove like. */
+  /** Remove like (authenticated only). */
   @Delete(':id/like')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
@@ -202,25 +226,64 @@ export class BlogController {
     return SuccessHelper.createSuccessResponse(result);
   }
 
-  /** Get comments for a blog (public). */
+  /** Get comments for a blog. Public: only approved. ?moderation=1 with auth (blogger/admin): all with status. */
   @Get(':id/comments')
+  @UseGuards(OptionalJwtAuthGuard)
   @HttpCode(HttpStatus.OK)
-  async getComments(@Param('id') id: string): Promise<unknown> {
+  async getComments(
+    @Param('id') id: string,
+    @Query('moderation') moderation: string | undefined,
+    @LoggedInUser() user?: UserWithRolesInterface,
+  ): Promise<unknown> {
+    if (moderation === '1' && user) {
+      const comments = await this.blogService.getCommentsForModeration(id, user.userId, user.roles);
+      return SuccessHelper.createSuccessResponse({ comments });
+    }
     const comments = await this.blogService.getComments(id);
     return SuccessHelper.createSuccessResponse({ comments });
   }
 
-  /** Post a comment (authenticated). */
+  /** Post a comment (logged-in users only). New comments are pending until blogger/admin approve. */
   @Post(':id/comments')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.CREATED)
   async createComment(
     @Param('id') id: string,
-    @Body() body: { content: string },
+    @Body() body: { content?: string; comment?: string; text?: string },
     @LoggedInUser() user: UserWithRolesInterface,
   ): Promise<unknown> {
-    const result = await this.blogService.createComment(id, user.userId, body.content);
-    return SuccessHelper.createSuccessResponse(result, 'Comment added');
+    const content =
+      [body.content, body.comment, body.text]
+        .find((v) => typeof v === 'string' && v.trim().length > 0)
+        ?.trim() ?? '';
+    const result = await this.blogService.createComment(id, content, user.userId);
+    return SuccessHelper.createSuccessResponse(result, 'Comment submitted for approval');
+  }
+
+  /** Approve a comment (blog author or admin only). */
+  @Patch(':id/comments/:commentId/approve')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async approveComment(
+    @Param('id') id: string,
+    @Param('commentId') commentId: string,
+    @LoggedInUser() user: UserWithRolesInterface,
+  ): Promise<unknown> {
+    const result = await this.blogService.approveComment(id, commentId, user.userId, user.roles);
+    return SuccessHelper.createSuccessResponse(result, 'Comment approved');
+  }
+
+  /** Delete a comment (blog author or admin only). */
+  @Delete(':id/comments/:commentId')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async deleteComment(
+    @Param('id') id: string,
+    @Param('commentId') commentId: string,
+    @LoggedInUser() user: UserWithRolesInterface,
+  ): Promise<unknown> {
+    await this.blogService.deleteComment(id, commentId, user.userId, user.roles);
+    return SuccessHelper.createSuccessResponse(null, 'Comment deleted');
   }
 
   @Get(':id')
@@ -228,11 +291,13 @@ export class BlogController {
   @HttpCode(HttpStatus.OK)
   async findOne(
     @Param('id') id: string,
+    @Query('guestId') guestId: string | undefined,
     @LoggedInUser() user?: UserWithRolesInterface,
   ): Promise<unknown> {
     const result = await this.blogService.findOne(id, {
       allowDraft: !!user,
       userId: user?.userId,
+      guestId: guestId?.trim() || undefined,
     });
     return SuccessHelper.createSuccessResponse(result);
   }

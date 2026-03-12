@@ -5,13 +5,11 @@ import {
   CreateDateColumn,
   ManyToOne,
   JoinColumn,
-  Unique,
 } from 'typeorm';
 import { Blog } from './blog.entity';
 import { User } from '../../../authentication/entities/user.entity';
 
 @Entity('blog_likes')
-@Unique(['blog_id', 'user_id'])
 export class BlogLike {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -19,8 +17,11 @@ export class BlogLike {
   @Column({ type: 'uuid' })
   blog_id: string;
 
-  @Column({ type: 'uuid' })
-  user_id: string;
+  @Column({ type: 'uuid', nullable: true })
+  user_id: string | null;
+
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  guest_id: string | null;
 
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
@@ -29,7 +30,7 @@ export class BlogLike {
   @JoinColumn({ name: 'blog_id' })
   blog: Blog;
 
-  @ManyToOne(() => User, { onDelete: 'CASCADE' })
+  @ManyToOne(() => User, { onDelete: 'CASCADE', nullable: true })
   @JoinColumn({ name: 'user_id' })
-  user: User;
+  user: User | null;
 }

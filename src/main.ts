@@ -248,6 +248,32 @@ async function bootstrap(): Promise<void> {
       }
     };
 
+    // Public: get merged application form for a job (org + job-specific fields) – apply page
+    const handleGetJobApplicationForm = async (request: unknown, reply: unknown) => {
+      const req = request as { params?: { id?: string } };
+      const rep = reply as {
+        send: (v: unknown) => void;
+        code: (n: number) => { send: (v: unknown) => void };
+      };
+      try {
+        const id = req.params?.id;
+        if (!id) return rep.code(400).send({ message: 'Missing id', statusCode: 400 });
+        const form = await jobService.getApplicationFormForJob(id);
+        return rep.send(SuccessHelper.createSuccessResponse(form, 'Application form retrieved'));
+      } catch (err: unknown) {
+        const payload = getErrPayload(err, 'Job not found');
+        return rep.code(payload.statusCode).send(payload);
+      }
+    };
+    fastifyInstance.get(
+      `${jobMgmtBase}/job-postings/:id/application-form`,
+      handleGetJobApplicationForm,
+    );
+    fastifyInstance.get(
+      `${jobMgmtV1Base}/job-postings/:id/application-form`,
+      handleGetJobApplicationForm,
+    );
+
     // Public: get one active job by id with organization (apply page) – no auth
     const handleGetPublicJobPostingById = async (request: unknown, reply: unknown) => {
       const req = request as { params?: { id?: string } };
@@ -440,6 +466,60 @@ async function bootstrap(): Promise<void> {
         return rep.code(payload.statusCode).send(payload);
       }
     };
+    // Application form fields: GET (public) and PATCH (org admin) – so setup page and apply form work even if controller 404s
+    const handleGetApplicationFormFields = async (request: unknown, reply: unknown) => {
+      const req = request as { params?: { organizationId?: string } };
+      const rep = reply as {
+        send: (v: unknown) => void;
+        code: (n: number) => { send: (v: unknown) => void };
+      };
+      try {
+        const organizationId = req.params?.organizationId;
+        if (!organizationId)
+          return rep.code(400).send({ message: 'Missing organizationId', statusCode: 400 });
+        const fields = await jobService.getApplicationFormFields(organizationId);
+        return rep.send(SuccessHelper.createSuccessResponse(fields));
+      } catch (err: unknown) {
+        const payload = getErrPayload(err, 'Failed to load application form fields');
+        return rep.code(payload.statusCode).send(payload);
+      }
+    };
+    const handlePatchApplicationFormFields = async (request: unknown, reply: unknown) => {
+      const req = request as {
+        params?: { organizationId?: string };
+        body?: { fields?: unknown[] };
+      };
+      const rep = reply as {
+        send: (v: unknown) => void;
+        code: (n: number) => { send: (v: unknown) => void };
+      };
+      try {
+        const organizationId = req.params?.organizationId;
+        if (!organizationId)
+          return rep.code(400).send({ message: 'Missing organizationId', statusCode: 400 });
+        const fields = Array.isArray(req.body?.fields) ? req.body.fields : [];
+        const result = await jobService.setApplicationFormFields(
+          organizationId,
+          fields as Record<string, unknown>[],
+        );
+        return rep.send(
+          SuccessHelper.createSuccessResponse(result, 'Application form fields saved'),
+        );
+      } catch (err: unknown) {
+        const payload = getErrPayload(err, 'Failed to save application form fields');
+        return rep.code(payload.statusCode).send(payload);
+      }
+    };
+    const appFormPath = '/organization/:organizationId/application-form/fields';
+    fastifyInstance.get(`${jobMgmtBase}${appFormPath}`, handleGetApplicationFormFields);
+    fastifyInstance.get(`${jobMgmtBase}${appFormPath}/`, handleGetApplicationFormFields);
+    fastifyInstance.get(`${jobMgmtV1Base}${appFormPath}`, handleGetApplicationFormFields);
+    fastifyInstance.get(`${jobMgmtV1Base}${appFormPath}/`, handleGetApplicationFormFields);
+    fastifyInstance.patch(`${jobMgmtBase}${appFormPath}`, handlePatchApplicationFormFields);
+    fastifyInstance.patch(`${jobMgmtBase}${appFormPath}/`, handlePatchApplicationFormFields);
+    fastifyInstance.patch(`${jobMgmtV1Base}${appFormPath}`, handlePatchApplicationFormFields);
+    fastifyInstance.patch(`${jobMgmtV1Base}${appFormPath}/`, handlePatchApplicationFormFields);
+
     fastifyInstance.post(`${jobMgmtBase}/job-applications`, handleCreateJobApplication);
     fastifyInstance.post(`${jobMgmtBase}/job-applications/`, handleCreateJobApplication);
     // POST /v1/api/job-management/job-applications is handled by JobManagementController (do not duplicate here)
