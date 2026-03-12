@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { JobPosting } from '../entities/job-posting.entity';
 import { JobApplication } from '../entities/job-application.entity';
 import { Organization } from '../../organizations/entities/organization.entity';
@@ -77,7 +77,8 @@ export class JobManagementService {
 
   /**
    * List all active job postings across organizations (public careers page).
-   * Returns jobs with organization relation for display name.
+   * Fetches jobs without loading full Organization entity so the endpoint works even if
+   * the organizations table is missing optional columns (e.g. application_form_fields).
    */
   async findAllActive(
     query: QueryJobPostingDto,
@@ -88,7 +89,6 @@ export class JobManagementService {
 
     const qb = this.jobPostingRepository
       .createQueryBuilder('jp')
-      .leftJoinAndSelect('jp.organization', 'org')
       .where('jp.status = :status', { status: 'active' })
       .orderBy('jp.created_at', 'DESC')
       .skip(skip)
@@ -102,6 +102,25 @@ export class JobManagementService {
     }
 
     const [data, total] = await qb.getManyAndCount();
+
+    if (data.length > 0) {
+      const orgIds = [...new Set(data.map((j) => j.organization_id).filter(Boolean))];
+      const orgs = await this.organizationRepository.find({
+        where: { id: In(orgIds) },
+        select: ['id', 'organization_name'],
+      });
+      const orgMap = new Map(orgs.map((o) => [o.id, o]));
+      type JobWithOrg = Omit<JobPosting, 'organization'> & {
+        organization: Pick<Organization, 'id' | 'organization_name'> | null;
+      };
+      for (const job of data) {
+        const org: Pick<Organization, 'id' | 'organization_name'> | null = job.organization_id
+          ? (orgMap.get(job.organization_id) ?? null)
+          : null;
+        (job as JobWithOrg).organization = org;
+      }
+    }
+
     return { data, total, page, limit };
   }
 
