@@ -7,9 +7,7 @@ import {
   TableUnique,
 } from 'typeorm';
 
-export class AddEmployeeIdToHrDocumentTypes20260304100000
-  implements MigrationInterface
-{
+export class AddEmployeeIdToHrDocumentTypes20260304100000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.dropUniqueConstraint(
       'hr_document_types',
@@ -53,20 +51,10 @@ export class AddEmployeeIdToHrDocumentTypes20260304100000
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(
-      `DROP INDEX IF EXISTS uq_hr_document_types_org_employee_code`,
-    );
-    await queryRunner.query(
-      `DROP INDEX IF EXISTS uq_hr_document_types_org_code_org_only`,
-    );
-    await queryRunner.dropIndex(
-      'hr_document_types',
-      'idx_hr_document_types_employee_id',
-    );
-    await queryRunner.dropForeignKey(
-      'hr_document_types',
-      'fk_hr_document_types_employee_id',
-    );
+    await queryRunner.query(`DROP INDEX IF EXISTS uq_hr_document_types_org_employee_code`);
+    await queryRunner.query(`DROP INDEX IF EXISTS uq_hr_document_types_org_code_org_only`);
+    await queryRunner.dropIndex('hr_document_types', 'idx_hr_document_types_employee_id');
+    await queryRunner.dropForeignKey('hr_document_types', 'fk_hr_document_types_employee_id');
     await queryRunner.dropColumn('hr_document_types', 'employee_id');
     await queryRunner.createUniqueConstraint(
       'hr_document_types',

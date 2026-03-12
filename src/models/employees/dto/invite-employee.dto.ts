@@ -1,10 +1,4 @@
-import {
-  IsString,
-  IsNotEmpty,
-  IsEmail,
-  MaxLength,
-  IsOptional,
-} from 'class-validator';
+import { IsString, IsNotEmpty, IsEmail, MaxLength, IsOptional } from 'class-validator';
 
 export class InviteEmployeeDto {
   @IsNotEmpty()
@@ -21,4 +15,3 @@ export class InviteEmployeeDto {
   @MaxLength(100)
   position_title?: string;
 }
-

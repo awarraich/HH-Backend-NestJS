@@ -11,8 +11,12 @@ import {
   Request,
   HttpCode,
   HttpStatus,
+  UnauthorizedException,
 } from '@nestjs/common';
+import type { FastifyRequest } from 'fastify';
 import { JwtAuthGuard } from '../../../../common/guards/jwt-auth.guard';
+
+type RequestWithUser = FastifyRequest & { user?: { userId?: string; sub?: string } };
 import { OrganizationRoleGuard } from '../../../../common/guards/organization-role.guard';
 import { Roles } from '../../../../common/decorators/roles.decorator';
 import { SuccessHelper } from '../../../../common/helpers/responses/success.helper';
@@ -32,14 +36,11 @@ export class HrDocumentTypesController {
   async findAll(
     @Param('organizationId') organizationId: string,
     @Query() query: QueryHrDocumentTypeDto,
-    @Request() req: any,
+    @Request() req: RequestWithUser,
   ) {
     const userId = req.user?.userId ?? req.user?.sub;
-    const result = await this.hrDocumentTypeService.findAll(
-      organizationId,
-      query,
-      userId,
-    );
+    if (!userId) throw new UnauthorizedException('User ID not found');
+    const result = await this.hrDocumentTypeService.findAll(organizationId, query, userId);
     return SuccessHelper.createPaginatedResponse(
       result.data,
       result.total,
@@ -53,18 +54,12 @@ export class HrDocumentTypesController {
   async create(
     @Param('organizationId') organizationId: string,
     @Body() dto: CreateHrDocumentTypeDto,
-    @Request() req: any,
+    @Request() req: RequestWithUser,
   ) {
     const userId = req.user?.userId ?? req.user?.sub;
-    const result = await this.hrDocumentTypeService.create(
-      organizationId,
-      dto,
-      userId,
-    );
-    return SuccessHelper.createSuccessResponse(
-      result,
-      'HR document type created successfully',
-    );
+    if (!userId) throw new UnauthorizedException('User ID not found');
+    const result = await this.hrDocumentTypeService.create(organizationId, dto, userId);
+    return SuccessHelper.createSuccessResponse(result, 'HR document type created successfully');
   }
 
   @Patch(':id')
@@ -73,19 +68,12 @@ export class HrDocumentTypesController {
     @Param('organizationId') organizationId: string,
     @Param('id') id: string,
     @Body() dto: UpdateHrDocumentTypeDto,
-    @Request() req: any,
+    @Request() req: RequestWithUser,
   ) {
     const userId = req.user?.userId ?? req.user?.sub;
-    const result = await this.hrDocumentTypeService.update(
-      organizationId,
-      id,
-      dto,
-      userId,
-    );
-    return SuccessHelper.createSuccessResponse(
-      result,
-      'HR document type updated successfully',
-    );
+    if (!userId) throw new UnauthorizedException('User ID not found');
+    const result = await this.hrDocumentTypeService.update(organizationId, id, dto, userId);
+    return SuccessHelper.createSuccessResponse(result, 'HR document type updated successfully');
   }
 
   @Delete(':id')
@@ -93,14 +81,12 @@ export class HrDocumentTypesController {
   async remove(
     @Param('organizationId') organizationId: string,
     @Param('id') id: string,
-    @Request() req: any,
+    @Request() req: RequestWithUser,
   ) {
     const userId = req.user?.userId ?? req.user?.sub;
+    if (!userId) throw new UnauthorizedException('User ID not found');
     await this.hrDocumentTypeService.remove(organizationId, id, userId);
-    return SuccessHelper.createSuccessResponse(
-      null,
-      'HR document type deactivated successfully',
-    );
+    return SuccessHelper.createSuccessResponse(null, 'HR document type deactivated successfully');
   }
 
   @Patch(':id/toggle-required')
@@ -108,14 +94,11 @@ export class HrDocumentTypesController {
   async toggleRequired(
     @Param('organizationId') organizationId: string,
     @Param('id') id: string,
-    @Request() req: any,
+    @Request() req: RequestWithUser,
   ) {
     const userId = req.user?.userId ?? req.user?.sub;
-    const result = await this.hrDocumentTypeService.toggleRequired(
-      organizationId,
-      id,
-      userId,
-    );
+    if (!userId) throw new UnauthorizedException('User ID not found');
+    const result = await this.hrDocumentTypeService.toggleRequired(organizationId, id, userId);
     return SuccessHelper.createSuccessResponse(result);
   }
 }

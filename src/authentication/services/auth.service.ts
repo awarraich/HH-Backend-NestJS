@@ -5,6 +5,7 @@ import {
   BadRequestException,
   NotFoundException,
   ConflictException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -29,6 +30,21 @@ import { JwtPayload } from '../interfaces/jwt-payload.interface';
 import { DataSource, Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 
+/** Same shape as a user in admin list and in nested users array */
+interface FormattedUserWithRoles {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  is_active: boolean;
+  email_verified: boolean;
+  is_two_fa_enabled: boolean;
+  last_login: Date | null;
+  created_at: Date;
+  updated_at: Date;
+  roles: { id: number; name: string; description: string }[];
+}
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -50,77 +66,92 @@ export class AuthService {
    * Register a new user with email verification
    */
   async register(registerDto: RegisterDto, clientIp?: string): Promise<{ message: string }> {
-    if (registerDto.recaptchaToken) {
-      const isValid = await this.recaptchaService.verifyToken(
-        registerDto.recaptchaToken,
-        clientIp,
-      );
-      if (!isValid) {
-        throw new BadRequestException('reCAPTCHA verification failed');
-      }
-    } else if (this.recaptchaService.isEnabled()) {
-      throw new BadRequestException('reCAPTCHA token is required');
-    }
-
-    // Check if user already exists
-    const existingUser = await this.userRepository.findByEmail(registerDto.email);
-    if (existingUser) {
-      throw new ConflictException('User with this email already exists');
-    }
-
-    const hashedPassword = await bcrypt.hash(registerDto.password, 10);
-
-    const verificationToken = crypto.randomBytes(32).toString('hex');
-    this.logger.log(`Generated verification token for ${this.maskEmail(registerDto.email)}: ${verificationToken.substring(0, 8)}... (length: ${verificationToken.length})`);
-
-    const user = this.userRepository.create({
-      firstName: registerDto.firstName,
-      lastName: registerDto.lastName,
-      email: registerDto.email,
-      password: hashedPassword,
-      email_verification_token: verificationToken,
-      email_verification_sent_at: new Date(),
-      email_verified: false,
-      is_active: true,
-    });
-
-    const savedUser = await this.userRepository.save(user);
-    
-    // Verify the token was saved correctly
-    const verifySaved = await this.userRepository.findOne({
-      where: { id: savedUser.id },
-      select: ['id', 'email', 'email_verification_token'],
-    });
-    
-    if (verifySaved && verifySaved.email_verification_token !== verificationToken) {
-      this.logger.error(`Token mismatch! Saved: ${verifySaved.email_verification_token?.substring(0, 8)}..., Expected: ${verificationToken.substring(0, 8)}...`);
-    } else if (verifySaved) {
-      this.logger.log(`Token saved correctly for user: ${this.maskEmail(registerDto.email)}`);
-    }
-
-    // Extract user name for email template
-    const userName =
-      registerDto.firstName && registerDto.lastName
-        ? `${registerDto.firstName} ${registerDto.lastName}`
-        : registerDto.firstName || registerDto.email;
-
-    // Send verification email
     try {
-      await this.emailService.sendVerificationEmail(
-        registerDto.email,
-        verificationToken,
-        userName,
-        registerDto.email,
+      if (registerDto.recaptchaToken) {
+        const isValid = await this.recaptchaService.verifyToken(
+          registerDto.recaptchaToken,
+          clientIp,
+        );
+        if (!isValid) {
+          throw new BadRequestException('reCAPTCHA verification failed');
+        }
+      } else if (this.recaptchaService.isEnabled()) {
+        throw new BadRequestException('reCAPTCHA token is required');
+      }
+
+      // Check if user already exists
+      const existingUser = await this.userRepository.findByEmail(registerDto.email);
+      if (existingUser) {
+        throw new ConflictException('User with this email already exists');
+      }
+
+      const hashedPassword = await bcrypt.hash(registerDto.password, 10);
+
+      const verificationToken = crypto.randomBytes(32).toString('hex');
+      const emailVerificationSentAt = new Date();
+      this.logger.log(
+        `Generated verification token for ${this.maskEmail(registerDto.email)}: ${verificationToken.substring(0, 8)}... (length: ${verificationToken.length})`,
       );
-    } catch (error) {
-      this.logger.error('Failed to send verification email', error);
+
+      // Use insert() with only the columns needed for signup so registration works even when
+      // the users table has not had all migrations applied (e.g. missing displayName, password_changed_at).
+      const insertResult = await this.userRepository.insert({
+        firstName: registerDto.firstName,
+        lastName: registerDto.lastName,
+        email: registerDto.email,
+        password: hashedPassword,
+        email_verification_token: verificationToken,
+        email_verification_sent_at: emailVerificationSentAt,
+        email_verified: false,
+        is_active: true,
+      });
+
+      const savedUserId = insertResult.identifiers?.[0]?.id;
+      if (savedUserId) {
+        this.logger.log(`User created: ${this.maskEmail(registerDto.email)} (id: ${savedUserId})`);
+      }
+
+      // Extract user name for email template
+      const userName =
+        registerDto.firstName && registerDto.lastName
+          ? `${registerDto.firstName} ${registerDto.lastName}`
+          : registerDto.firstName || registerDto.email;
+
+      // Send verification email
+      try {
+        await this.emailService.sendVerificationEmail(
+          registerDto.email,
+          verificationToken,
+          userName,
+          registerDto.email,
+        );
+      } catch (error) {
+        this.logger.error('Failed to send verification email', error);
+      }
+
+      this.logger.log(`User registered: ${this.maskEmail(registerDto.email)}`);
+
+      return {
+        message: 'Registration successful. Please check your email to verify your account.',
+      };
+    } catch (err) {
+      // Re-throw known HTTP exceptions so client gets correct status code
+      if (err instanceof BadRequestException || err instanceof ConflictException) {
+        throw err;
+      }
+      const errMessage = err instanceof Error ? err.message : String(err);
+      this.logger.error(
+        `Register failed for ${this.maskEmail(registerDto?.email ?? 'unknown')}: ${errMessage}`,
+        err instanceof Error ? err.stack : undefined,
+      );
+      // Optional: expose error in response for debugging (set EXPOSE_REGISTER_ERROR=true temporarily)
+      const exposeError = this.configService.get<string>('EXPOSE_REGISTER_ERROR') === 'true';
+      throw new InternalServerErrorException(
+        exposeError
+          ? `Registration failed: ${errMessage}`
+          : 'Registration failed. Please try again or contact support.',
+      );
     }
-
-    this.logger.log(`User registered: ${this.maskEmail(registerDto.email)}`);
-
-    return {
-      message: 'Registration successful. Please check your email to verify your account.',
-    };
   }
 
   /**
@@ -133,10 +164,7 @@ export class AuthService {
   ): Promise<AuthResponseInterface> {
     // Verify reCAPTCHA if enabled
     if (loginDto.recaptchaToken) {
-      const isValid = await this.recaptchaService.verifyToken(
-        loginDto.recaptchaToken,
-        clientIp,
-      );
+      const isValid = await this.recaptchaService.verifyToken(loginDto.recaptchaToken, clientIp);
       if (!isValid) {
         throw new BadRequestException('reCAPTCHA verification failed');
       }
@@ -162,13 +190,15 @@ export class AuthService {
     if (user.temporary_password && user.temporary_password_expires_at) {
       const now = new Date();
       const expiresAt = new Date(user.temporary_password_expires_at);
-      
+
       if (now > expiresAt) {
-        throw new UnauthorizedException('Temporary password has expired. Please use password reset.');
+        throw new UnauthorizedException(
+          'Temporary password has expired. Please use password reset.',
+        );
       }
-      
+
       const isTemporaryPassword = await bcrypt.compare(loginDto.password, user.temporary_password);
-      
+
       if (isTemporaryPassword) {
         isPasswordValid = true;
         usedTemporaryPassword = true;
@@ -237,7 +267,12 @@ export class AuthService {
     if (usedTemporaryPassword) {
       user.must_change_password = true;
     }
-    await this.userRepository.save(user);
+    // Update only login-related fields so we don't touch displayName (may not exist on older DBs)
+    await this.userRepository.update(user.id, {
+      last_login: user.last_login,
+      ...(usedTemporaryPassword && { must_change_password: true }),
+      ...(user.last_2fa_verified_at && { last_2fa_verified_at: user.last_2fa_verified_at }),
+    });
 
     const userWithRoles = await this.userRepository.findByIdWithRoles(user.id);
     const roles = userWithRoles?.userRoles?.map((ur) => ur.role.name) || [];
@@ -245,9 +280,9 @@ export class AuthService {
     const tokens = await this.generateTokens(user, roles);
 
     let redirectPath = '/home';
-    
-    const hasAdminRole = roles.some(role => role.toLowerCase() === 'admin');
-    
+
+    const hasAdminRole = roles.some((role) => role.toLowerCase() === 'admin');
+
     if (hasAdminRole) {
       redirectPath = '/admin';
     } else if (!user.is_two_fa_enabled) {
@@ -267,7 +302,7 @@ export class AuthService {
         roles,
         mustChangePassword: user.must_change_password,
         user_type: userType,
-        userType: userType,
+        userType,
       },
       redirectPath,
       mustChangePassword: user.must_change_password,
@@ -280,32 +315,40 @@ export class AuthService {
   async verifyEmail(verifyEmailDto: VerifyEmailDto): Promise<{
     message: string;
   }> {
-    this.logger.log(`Attempting to verify email with token: ${verifyEmailDto.token.substring(0, 8)}...`);
-    
+    this.logger.log(
+      `Attempting to verify email with token: ${verifyEmailDto.token.substring(0, 8)}...`,
+    );
+
     const user = await this.userRepository.findByVerificationToken(verifyEmailDto.token);
 
     if (!user) {
-      this.logger.warn(`Verification token not found in database: ${verifyEmailDto.token.substring(0, 8)}...`);
-      
+      this.logger.warn(
+        `Verification token not found in database: ${verifyEmailDto.token.substring(0, 8)}...`,
+      );
+
       // Check if there are any users with this token pattern (for debugging)
       const allUsers = await this.userRepository.find({
         where: {},
         select: ['id', 'email', 'email_verified', 'email_verification_token'],
       });
-      
+
       // Check if any user is already verified (token might have been cleared)
-      const verifiedUsers = allUsers.filter(u => u.email_verified);
+      const verifiedUsers = allUsers.filter((u) => u.email_verified);
       this.logger.debug(`Found ${verifiedUsers.length} verified users in database`);
-      
+
       // Check if token might match a user's email (shouldn't happen, but for debugging)
       const tokenLength = verifyEmailDto.token.length;
       this.logger.debug(`Token length: ${tokenLength} (expected: 64 for 32 bytes hex)`);
-      
-      throw new NotFoundException('Invalid or expired verification token. The link may have already been used or expired.');
+
+      throw new NotFoundException(
+        'Invalid or expired verification token. The link may have already been used or expired.',
+      );
     }
-    
-    this.logger.log(`Found user for verification token: ${this.maskEmail(user.email)} (User ID: ${user.id})`);
-    
+
+    this.logger.log(
+      `Found user for verification token: ${this.maskEmail(user.email)} (User ID: ${user.id})`,
+    );
+
     // Check if email is already verified
     if (user.email_verified) {
       this.logger.log(`Email already verified for: ${this.maskEmail(user.email)}`);
@@ -341,7 +384,9 @@ export class AuthService {
       throw new Error('Failed to save email verification status');
     }
 
-    this.logger.log(`Email verified successfully for: ${this.maskEmail(user.email)} (User ID: ${user.id})`);
+    this.logger.log(
+      `Email verified successfully for: ${this.maskEmail(user.email)} (User ID: ${user.id})`,
+    );
 
     return { message: 'Email verified successfully' };
   }
@@ -378,12 +423,7 @@ export class AuthService {
 
     // Send email
     try {
-      await this.emailService.sendVerificationEmail(
-        email,
-        verificationToken,
-        userName,
-        email,
-      );
+      await this.emailService.sendVerificationEmail(email, verificationToken, userName, email);
     } catch (error) {
       this.logger.error('Failed to send verification email', error);
       throw new BadRequestException('Failed to send verification email');
@@ -546,9 +586,17 @@ export class AuthService {
   }
 
   async verify2FALogin(userId: string, twoFactorToken: string): Promise<AuthResponseInterface> {
-    const user = await this.userRepository.findOne({ 
+    const user = await this.userRepository.findOne({
       where: { id: userId },
-      select: ['id', 'email', 'email_verified', 'is_two_fa_enabled', 'totp_secret', 'is_active', 'must_change_password'],
+      select: [
+        'id',
+        'email',
+        'email_verified',
+        'is_two_fa_enabled',
+        'totp_secret',
+        'is_active',
+        'must_change_password',
+      ],
     });
 
     if (!user) {
@@ -579,13 +627,15 @@ export class AuthService {
     const tokens = await this.generateTokens(user, roles);
 
     let redirectPath = '/home';
-    const hasAdminRole = roles.some(role => role.toLowerCase() === 'admin');
-    
+    const hasAdminRole = roles.some((role) => role.toLowerCase() === 'admin');
+
     if (hasAdminRole) {
       redirectPath = '/admin';
     }
 
-    this.logger.log(`User logged in with 2FA: ${this.maskEmail(user.email)} (Roles: ${roles.join(', ')})`);
+    this.logger.log(
+      `User logged in with 2FA: ${this.maskEmail(user.email)} (Roles: ${roles.join(', ')})`,
+    );
 
     return {
       ...tokens,
@@ -816,7 +866,7 @@ export class AuthService {
         },
         mustChangePassword: user.must_change_password,
       };
-    } catch (error) {
+    } catch {
       throw new UnauthorizedException('Invalid refresh token');
     }
   }
@@ -828,6 +878,7 @@ export class AuthService {
     createUserDto: {
       firstName: string;
       lastName: string;
+      displayName?: string;
       email: string;
       password: string;
       confirmPassword: string;
@@ -870,6 +921,7 @@ export class AuthService {
       const user = this.userRepository.create({
         firstName: createUserDto.firstName,
         lastName: createUserDto.lastName,
+        displayName: createUserDto.displayName?.trim() || null,
         email: createUserDto.email,
         password: hashedPassword,
         email_verification_token: verificationToken,
@@ -1131,7 +1183,9 @@ export class AuthService {
 
   /**
    * Get all users with their roles (paginated)
-   * Excludes the current admin user
+   * Excludes the current admin user.
+   * Optionally filter by userType (organization owner / employee / staff) and organizationName.
+   * Attaches organization associations for each user when they have any.
    */
   async getAllUsersWithRoles(
     page: number = 1,
@@ -1139,6 +1193,8 @@ export class AuthService {
     search?: string,
     roleId?: number,
     excludeUserId?: string,
+    userType?: 'organization' | 'employee' | 'staff',
+    organizationName?: string,
   ): Promise<{ users: any[]; total: number; page: number; limit: number }> {
     const skip = (page - 1) * limit;
     const queryBuilder = this.userRepository
@@ -1152,7 +1208,8 @@ export class AuthService {
     }
 
     if (search) {
-      const searchCondition = '(user.firstName ILIKE :search OR user.lastName ILIKE :search OR user.email ILIKE :search)';
+      const searchCondition =
+        '(user.firstName ILIKE :search OR user.lastName ILIKE :search OR user.email ILIKE :search)';
       if (excludeUserId) {
         queryBuilder.andWhere(searchCondition, { search: `%${search}%` });
       } else {
@@ -1169,13 +1226,160 @@ export class AuthService {
       }
     }
 
+    const orgNamePattern = organizationName ? `%${organizationName}%` : null;
+    const hasOrgFilter = userType || organizationName;
+
+    if (hasOrgFilter && userType === 'organization') {
+      const orgCondition =
+        'EXISTS (SELECT 1 FROM organizations o WHERE o.user_id = user.id' +
+        (orgNamePattern ? ' AND o.organization_name ILIKE :organizationNamePattern)' : ')');
+      queryBuilder.andWhere(orgCondition);
+      if (orgNamePattern) {
+        queryBuilder.setParameter('organizationNamePattern', orgNamePattern);
+      }
+    } else if (hasOrgFilter && userType === 'employee') {
+      const empCondition =
+        'EXISTS (SELECT 1 FROM employees e INNER JOIN organizations o ON e.organization_id = o.id WHERE e.user_id = user.id' +
+        (orgNamePattern ? ' AND o.organization_name ILIKE :organizationNamePattern)' : ')');
+      queryBuilder.andWhere(empCondition);
+      if (orgNamePattern) {
+        queryBuilder.setParameter('organizationNamePattern', orgNamePattern);
+      }
+    } else if (hasOrgFilter && userType === 'staff') {
+      const staffCondition =
+        "EXISTS (SELECT 1 FROM organization_staff os INNER JOIN organizations o ON os.organization_id = o.id WHERE os.user_id = user.id AND os.status = 'ACTIVE'" +
+        (orgNamePattern ? ' AND o.organization_name ILIKE :organizationNamePattern)' : ')');
+      queryBuilder.andWhere(staffCondition);
+      if (orgNamePattern) {
+        queryBuilder.setParameter('organizationNamePattern', orgNamePattern);
+      }
+    } else if (organizationName && !userType) {
+      const anyOrgCondition =
+        '(EXISTS (SELECT 1 FROM organizations o WHERE o.user_id = user.id AND o.organization_name ILIKE :organizationNamePattern) OR ' +
+        "EXISTS (SELECT 1 FROM organization_staff os INNER JOIN organizations o ON os.organization_id = o.id WHERE os.user_id = user.id AND os.status = 'ACTIVE' AND o.organization_name ILIKE :organizationNamePattern) OR " +
+        'EXISTS (SELECT 1 FROM employees e INNER JOIN organizations o ON e.organization_id = o.id WHERE e.user_id = user.id AND o.organization_name ILIKE :organizationNamePattern))';
+      queryBuilder.andWhere(anyOrgCondition);
+      queryBuilder.setParameter('organizationNamePattern', orgNamePattern);
+    }
+
     const [users, total] = await queryBuilder
       .orderBy('user.created_at', 'DESC')
       .skip(skip)
       .take(limit)
       .getManyAndCount();
 
-    const usersWithRoles = users.map((user) => ({
+    const userIds = users.map((u) => u.id);
+    const associationsMap = await this.getUserOrganizationAssociations(userIds);
+
+    const ownerOrgIdsMap = new Map<string, string[]>();
+    for (const [uid, associations] of associationsMap) {
+      const ownerOrgs = associations
+        .filter((a) => a.associationType === 'OWNER')
+        .map((a) => a.organizationId);
+      if (ownerOrgs.length > 0) ownerOrgIdsMap.set(uid, ownerOrgs);
+    }
+
+    const ownerToMemberUserIds = new Map<string, string[]>();
+    if (ownerOrgIdsMap.size > 0) {
+      const allOrgIds = [...new Set([...ownerOrgIdsMap.values()].flat())];
+      const memberIdsByOrg = await this.getStaffAndEmployeeUserIdsByOrganizationIds(allOrgIds);
+      for (const [ownerId, orgIds] of ownerOrgIdsMap) {
+        const memberIds = [
+          ...new Set(orgIds.flatMap((oid) => memberIdsByOrg.get(oid) ?? [])),
+        ].filter((id) => id !== ownerId);
+        if (memberIds.length > 0) ownerToMemberUserIds.set(ownerId, memberIds);
+      }
+    }
+
+    const allMemberIds = [...new Set([...ownerToMemberUserIds.values()].flat())];
+    const membersWithRolesMap = new Map<string, FormattedUserWithRoles>();
+    if (allMemberIds.length > 0) {
+      const membersList = await this.getUsersByIdsWithRoles(allMemberIds);
+      for (const u of membersList) membersWithRolesMap.set(u.id, u);
+    }
+
+    const usersWithRoles = users.map((user) => {
+      const formatted: FormattedUserWithRoles & {
+        organizations: any[];
+        users: FormattedUserWithRoles[] | null;
+      } = {
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        is_active: user.is_active,
+        email_verified: user.email_verified,
+        is_two_fa_enabled: user.is_two_fa_enabled,
+        last_login: user.last_login,
+        created_at: user.created_at,
+        updated_at: user.updated_at,
+        roles:
+          user.userRoles?.map((ur) => ({
+            id: ur.role.id,
+            name: ur.role.name,
+            description: ur.role.description,
+          })) || [],
+        organizations: associationsMap.get(user.id) ?? [],
+        users: null,
+      };
+      const memberIds = ownerToMemberUserIds.get(user.id);
+      if (memberIds?.length) {
+        formatted.users = memberIds
+          .map((id) => membersWithRolesMap.get(id))
+          .filter((u): u is FormattedUserWithRoles => u != null);
+      }
+      return formatted;
+    });
+
+    return {
+      users: usersWithRoles,
+      total,
+      page,
+      limit,
+    };
+  }
+
+  /**
+   * Get distinct user IDs that are staff or employees in the given organization IDs.
+   * Returns a Map of organizationId -> array of user_id (staff + employees).
+   */
+  private async getStaffAndEmployeeUserIdsByOrganizationIds(
+    organizationIds: string[],
+  ): Promise<Map<string, string[]>> {
+    if (organizationIds.length === 0) return new Map();
+    const staffRows = await this.dataSource.query<{ organization_id: string; user_id: string }[]>(
+      `SELECT os.organization_id, os.user_id FROM organization_staff os
+       WHERE os.organization_id = ANY($1::uuid[]) AND os.status = 'ACTIVE'`,
+      [organizationIds],
+    );
+    const employeeRows = await this.dataSource.query<
+      { organization_id: string; user_id: string }[]
+    >(
+      `SELECT e.organization_id, e.user_id FROM employees e
+       WHERE e.organization_id = ANY($1::uuid[])`,
+      [organizationIds],
+    );
+    const map = new Map<string, string[]>();
+    for (const row of [...staffRows, ...employeeRows]) {
+      const list = map.get(row.organization_id) ?? [];
+      if (!list.includes(row.user_id)) list.push(row.user_id);
+      map.set(row.organization_id, list);
+    }
+    return map;
+  }
+
+  /**
+   * Load users by IDs with roles and return in the same shape as getCurrentUserWithRoles / list items.
+   */
+  private async getUsersByIdsWithRoles(userIds: string[]): Promise<FormattedUserWithRoles[]> {
+    if (userIds.length === 0) return [];
+    const found = await this.userRepository
+      .createQueryBuilder('user')
+      .leftJoinAndSelect('user.userRoles', 'userRoles')
+      .leftJoinAndSelect('userRoles.role', 'role')
+      .where('user.id IN (:...userIds)', { userIds })
+      .getMany();
+    return found.map((user) => ({
       id: user.id,
       firstName: user.firstName,
       lastName: user.lastName,
@@ -1186,19 +1390,84 @@ export class AuthService {
       last_login: user.last_login,
       created_at: user.created_at,
       updated_at: user.updated_at,
-      roles: user.userRoles?.map((ur) => ({
-        id: ur.role.id,
-        name: ur.role.name,
-        description: ur.role.description,
-      })) || [],
+      roles:
+        user.userRoles?.map((ur) => ({
+          id: ur.role.id,
+          name: ur.role.name,
+          description: ur.role.description,
+        })) || [],
     }));
+  }
 
-    return {
-      users: usersWithRoles,
-      total,
-      page,
-      limit,
-    };
+  /**
+   * Load organization associations (OWNER, STAFF, EMPLOYEE) for the given user IDs.
+   * Returns a Map of userId -> array of { organizationId, organizationName, associationType }.
+   */
+  private async getUserOrganizationAssociations(
+    userIds: string[],
+  ): Promise<
+    Map<
+      string,
+      { organizationId: string; organizationName: string | null; associationType: string }[]
+    >
+  > {
+    if (userIds.length === 0) {
+      return new Map();
+    }
+    const ownerRows = await this.dataSource.query<
+      { user_id: string; id: string; organization_name: string | null }[]
+    >(
+      `SELECT o.user_id, o.id, o.organization_name FROM organizations o WHERE o.user_id = ANY($1::uuid[])`,
+      [userIds],
+    );
+    const staffRows = await this.dataSource.query<
+      { user_id: string; id: string; organization_name: string | null }[]
+    >(
+      `SELECT os.user_id, o.id, o.organization_name FROM organization_staff os
+       INNER JOIN organizations o ON os.organization_id = o.id
+       WHERE os.user_id = ANY($1::uuid[]) AND os.status = 'ACTIVE'`,
+      [userIds],
+    );
+    const employeeRows = await this.dataSource.query<
+      { user_id: string; id: string; organization_name: string | null }[]
+    >(
+      `SELECT e.user_id, o.id, o.organization_name FROM employees e
+       INNER JOIN organizations o ON e.organization_id = o.id
+       WHERE e.user_id = ANY($1::uuid[])`,
+      [userIds],
+    );
+    const map = new Map<
+      string,
+      { organizationId: string; organizationName: string | null; associationType: string }[]
+    >();
+    for (const row of ownerRows) {
+      const list = map.get(row.user_id) ?? [];
+      list.push({
+        organizationId: row.id,
+        organizationName: row.organization_name,
+        associationType: 'OWNER',
+      });
+      map.set(row.user_id, list);
+    }
+    for (const row of staffRows) {
+      const list = map.get(row.user_id) ?? [];
+      list.push({
+        organizationId: row.id,
+        organizationName: row.organization_name,
+        associationType: 'STAFF',
+      });
+      map.set(row.user_id, list);
+    }
+    for (const row of employeeRows) {
+      const list = map.get(row.user_id) ?? [];
+      list.push({
+        organizationId: row.id,
+        organizationName: row.organization_name,
+        associationType: 'EMPLOYEE',
+      });
+      map.set(row.user_id, list);
+    }
+    return map;
   }
 
   /**
@@ -1222,11 +1491,12 @@ export class AuthService {
       last_login: user.last_login,
       created_at: user.created_at,
       updated_at: user.updated_at,
-      roles: user.userRoles?.map((ur) => ({
-        id: ur.role.id,
-        name: ur.role.name,
-        description: ur.role.description,
-      })) || [],
+      roles:
+        user.userRoles?.map((ur) => ({
+          id: ur.role.id,
+          name: ur.role.name,
+          description: ur.role.description,
+        })) || [],
     };
   }
 
@@ -1317,14 +1587,14 @@ export class AuthService {
       if (updateDto.password) {
         const temporaryPassword = this.generateTemporaryPassword();
         const hashedTemporaryPassword = await bcrypt.hash(temporaryPassword, 10);
-        
+
         user.temporary_password = hashedTemporaryPassword;
         user.temporary_password_expires_at = new Date(Date.now() + 24 * 60 * 60 * 1000);
         user.must_change_password = true;
-        
+
         user.password = await bcrypt.hash(updateDto.password, 10);
         user.password_changed_at = new Date();
-        
+
         changes.temporaryPassword = temporaryPassword;
       }
 
@@ -1402,7 +1672,9 @@ export class AuthService {
       );
 
       return {
-        message: 'User updated successfully' + (hasSensitiveChanges ? '. User has been notified and logged out.' : ''),
+        message:
+          'User updated successfully' +
+          (hasSensitiveChanges ? '. User has been notified and logged out.' : ''),
       };
     } catch (error) {
       await queryRunner.rollbackTransaction();
@@ -1476,10 +1748,7 @@ export class AuthService {
   /**
    * Delete user by admin
    */
-  async deleteUserByAdmin(
-    userId: string,
-    adminUserId: string,
-  ): Promise<{ message: string }> {
+  async deleteUserByAdmin(userId: string, adminUserId: string): Promise<{ message: string }> {
     const user = await this.userRepository.findOne({ where: { id: userId } });
 
     if (!user) {
@@ -1531,7 +1800,7 @@ export class AuthService {
     const allChars = uppercase + lowercase + numbers + special;
 
     let password = '';
-    
+
     password += uppercase[Math.floor(Math.random() * uppercase.length)];
     password += lowercase[Math.floor(Math.random() * lowercase.length)];
     password += numbers[Math.floor(Math.random() * numbers.length)];
@@ -1541,7 +1810,10 @@ export class AuthService {
       password += allChars[Math.floor(Math.random() * allChars.length)];
     }
 
-    return password.split('').sort(() => Math.random() - 0.5).join('');
+    return password
+      .split('')
+      .sort(() => Math.random() - 0.5)
+      .join('');
   }
 
   async getPublicRoles(): Promise<Role[]> {
@@ -1581,9 +1853,7 @@ export class AuthService {
 
     await this.userRoleRepository.save(userRole);
 
-    this.logger.log(
-      `Role assigned: User ${this.maskEmail(user.email)} assigned role ${role.name}`,
-    );
+    this.logger.log(`Role assigned: User ${this.maskEmail(user.email)} assigned role ${role.name}`);
 
     return {
       id: userRole.id,

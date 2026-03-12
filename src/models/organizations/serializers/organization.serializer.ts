@@ -24,12 +24,13 @@ export class OrganizationSerializer {
       ...(organization.profile && {
         profile: this.serializeProfile(organization.profile),
       }),
-      ...(organization.typeAssignments && organization.typeAssignments.length > 0 && {
-        types: organization.typeAssignments.map((assignment) => ({
-          id: assignment.organizationType?.id,
-          name: assignment.organizationType?.name,
-        })),
-      }),
+      ...(organization.typeAssignments &&
+        organization.typeAssignments.length > 0 && {
+          types: organization.typeAssignments.map((assignment) => ({
+            id: assignment.organizationType?.id,
+            name: assignment.organizationType?.name,
+          })),
+        }),
     };
   }
 
@@ -94,4 +95,3 @@ export class OrganizationSerializer {
     };
   }
 }
-

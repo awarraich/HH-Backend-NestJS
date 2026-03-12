@@ -144,4 +144,16 @@ export class CreateJobPostingDto {
   @IsOptional()
   @IsNumber()
   people_to_hire?: number;
+
+  /** Job-specific application form fields. When set, applicants see this form instead of org default. */
+  @IsOptional()
+  @IsArray()
+  application_fields?: Array<{
+    id?: string;
+    label: string;
+    type: string;
+    required?: boolean;
+    placeholder?: string;
+    options?: string[];
+  }>;
 }

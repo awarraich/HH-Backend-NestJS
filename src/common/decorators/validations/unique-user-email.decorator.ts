@@ -8,7 +8,7 @@ import {
 // This is a placeholder - implement actual validation logic
 @ValidatorConstraint({ async: true })
 export class UniqueUserEmailConstraint implements ValidatorConstraintInterface {
-  validate(value: any): Promise<boolean> | boolean {
+  validate(_value: string): Promise<boolean> | boolean {
     // Implement unique email check
     return Promise.resolve(true);
   }

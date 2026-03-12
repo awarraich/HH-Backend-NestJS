@@ -23,9 +23,7 @@ export class GoogleOAuthCallbackController {
 
     const frontendUrl = this.appConfigService.frontendUrl;
     if (!frontendUrl) {
-      throw new Error(
-        'HOME_HEALTH_AI_URL or FRONTEND_URL environment variable is required',
-      );
+      throw new Error('HOME_HEALTH_AI_URL or FRONTEND_URL environment variable is required');
     }
 
     const fragmentParams = new URLSearchParams({
@@ -54,4 +52,3 @@ export class GoogleOAuthCallbackController {
     res.redirect(redirectUrl);
   }
 }
-

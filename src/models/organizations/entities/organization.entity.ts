@@ -41,6 +41,10 @@ export class Organization {
   @Column({ type: 'text', nullable: true })
   description: string;
 
+  /** Job application form field definitions (id, label, type, required, placeholder?, options?). */
+  @Column({ type: 'jsonb', nullable: true })
+  application_form_fields: object[] | null;
+
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
 

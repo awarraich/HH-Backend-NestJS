@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsIn, MaxLength } from 'class-validator';
+import { IsString, IsOptional, IsIn } from 'class-validator';
 
 export class UpdateReferralResponseDto {
   @IsString()

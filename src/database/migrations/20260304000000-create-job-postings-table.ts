@@ -55,7 +55,10 @@ export class CreateJobPostingsTable20260304000000 implements MigrationInterface 
     );
     await queryRunner.createIndex(
       'job_postings',
-      new TableIndex({ name: 'IDX_job_postings_organization_id', columnNames: ['organization_id'] }),
+      new TableIndex({
+        name: 'IDX_job_postings_organization_id',
+        columnNames: ['organization_id'],
+      }),
     );
     await queryRunner.createIndex(
       'job_postings',
@@ -82,9 +85,7 @@ export class CreateJobPostingsTable20260304000000 implements MigrationInterface 
   public async down(queryRunner: QueryRunner): Promise<void> {
     const table = await queryRunner.getTable('job_postings');
     if (table) {
-      const fk = table.foreignKeys.find(
-        (fk) => fk.columnNames.indexOf('organization_id') !== -1,
-      );
+      const fk = table.foreignKeys.find((fk) => fk.columnNames.indexOf('organization_id') !== -1);
       if (fk) await queryRunner.dropForeignKey('job_postings', fk);
       await queryRunner.dropTable('job_postings');
     }

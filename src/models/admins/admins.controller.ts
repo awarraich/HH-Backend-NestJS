@@ -11,6 +11,7 @@ import {
   Request,
   HttpCode,
   HttpStatus,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -21,6 +22,10 @@ import { RoleRepository } from '../../authentication/repositories/role.repositor
 import { CreateUserByAdminDto } from './dto/create-user-by-admin.dto';
 import { UpdateUserByAdminDto } from './dto/update-user-by-admin.dto';
 import { QueryUsersDto } from './dto/query-users.dto';
+
+interface RequestWithUser {
+  user?: { userId?: string; sub?: string };
+}
 
 @Controller('v1/api/admin/users')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -33,15 +38,19 @@ export class AdminsController {
 
   @Get('roles')
   @HttpCode(HttpStatus.OK)
-  async getRoles() {
+  async getRoles(): Promise<unknown> {
     const roles = await this.roleRepository.findAllRoles();
     return SuccessHelper.createSuccessResponse(roles);
   }
 
   @Get()
   @HttpCode(HttpStatus.OK)
-  async getUsers(@Query() queryDto: QueryUsersDto, @Request() req: any) {
-    const adminUserId = req.user?.userId || req.user?.sub;
+  async getUsers(
+    @Query() queryDto: QueryUsersDto,
+    @Request() req: RequestWithUser,
+  ): Promise<unknown> {
+    const adminUserId = req.user?.userId ?? req.user?.sub;
+    if (adminUserId === undefined) throw new UnauthorizedException('Admin user ID not found');
     const page = queryDto.page || 1;
     const limit = queryDto.limit || 20;
     const result = await this.authService.getAllUsersWithRoles(
@@ -50,6 +59,8 @@ export class AdminsController {
       queryDto.search,
       queryDto.roleId,
       adminUserId, // Exclude current admin user
+      queryDto.userType,
+      queryDto.organizationName,
     );
     return SuccessHelper.createPaginatedResponse(
       result.users,
@@ -61,15 +72,21 @@ export class AdminsController {
 
   @Get(':id')
   @HttpCode(HttpStatus.OK)
-  async getUserById(@Param('id') id: string) {
+  async getUserById(@Param('id') id: string): Promise<unknown> {
     const user = await this.authService.getUserByIdWithRoles(id);
     return SuccessHelper.createSuccessResponse(user);
   }
 
   @Post('create')
   @HttpCode(HttpStatus.CREATED)
-  async createUser(@Body() createUserDto: CreateUserByAdminDto, @Request() req: any) {
-    const adminUserId = req.user?.userId || req.user?.sub;
+  async createUser(
+    @Body() createUserDto: CreateUserByAdminDto,
+    @Request() req: RequestWithUser,
+  ): Promise<unknown> {
+    const adminUserId: string | undefined = req.user?.userId ?? req.user?.sub;
+    if (adminUserId === undefined) {
+      throw new UnauthorizedException('Admin user ID not found');
+    }
     const result = await this.authService.createUserByAdmin(createUserDto, adminUserId);
     return SuccessHelper.createSuccessResponse(result);
   }
@@ -79,19 +96,20 @@ export class AdminsController {
   async updateUser(
     @Param('id') id: string,
     @Body() updateUserDto: UpdateUserByAdminDto,
-    @Request() req: any,
-  ) {
-    const adminUserId = req.user?.userId || req.user?.sub;
+    @Request() req: RequestWithUser,
+  ): Promise<unknown> {
+    const adminUserId = req.user?.userId ?? req.user?.sub;
+    if (adminUserId === undefined) throw new UnauthorizedException('Admin user ID not found');
     const result = await this.authService.updateUserByAdmin(id, updateUserDto, adminUserId);
     return SuccessHelper.createSuccessResponse(result);
   }
 
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
-  async deleteUser(@Param('id') id: string, @Request() req: any) {
-    const adminUserId = req.user?.userId || req.user?.sub;
+  async deleteUser(@Param('id') id: string, @Request() req: RequestWithUser): Promise<unknown> {
+    const adminUserId = req.user?.userId ?? req.user?.sub;
+    if (adminUserId === undefined) throw new UnauthorizedException('Admin user ID not found');
     const result = await this.authService.deleteUserByAdmin(id, adminUserId);
     return SuccessHelper.createSuccessResponse(result);
   }
 }
-

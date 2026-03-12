@@ -11,4 +11,3 @@ import { CreditPackage } from './entities/credit-package.entity';
   exports: [CreditPackagesService],
 })
 export class CreditPackagesModule {}
-

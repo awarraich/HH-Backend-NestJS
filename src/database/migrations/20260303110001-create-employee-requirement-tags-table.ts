@@ -7,9 +7,7 @@ import {
   TableUnique,
 } from 'typeorm';
 
-export class CreateEmployeeRequirementTagsTable20260303110001
-  implements MigrationInterface
-{
+export class CreateEmployeeRequirementTagsTable20260303110001 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.createTable(
       new Table({

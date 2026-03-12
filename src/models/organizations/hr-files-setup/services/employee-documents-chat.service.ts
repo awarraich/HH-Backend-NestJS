@@ -3,14 +3,11 @@ import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import { EmployeeDocumentsService } from './employee-documents.service';
 
-const UUID_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function filterValidDocumentIds(ids: unknown): string[] {
   if (!Array.isArray(ids)) return [];
-  return (ids as string[]).filter(
-    (id) => typeof id === 'string' && UUID_REGEX.test(id),
-  );
+  return (ids as string[]).filter((id) => typeof id === 'string' && UUID_REGEX.test(id));
 }
 
 const SYSTEM_PROMPT = `You are a helpful assistant for an employee who has already uploaded HR documents. The documents are already in the system—do NOT ask the user to upload or provide a document.
@@ -50,7 +47,8 @@ const TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
         properties: {
           message: {
             type: 'string',
-            description: "The user's question or message (e.g. 'What is the expiration date?', 'Summarize this document')",
+            description:
+              "The user's question or message (e.g. 'What is the expiration date?', 'Summarize this document')",
           },
           document_ids: {
             type: 'array',
@@ -86,7 +84,10 @@ export class EmployeeDocumentsChatService {
     userId: string,
     history?: { role: 'user' | 'assistant'; content: string }[],
     documentId?: string,
-  ): Promise<{ message: string; sources?: { document_id: string; file_name: string; snippet: string }[] }> {
+  ): Promise<{
+    message: string;
+    sources?: { document_id: string; file_name: string; snippet: string }[];
+  }> {
     if (!this.openai) {
       return {
         message: 'Chat is not available. Please set OPENAI_API_KEY.',
@@ -95,10 +96,13 @@ export class EmployeeDocumentsChatService {
 
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       { role: 'system', content: SYSTEM_PROMPT },
-      ...(history ?? []).map((h) => ({
-        role: h.role,
-        content: h.content,
-      }) as OpenAI.Chat.Completions.ChatCompletionMessageParam),
+      ...(history ?? []).map(
+        (h) =>
+          ({
+            role: h.role,
+            content: h.content,
+          }) as OpenAI.Chat.Completions.ChatCompletionMessageParam,
+      ),
       { role: 'user', content: message },
     ];
 
@@ -130,7 +134,7 @@ export class EmployeeDocumentsChatService {
             ? raw
             : Array.isArray(raw)
               ? (raw as Array<{ type?: string; text?: string } | string>)
-                  .map((c) => (typeof c === 'string' ? c : c?.text ?? ''))
+                  .map((c) => (typeof c === 'string' ? c : (c?.text ?? '')))
                   .join('')
               : '';
         return { message: reply || '', sources: lastSources };
@@ -141,9 +145,10 @@ export class EmployeeDocumentsChatService {
         const name = tc.function.name;
         let args: Record<string, unknown> = {};
         try {
-          args = tc.function.arguments
-            ? JSON.parse(tc.function.arguments)
-            : {};
+          args = (tc.function.arguments ? JSON.parse(tc.function.arguments) : {}) as Record<
+            string,
+            unknown
+          >;
         } catch {
           this.logger.warn(`Invalid tool arguments for ${name}`);
         }
@@ -184,7 +189,10 @@ export class EmployeeDocumentsChatService {
     name: string,
     args: Record<string, unknown>,
     requestDocumentId?: string,
-  ): Promise<string | { text: string; sources?: { document_id: string; file_name: string; snippet: string }[] }> {
+  ): Promise<
+    | string
+    | { text: string; sources?: { document_id: string; file_name: string; snippet: string }[] }
+  > {
     try {
       switch (name) {
         case 'get_document_expiration_status': {

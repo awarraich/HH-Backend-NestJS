@@ -1,10 +1,4 @@
-import {
-  MigrationInterface,
-  QueryRunner,
-  Table,
-  TableIndex,
-  TableUnique,
-} from 'typeorm';
+import { MigrationInterface, QueryRunner, Table, TableIndex, TableUnique } from 'typeorm';
 
 export class CreateProviderRolesTable20260224100000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
@@ -16,7 +10,12 @@ export class CreateProviderRolesTable20260224100000 implements MigrationInterfac
           { name: 'code', type: 'varchar', length: '50', isNullable: false },
           { name: 'name', type: 'varchar', length: '100', isNullable: false },
           { name: 'description', type: 'text', isNullable: true },
-          { name: 'created_at', type: 'timestamp', default: 'CURRENT_TIMESTAMP', isNullable: false },
+          {
+            name: 'created_at',
+            type: 'timestamp',
+            default: 'CURRENT_TIMESTAMP',
+            isNullable: false,
+          },
         ],
       }),
       true,

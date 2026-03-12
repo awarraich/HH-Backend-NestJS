@@ -239,7 +239,11 @@ export class OrganizationsService {
       });
     }
 
-    const raw = await qb.getRawMany<{ id: string; organization_name: string; organization_type: string }>();
+    const raw = await qb.getRawMany<{
+      id: string;
+      organization_name: string;
+      organization_type: string;
+    }>();
     return raw.map((r) => ({
       id: r.id,
       organization_name: r.organization_name ?? '',
@@ -312,12 +316,7 @@ export class OrganizationsService {
     return this.organizationSerializer.serialize(updated);
   }
 
-  async delete(
-    id: string,
-    userId: string,
-    ipAddress?: string,
-    userAgent?: string,
-  ): Promise<void> {
+  async delete(id: string, userId: string, ipAddress?: string, userAgent?: string): Promise<void> {
     const organization = await this.organizationRepository.findOne({ where: { id } });
 
     if (!organization) {
@@ -482,8 +481,7 @@ export class OrganizationsService {
 
     this.logger.log(`Organization profile created: ${id} by user: ${userId}`);
 
-    const organizationWithProfile =
-      await this.organizationRepository.findByIdWithRelations(id);
+    const organizationWithProfile = await this.organizationRepository.findByIdWithRelations(id);
     if (!organizationWithProfile) {
       throw new NotFoundException(`Organization with ID ${id} not found`);
     }
@@ -522,7 +520,9 @@ export class OrganizationsService {
         this.logger.error('Failed to log audit error', logError);
       }
 
-      throw new ForbiddenException('You do not have permission to update this organization profile');
+      throw new ForbiddenException(
+        'You do not have permission to update this organization profile',
+      );
     }
 
     let profile = await this.organizationProfileRepository.findOne({
@@ -536,7 +536,7 @@ export class OrganizationsService {
       const existingAssignment = await this.organizationTypeAssignmentRepository.findOne({
         where: { organization_id: id },
       });
-      
+
       profile = this.organizationProfileRepository.create({
         organization_id: id,
         organization_type_id: existingAssignment?.organization_type_id || 1, // Default type if not provided
@@ -607,7 +607,9 @@ export class OrganizationsService {
         this.logger.error('Failed to log audit error', logError);
       }
 
-      throw new ForbiddenException('You do not have permission to assign types to this organization');
+      throw new ForbiddenException(
+        'You do not have permission to assign types to this organization',
+      );
     }
 
     // Check if type exists
@@ -616,7 +618,9 @@ export class OrganizationsService {
     });
 
     if (!orgType) {
-      throw new NotFoundException(`Organization type with ID ${assignDto.organization_type_id} not found`);
+      throw new NotFoundException(
+        `Organization type with ID ${assignDto.organization_type_id} not found`,
+      );
     }
 
     // Check if assignment already exists
@@ -658,7 +662,9 @@ export class OrganizationsService {
       this.logger.error('Failed to log audit event', error);
     }
 
-    this.logger.log(`Organization type assigned: ${id} type: ${assignDto.organization_type_id} by user: ${userId}`);
+    this.logger.log(
+      `Organization type assigned: ${id} type: ${assignDto.organization_type_id} by user: ${userId}`,
+    );
 
     const organizationWithTypes = await this.organizationRepository.findByIdWithRelations(id);
     if (!organizationWithTypes) {
@@ -698,7 +704,9 @@ export class OrganizationsService {
         this.logger.error('Failed to log audit error', logError);
       }
 
-      throw new ForbiddenException('You do not have permission to remove types from this organization');
+      throw new ForbiddenException(
+        'You do not have permission to remove types from this organization',
+      );
     }
 
     const assignment = await this.organizationTypeAssignmentRepository.findOne({
@@ -785,10 +793,13 @@ export class OrganizationsService {
         this.logger.error('Failed to log audit error', logError);
       }
 
-      throw new ForbiddenException('You do not have permission to update permissions for this organization');
+      throw new ForbiddenException(
+        'You do not have permission to update permissions for this organization',
+      );
     }
 
-    const beforePermissions = await this.organizationPermissionService.getOrganizationPermissions(id);
+    const beforePermissions =
+      await this.organizationPermissionService.getOrganizationPermissions(id);
 
     // Update each permission
     for (const permDto of permissionsArray) {
@@ -800,7 +811,8 @@ export class OrganizationsService {
       );
     }
 
-    const afterPermissions = await this.organizationPermissionService.getOrganizationPermissions(id);
+    const afterPermissions =
+      await this.organizationPermissionService.getOrganizationPermissions(id);
 
     // HIPAA Compliance: Log operation
     try {
@@ -827,4 +839,3 @@ export class OrganizationsService {
     return this.getPermissions(id);
   }
 }
-

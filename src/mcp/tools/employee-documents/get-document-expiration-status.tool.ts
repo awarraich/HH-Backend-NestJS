@@ -15,12 +15,16 @@ export const getDocumentExpirationStatusTool = {
   inputSchema: getDocumentExpirationStatusInputSchema,
 };
 
+export type GetDocumentExpirationStatusResult = Promise<{
+  content: Array<{ type: 'text'; text: string }>;
+}>;
+
 export function createGetDocumentExpirationStatusHandler(
   employeeDocumentsService: EmployeeDocumentsService,
   organizationId: string,
   employeeId: string,
   userId: string,
-) {
+): (args: { document_ids: string[] }) => GetDocumentExpirationStatusResult {
   return async (args: { document_ids: string[] }) => {
     const documentIds = args?.document_ids ?? [];
     const list = await employeeDocumentsService.getExpirationStatus(

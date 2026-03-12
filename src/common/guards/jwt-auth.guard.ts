@@ -1,6 +1,5 @@
 import { Injectable, ExecutionContext } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { UserWithRolesInterface } from '../interfaces/user-with-roles.interface';
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {

@@ -16,10 +16,6 @@ import { OrganizationFeature } from './entities/organization-feature.entity';
 import { StaffRole } from './staff-management/entities/staff-role.entity';
 import { OrganizationStaff } from './staff-management/entities/organization-staff.entity';
 import { OrganizationStaffRolePermission } from './staff-management/entities/organization-staff-role-permission.entity';
-import { OrganizationFeature } from './entities/organization-feature.entity';
-import { StaffRole } from './staff-management/entities/staff-role.entity';
-import { OrganizationStaff } from './staff-management/entities/organization-staff.entity';
-import { OrganizationStaffRolePermission } from './staff-management/entities/organization-staff-role-permission.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { User } from '../../authentication/entities/user.entity';
 import { Patient } from '../patients/entities/patient.entity';
@@ -62,10 +58,14 @@ import { EmployeeDocumentTypesController } from './hr-files-setup/controllers/em
 import { InserviceTrainingsController } from './hr-files-setup/controllers/inservice-trainings.controller';
 import { InserviceQuizQuestionsController } from './hr-files-setup/controllers/inservice-quiz-questions.controller';
 import { InserviceQuizQuestionsOrgController } from './hr-files-setup/controllers/inservice-quiz-questions-org.controller';
+import { EmployeeInserviceController } from './hr-files-setup/controllers/employee-inservice.controller';
 import { EmployeeDocumentTypeService } from './hr-files-setup/services/employee-document-type.service';
+import { InserviceCompletionService } from './hr-files-setup/services/inservice-completion.service';
 import { InserviceTrainingService } from './hr-files-setup/services/inservice-training.service';
 import { InserviceQuizQuestionService } from './hr-files-setup/services/inservice-quiz-question.service';
 import { InserviceQuizQuestion } from './hr-files-setup/entities/inservice-quiz-question.entity';
+import { InserviceCompletion } from './hr-files-setup/entities/inservice-completion.entity';
+import { InserviceQuizAttempt } from './hr-files-setup/entities/inservice-quiz-attempt.entity';
 import { EmployeeDocumentAccessGuard } from '../../common/guards/employee-document-access.guard';
 import { EmployeeDocumentTypeAccessGuard } from '../../common/guards/employee-document-type-access.guard';
 import { EmbeddingModule } from '../../common/services/embedding/embedding.module';
@@ -94,6 +94,8 @@ import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
       RequirementInserviceTraining,
       InserviceTraining,
       InserviceQuizQuestion,
+      InserviceCompletion,
+      InserviceQuizAttempt,
       EmployeeRequirementTag,
       EmployeeDocument,
       DocumentChunk,
@@ -126,6 +128,7 @@ import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
     InserviceTrainingsController,
     InserviceQuizQuestionsController,
     InserviceQuizQuestionsOrgController,
+    EmployeeInserviceController,
   ],
   providers: [
     OrganizationsService,
@@ -139,6 +142,7 @@ import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
     EmployeeDocumentTypeService,
     InserviceTrainingService,
     InserviceQuizQuestionService,
+    InserviceCompletionService,
     RequirementTagService,
     EmployeeRequirementTagService,
     EmployeeDocumentsService,

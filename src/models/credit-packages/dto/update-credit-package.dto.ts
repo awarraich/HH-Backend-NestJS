@@ -1,12 +1,4 @@
-import {
-  IsString,
-  IsInt,
-  IsNumber,
-  IsBoolean,
-  Min,
-  MaxLength,
-  IsOptional,
-} from 'class-validator';
+import { IsString, IsInt, IsNumber, IsBoolean, Min, MaxLength, IsOptional } from 'class-validator';
 
 export class UpdateCreditPackageDto {
   @IsString()
@@ -33,4 +25,3 @@ export class UpdateCreditPackageDto {
   @IsOptional()
   is_active?: boolean;
 }
-

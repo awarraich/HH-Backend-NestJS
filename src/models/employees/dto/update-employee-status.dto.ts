@@ -1,8 +1,4 @@
-import {
-  IsNotEmpty,
-  IsString,
-  IsIn,
-} from 'class-validator';
+import { IsNotEmpty, IsString, IsIn } from 'class-validator';
 
 export class UpdateEmployeeStatusDto {
   @IsNotEmpty()
@@ -10,4 +6,3 @@ export class UpdateEmployeeStatusDto {
   @IsIn(['ACTIVE', 'INVITED', 'INACTIVE', 'TERMINATED'])
   status: string;
 }
-

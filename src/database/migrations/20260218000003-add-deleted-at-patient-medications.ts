@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner, TableColumn } from 'typeorm';
 
-export class AddDeletedAtPatientMedications20260218000003
-  implements MigrationInterface
-{
+export class AddDeletedAtPatientMedications20260218000003 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.addColumn(
       'patient_medications',

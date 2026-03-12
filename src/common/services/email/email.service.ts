@@ -7,6 +7,8 @@ import { AdminCreatedUserEmailTemplate } from './templates/admin-created-user-em
 import { AdminUpdatedUserEmailTemplate } from './templates/admin-updated-user-email.template';
 import { OrganizationStaffCreatedEmailTemplate } from './templates/organization-staff-created-email.template';
 import { GoogleSignInInviteEmailTemplate } from './templates/google-sign-in-invite-email.template';
+import { InterviewInviteEmailTemplate } from './templates/interview-invite-email.template';
+import { OfferLetterEmailTemplate } from './templates/offer-letter-email.template';
 
 @Injectable()
 export class EmailService implements OnModuleInit {
@@ -32,12 +34,12 @@ export class EmailService implements OnModuleInit {
   private async verifyConnection(): Promise<void> {
     try {
       const auth = this.emailConfigService.auth;
-      
+
       // Check if credentials are provided
       if (!auth.user || !auth.pass) {
         this.logger.warn(
           'Email credentials not configured. Email sending will fail. ' +
-          'Please set EMAIL_USER and EMAIL_PASSWORD environment variables.',
+            'Please set EMAIL_USER and EMAIL_PASSWORD environment variables.',
         );
         return;
       }
@@ -50,7 +52,7 @@ export class EmailService implements OnModuleInit {
     } catch (error) {
       this.logger.error(
         `Failed to verify SMTP connection. Email sending may fail. ` +
-        `Please check your EMAIL_HOST, EMAIL_PORT, EMAIL_USER, and EMAIL_PASSWORD configuration.`,
+          `Please check your EMAIL_HOST, EMAIL_PORT, EMAIL_USER, and EMAIL_PASSWORD configuration.`,
         error instanceof Error ? error.stack : String(error),
       );
     }
@@ -92,8 +94,7 @@ export class EmailService implements OnModuleInit {
         `Verification email sent to: ${this.maskEmail(email)}. MessageId: ${info.messageId}`,
       );
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(
         `Failed to send verification email to: ${this.maskEmail(email)}. Error: ${errorMessage}`,
         error instanceof Error ? error.stack : undefined,
@@ -140,8 +141,7 @@ export class EmailService implements OnModuleInit {
         `Password reset email sent to: ${this.maskEmail(email)}. MessageId: ${info.messageId}`,
       );
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(
         `Failed to send password reset email to: ${this.maskEmail(email)}. Error: ${errorMessage}`,
         error instanceof Error ? error.stack : undefined,
@@ -192,8 +192,7 @@ export class EmailService implements OnModuleInit {
         `Admin-created user email sent to: ${this.maskEmail(email)}. MessageId: ${info.messageId}`,
       );
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(
         `Failed to send admin-created user email to: ${this.maskEmail(email)}. Error: ${errorMessage}`,
         error instanceof Error ? error.stack : undefined,
@@ -238,12 +237,9 @@ export class EmailService implements OnModuleInit {
 
       await this.transporter.sendMail(mailOptions);
 
-      this.logger.log(
-        `Organization staff created email sent to: ${this.maskEmail(email)}`,
-      );
+      this.logger.log(`Organization staff created email sent to: ${this.maskEmail(email)}`);
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(
         `Failed to send organization staff created email to: ${this.maskEmail(email)}. Error: ${errorMessage}`,
         error instanceof Error ? error.stack : undefined,
@@ -285,12 +281,9 @@ export class EmailService implements OnModuleInit {
 
       await this.transporter.sendMail(mailOptions);
 
-      this.logger.log(
-        `Google sign-in invite email sent to: ${this.maskEmail(email)}`,
-      );
+      this.logger.log(`Google sign-in invite email sent to: ${this.maskEmail(email)}`);
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(
         `Failed to send Google sign-in invite email to: ${this.maskEmail(email)}. Error: ${errorMessage}`,
         error instanceof Error ? error.stack : undefined,
@@ -344,8 +337,7 @@ export class EmailService implements OnModuleInit {
         `Admin-updated user email sent to: ${this.maskEmail(email)}. MessageId: ${info.messageId}`,
       );
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(
         `Failed to send admin-updated user email to: ${this.maskEmail(email)}. Error: ${errorMessage}`,
         error instanceof Error ? error.stack : undefined,
@@ -354,6 +346,84 @@ export class EmailService implements OnModuleInit {
         `Failed to send admin-updated user email: ${errorMessage}. Please check your email configuration.`,
       );
     }
+  }
+
+  /**
+   * Send interview invite email to applicant (Schedule Interview modal content).
+   * Used when org clicks "Schedule Interview" on job applications page.
+   */
+  async sendInterviewInviteEmail(
+    toEmail: string,
+    applicantName: string,
+    jobTitle: string,
+    interviewDate: string,
+    interviewTime: string,
+    message?: string,
+  ): Promise<void> {
+    const auth = this.emailConfigService.auth;
+    if (!auth.user || !auth.pass) {
+      throw new Error(
+        'Email service not configured. Set EMAIL_USER and EMAIL_PASSWORD (e.g. in production) to send interview invites.',
+      );
+    }
+    const template = InterviewInviteEmailTemplate.generate(
+      applicantName,
+      jobTitle,
+      interviewDate,
+      interviewTime,
+      message,
+    );
+    const mailOptions = {
+      from: `"${this.emailConfigService.fromName}" <${this.emailConfigService.from}>`,
+      to: toEmail,
+      subject: template.subject,
+      html: template.html,
+      text: template.text,
+    };
+    const info = await this.transporter.sendMail(mailOptions);
+    this.logger.log(
+      `Interview invite email sent to: ${this.maskEmail(toEmail)}. MessageId: ${info.messageId}`,
+    );
+  }
+
+  /**
+   * Send offer letter email to applicant (Send Offer modal content).
+   * Used when org clicks "Send Offer" on job applications page.
+   */
+  async sendOfferLetterEmail(
+    toEmail: string,
+    applicantName: string,
+    jobTitle: string,
+    salary: string,
+    startDate: string,
+    offerContent: string,
+    attachmentUrl?: string,
+  ): Promise<void> {
+    const auth = this.emailConfigService.auth;
+    if (!auth.user || !auth.pass) {
+      throw new Error(
+        'Email service not configured. Set EMAIL_USER and EMAIL_PASSWORD (e.g. in production) to send offer letters.',
+      );
+    }
+    const template = OfferLetterEmailTemplate.generate(
+      applicantName,
+      jobTitle,
+      salary,
+      startDate,
+      offerContent,
+      attachmentUrl,
+    );
+    const mailOptions = {
+      from: `"${this.emailConfigService.fromName}" <${this.emailConfigService.from}>`,
+      to: toEmail,
+      subject: template.subject,
+      html: template.html,
+      text: template.text,
+    };
+    const info = await this.transporter.sendMail(mailOptions);
+    this.logger.log(
+      `Offer letter email sent to: ${this.maskEmail(toEmail)}. MessageId: ${info.messageId}`,
+    );
   }
 
   private maskEmail(email: string): string {

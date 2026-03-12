@@ -1,12 +1,4 @@
-import {
-  IsOptional,
-  IsString,
-  IsBoolean,
-  IsInt,
-  Min,
-  Max,
-  IsIn,
-} from 'class-validator';
+import { IsOptional, IsString, IsBoolean, IsInt, Min, Max, IsIn } from 'class-validator';
 import { Type } from 'class-transformer';
 import { INSERVICE_COMPLETION_FREQUENCIES } from './create-inservice-training.dto';
 

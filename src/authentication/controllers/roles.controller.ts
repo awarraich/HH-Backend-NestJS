@@ -1,12 +1,4 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Body,
-  UseGuards,
-  HttpCode,
-  HttpStatus,
-} from '@nestjs/common';
+import { Controller, Get, Post, Body, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { SuccessHelper } from '../../common/helpers/responses/success.helper';
 import { AuthService } from '../services/auth.service';
@@ -32,14 +24,7 @@ export class RolesController {
     @Body() assignRoleDto: AssignRoleDto,
     @LoggedInUser() user: UserWithRolesInterface,
   ) {
-    const result = await this.authService.assignRoleToUser(
-      user.userId,
-      assignRoleDto.role_id,
-    );
-    return SuccessHelper.createSuccessResponse(
-      result,
-      'Role assigned successfully',
-    );
+    const result = await this.authService.assignRoleToUser(user.userId, assignRoleDto.role_id);
+    return SuccessHelper.createSuccessResponse(result, 'Role assigned successfully');
   }
 }
-

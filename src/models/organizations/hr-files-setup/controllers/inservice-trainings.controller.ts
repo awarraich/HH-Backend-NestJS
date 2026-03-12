@@ -55,8 +55,7 @@ function getMultipartFile(
     single &&
     typeof single === 'object' &&
     'toBuffer' in single &&
-    typeof (single as { toBuffer?: () => Promise<Buffer> }).toBuffer ===
-      'function' &&
+    typeof (single as { toBuffer?: () => Promise<Buffer> }).toBuffer === 'function' &&
     (single as { filename?: string }).filename
   ) {
     return single as MultipartFilePart;
@@ -68,9 +67,7 @@ function getMultipartFile(
 @UseGuards(JwtAuthGuard, OrganizationRoleGuard)
 @Roles('OWNER', 'HR', 'MANAGER')
 export class InserviceTrainingsController {
-  constructor(
-    private readonly inserviceTrainingService: InserviceTrainingService,
-  ) {}
+  constructor(private readonly inserviceTrainingService: InserviceTrainingService) {}
 
   @Get()
   @HttpCode(HttpStatus.OK)
@@ -80,11 +77,7 @@ export class InserviceTrainingsController {
     @Req() req: FastifyRequest & { user?: { userId?: string; sub?: string } },
   ) {
     const userId = req.user?.userId ?? req.user?.sub ?? '';
-    const result = await this.inserviceTrainingService.findAll(
-      organizationId,
-      query,
-      userId,
-    );
+    const result = await this.inserviceTrainingService.findAll(organizationId, query, userId);
     return SuccessHelper.createPaginatedResponse(
       result.data,
       result.total,
@@ -102,17 +95,13 @@ export class InserviceTrainingsController {
     @Req() req: FastifyRequest & { user?: { userId?: string; sub?: string } },
   ) {
     const userId = req.user?.userId ?? req.user?.sub ?? '';
-    const { stream, contentType, file_name } =
-      await this.inserviceTrainingService.getPdfStream(
-        organizationId,
-        id,
-        userId,
-      );
-    reply.header('Content-Type', contentType);
-    reply.header(
-      'Content-Disposition',
-      `attachment; filename="${encodeURIComponent(file_name)}"`,
+    const { stream, contentType, file_name } = await this.inserviceTrainingService.getPdfStream(
+      organizationId,
+      id,
+      userId,
     );
+    reply.header('Content-Type', contentType);
+    reply.header('Content-Disposition', `attachment; filename="${encodeURIComponent(file_name)}"`);
     return reply.send(stream);
   }
 
@@ -124,11 +113,7 @@ export class InserviceTrainingsController {
     @Req() req: FastifyRequest & { user?: { userId?: string; sub?: string } },
   ) {
     const userId = req.user?.userId ?? req.user?.sub ?? '';
-    const result = await this.inserviceTrainingService.findOne(
-      organizationId,
-      id,
-      userId,
-    );
+    const result = await this.inserviceTrainingService.findOne(organizationId, id, userId);
     return SuccessHelper.createSuccessResponse(result);
   }
 
@@ -136,7 +121,8 @@ export class InserviceTrainingsController {
   @HttpCode(HttpStatus.CREATED)
   async create(
     @Param('organizationId') organizationId: string,
-    @Req() req: FastifyRequest & {
+    @Req()
+    req: FastifyRequest & {
       isMultipart?: () => boolean;
       body?: Record<string, MultipartField | MultipartField[]>;
     },
@@ -157,16 +143,9 @@ export class InserviceTrainingsController {
     const video_url = getMultipartString(body.video_url);
     const sort_orderStr = getMultipartString(body.sort_order);
     const has_quizStr = getMultipartString(body.has_quiz);
-    const passing_score_percentStr = getMultipartString(
-      body.passing_score_percent,
-    );
+    const passing_score_percentStr = getMultipartString(body.passing_score_percent);
     const sort_order = sort_orderStr ? parseInt(sort_orderStr, 10) : undefined;
-    const has_quiz =
-      has_quizStr === 'true'
-        ? true
-        : has_quizStr === 'false'
-          ? false
-          : undefined;
+    const has_quiz = has_quizStr === 'true' ? true : has_quizStr === 'false' ? false : undefined;
     const passing_score_percent = passing_score_percentStr
       ? parseInt(passing_score_percentStr, 10)
       : undefined;
@@ -186,9 +165,7 @@ export class InserviceTrainingsController {
 
     const errors = await validate(dto);
     if (errors.length > 0) {
-      const messages = errors.flatMap((e) =>
-        Object.values(e.constraints ?? {}),
-      );
+      const messages = errors.flatMap((e) => Object.values(e.constraints ?? {}));
       throw new BadRequestException(messages.join('; '));
     }
 
@@ -206,16 +183,8 @@ export class InserviceTrainingsController {
       }
     }
 
-    const result = await this.inserviceTrainingService.create(
-      organizationId,
-      dto,
-      userId,
-      file,
-    );
-    return SuccessHelper.createSuccessResponse(
-      result,
-      'Inservice training created successfully',
-    );
+    const result = await this.inserviceTrainingService.create(organizationId, dto, userId, file);
+    return SuccessHelper.createSuccessResponse(result, 'Inservice training created successfully');
   }
 
   @Patch(':id')
@@ -223,7 +192,8 @@ export class InserviceTrainingsController {
   async update(
     @Param('organizationId') organizationId: string,
     @Param('id') id: string,
-    @Req() req: FastifyRequest & {
+    @Req()
+    req: FastifyRequest & {
       isMultipart?: () => boolean;
       body?: Record<string, MultipartField | MultipartField[]>;
     },
@@ -241,34 +211,18 @@ export class InserviceTrainingsController {
     const descriptionVal =
       body.description != null ? getMultipartString(body.description) : undefined;
     const completion_frequencyVal =
-      body.completion_frequency != null
-        ? getMultipartString(body.completion_frequency)
-        : undefined;
-    const video_urlVal =
-      body.video_url != null ? getMultipartString(body.video_url) : undefined;
-    const sort_orderStr =
-      body.sort_order != null ? getMultipartString(body.sort_order) : undefined;
-    const is_activeStr =
-      body.is_active != null ? getMultipartString(body.is_active) : undefined;
-    const has_quizStr =
-      body.has_quiz != null ? getMultipartString(body.has_quiz) : undefined;
+      body.completion_frequency != null ? getMultipartString(body.completion_frequency) : undefined;
+    const video_urlVal = body.video_url != null ? getMultipartString(body.video_url) : undefined;
+    const sort_orderStr = body.sort_order != null ? getMultipartString(body.sort_order) : undefined;
+    const is_activeStr = body.is_active != null ? getMultipartString(body.is_active) : undefined;
+    const has_quizStr = body.has_quiz != null ? getMultipartString(body.has_quiz) : undefined;
     const passing_score_percentStr =
       body.passing_score_percent != null
         ? getMultipartString(body.passing_score_percent)
         : undefined;
     const sort_order = sort_orderStr ? parseInt(sort_orderStr, 10) : undefined;
-    const is_active =
-      is_activeStr === 'true'
-        ? true
-        : is_activeStr === 'false'
-          ? false
-          : undefined;
-    const has_quiz =
-      has_quizStr === 'true'
-        ? true
-        : has_quizStr === 'false'
-          ? false
-          : undefined;
+    const is_active = is_activeStr === 'true' ? true : is_activeStr === 'false' ? false : undefined;
+    const has_quiz = has_quizStr === 'true' ? true : has_quizStr === 'false' ? false : undefined;
     const passing_score_percent = passing_score_percentStr
       ? parseInt(passing_score_percentStr, 10)
       : passing_score_percentStr === ''
@@ -298,9 +252,7 @@ export class InserviceTrainingsController {
 
     const errors = await validate(dto, { skipMissingProperties: true });
     if (errors.length > 0) {
-      const messages = errors.flatMap((e) =>
-        Object.values(e.constraints ?? {}),
-      );
+      const messages = errors.flatMap((e) => Object.values(e.constraints ?? {}));
       throw new BadRequestException(messages.join('; '));
     }
 
@@ -324,10 +276,7 @@ export class InserviceTrainingsController {
       userId,
       file,
     );
-    return SuccessHelper.createSuccessResponse(
-      result,
-      'Inservice training updated successfully',
-    );
+    return SuccessHelper.createSuccessResponse(result, 'Inservice training updated successfully');
   }
 
   @Delete(':id')
@@ -339,9 +288,6 @@ export class InserviceTrainingsController {
   ) {
     const userId = req.user?.userId ?? req.user?.sub ?? '';
     await this.inserviceTrainingService.remove(organizationId, id, userId);
-    return SuccessHelper.createSuccessResponse(
-      null,
-      'Inservice training deleted successfully',
-    );
+    return SuccessHelper.createSuccessResponse(null, 'Inservice training deleted successfully');
   }
 }

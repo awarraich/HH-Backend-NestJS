@@ -27,7 +27,6 @@ import { AuditLogService } from '../../../common/services/audit/audit-log.servic
 import { AuthService } from '../../../authentication/services/auth.service';
 import { EmailService } from '../../../common/services/email/email.service';
 import { ConfigService } from '@nestjs/config';
-import * as crypto from 'crypto';
 
 const TEMPORARY_PASSWORD_EXPIRES_HOURS = 24;
 
@@ -106,7 +105,9 @@ export class EmployeesService {
         this.logger.error('Failed to log audit error', logError);
       }
 
-      throw new ForbiddenException('You do not have permission to add employees to this organization');
+      throw new ForbiddenException(
+        'You do not have permission to add employees to this organization',
+      );
     }
 
     // Check if user exists
@@ -181,7 +182,7 @@ export class EmployeesService {
 
       const employeeWithRelations = await this.employeeRepository.findOne({
         where: { id: saved.id },
-        relations: ['user', 'organization', 'profile', 'providerRole'],
+        relations: ['user', 'organization', 'profile', 'providerRole', 'employeeRequirementTags'],
       });
 
       return this.employeeSerializer.serialize(employeeWithRelations!);
@@ -239,7 +240,9 @@ export class EmployeesService {
       } catch (logError) {
         this.logger.error('Failed to log audit error', logError);
       }
-      throw new ForbiddenException('You do not have permission to add employees to this organization');
+      throw new ForbiddenException(
+        'You do not have permission to add employees to this organization',
+      );
     }
 
     const organization = await this.organizationRepository.findOne({
@@ -363,7 +366,7 @@ export class EmployeesService {
 
       const employeeWithRelations = await this.employeeRepository.findOne({
         where: { id: savedEmployee.id },
-        relations: ['user', 'organization', 'profile', 'providerRole'],
+        relations: ['user', 'organization', 'profile', 'providerRole', 'employeeRequirementTags'],
       });
       return this.employeeSerializer.serialize(employeeWithRelations!);
     } catch (error) {
@@ -414,6 +417,7 @@ export class EmployeesService {
       .leftJoinAndSelect('employee.organization', 'organization')
       .leftJoinAndSelect('employee.profile', 'profile')
       .leftJoinAndSelect('employee.providerRole', 'providerRole')
+      .leftJoinAndSelect('employee.employeeRequirementTags', 'employeeRequirementTags')
       .where('employee.organization_id = :organizationId', { organizationId });
 
     if (searchTerm) {
@@ -431,10 +435,7 @@ export class EmployeesService {
       queryBuilder.andWhere('employee.status = :status', { status });
     }
 
-    queryBuilder
-      .orderBy('employee.created_at', 'DESC')
-      .skip(skip)
-      .take(limit);
+    queryBuilder.orderBy('employee.created_at', 'DESC').skip(skip).take(limit);
 
     const [employees, total] = await queryBuilder.getManyAndCount();
 
@@ -452,7 +453,7 @@ export class EmployeesService {
         id: employeeId,
         organization_id: organizationId,
       },
-      relations: ['user', 'organization', 'profile', 'providerRole'],
+      relations: ['user', 'organization', 'profile', 'providerRole', 'employeeRequirementTags'],
     });
 
     if (!employee) {
@@ -496,7 +497,9 @@ export class EmployeesService {
         this.logger.error('Failed to log audit error', logError);
       }
 
-      throw new ForbiddenException('You do not have permission to update employees in this organization');
+      throw new ForbiddenException(
+        'You do not have permission to update employees in this organization',
+      );
     }
 
     const employee = await this.employeeRepository.findOne({
@@ -536,7 +539,34 @@ export class EmployeesService {
       employee.notes = updateDto.notes ?? null;
     }
 
-    const updated = await this.employeeRepository.save(employee);
+    const shouldSyncTags = updateDto.requirement_tag_ids !== undefined;
+
+    if (shouldSyncTags) {
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+      try {
+        await queryRunner.manager.save(Employee, employee);
+        await this.employeeRequirementTagService.syncRequirementTagsForEmployee(
+          employeeId,
+          organizationId,
+          updateDto.requirement_tag_ids ?? [],
+          queryRunner.manager,
+        );
+        await queryRunner.commitTransaction();
+      } catch (error) {
+        await queryRunner.rollbackTransaction();
+        throw error;
+      } finally {
+        await queryRunner.release();
+      }
+    } else {
+      await this.employeeRepository.save(employee);
+    }
+
+    const updated = await this.employeeRepository.findOne({
+      where: { id: employeeId },
+    });
 
     // HIPAA Compliance: Log operation with before/after values
     try {
@@ -566,7 +596,7 @@ export class EmployeesService {
 
     const employeeWithRelations = await this.employeeRepository.findOne({
       where: { id: employeeId },
-      relations: ['user', 'organization', 'profile', 'providerRole'],
+      relations: ['user', 'organization', 'profile', 'providerRole', 'employeeRequirementTags'],
     });
 
     return this.employeeSerializer.serialize(employeeWithRelations!);
@@ -627,7 +657,7 @@ export class EmployeesService {
       employee.end_date = new Date();
     }
 
-    const updated = await this.employeeRepository.save(employee);
+    await this.employeeRepository.save(employee);
 
     // HIPAA Compliance: Log status change
     try {
@@ -693,7 +723,9 @@ export class EmployeesService {
         this.logger.error('Failed to log audit error', logError);
       }
 
-      throw new ForbiddenException('You do not have permission to remove employees from this organization');
+      throw new ForbiddenException(
+        'You do not have permission to remove employees from this organization',
+      );
     }
 
     const employee = await this.employeeRepository.findOne({
@@ -800,7 +832,9 @@ export class EmployeesService {
         this.logger.error('Failed to log audit error', logError);
       }
 
-      throw new ForbiddenException('You do not have permission to invite employees to this organization');
+      throw new ForbiddenException(
+        'You do not have permission to invite employees to this organization',
+      );
     }
 
     // Check if user exists by email
@@ -895,12 +929,12 @@ export class EmployeesService {
     }
   }
 
-  async acceptInvitation(
-    token: string,
-    userId: string,
-    ipAddress?: string,
-    userAgent?: string,
-  ): Promise<any> {
+  acceptInvitation(
+    _token: string,
+    _userId: string,
+    _ipAddress?: string,
+    _userAgent?: string,
+  ): Promise<never> {
     // TODO: Implement invitation token system if needed
     // For now, this is a placeholder
     throw new BadRequestException('Invitation acceptance not yet implemented');
@@ -999,7 +1033,10 @@ export class EmployeesService {
     if (!profile) {
       profile = this.employeeProfileRepository.create({
         employee_id: employeeId,
-        name: profileDto.name || `${employee.user?.firstName || ''} ${employee.user?.lastName || ''}`.trim() || 'Employee',
+        name:
+          profileDto.name ||
+          `${employee.user?.firstName || ''} ${employee.user?.lastName || ''}`.trim() ||
+          'Employee',
       });
     }
 
@@ -1035,4 +1072,3 @@ export class EmployeesService {
     return this.getProfile(organizationId, employeeId);
   }
 }
-

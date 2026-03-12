@@ -114,10 +114,7 @@ export class EmployeesController {
   @Get(':id')
   @HttpCode(HttpStatus.OK)
   @Roles('OWNER', 'HR', 'ADMIN')
-  async findOne(
-    @Param('organizationId') organizationId: string,
-    @Param('id') id: string,
-  ) {
+  async findOne(@Param('organizationId') organizationId: string, @Param('id') id: string) {
     const result = await this.employeesService.findOne(organizationId, id);
 
     return SuccessHelper.createSuccessResponse(result);
@@ -193,10 +190,7 @@ export class EmployeesController {
   @Get(':id/profile')
   @HttpCode(HttpStatus.OK)
   @Roles('OWNER', 'HR', 'ADMIN')
-  async getProfile(
-    @Param('organizationId') organizationId: string,
-    @Param('id') id: string,
-  ) {
+  async getProfile(@Param('organizationId') organizationId: string, @Param('id') id: string) {
     const result = await this.employeesService.getProfile(organizationId, id);
 
     return SuccessHelper.createSuccessResponse(result);
@@ -272,4 +266,3 @@ export class EmployeesController {
     return SuccessHelper.createSuccessResponse(result, 'Invitation accepted successfully');
   }
 }
-

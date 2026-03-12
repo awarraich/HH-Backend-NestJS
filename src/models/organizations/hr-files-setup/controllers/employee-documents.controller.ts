@@ -55,12 +55,11 @@ export class EmployeeDocumentsController {
     @Param('employeeId') employeeId: string,
     @LoggedInUser() user: UserWithRolesInterface,
   ) {
-    const data =
-      await this.employeeDocumentsService.getDocumentTypesByEmployeeTags(
-        organizationId,
-        employeeId,
-        user.userId,
-      );
+    const data = await this.employeeDocumentsService.getDocumentTypesByEmployeeTags(
+      organizationId,
+      employeeId,
+      user.userId,
+    );
     return SuccessHelper.createSuccessResponse(data);
   }
 
@@ -71,12 +70,11 @@ export class EmployeeDocumentsController {
     @Param('employeeId') employeeId: string,
     @LoggedInUser() user: UserWithRolesInterface,
   ) {
-    const data =
-      await this.employeeDocumentsService.getInserviceTrainingsByEmployeeTags(
-        organizationId,
-        employeeId,
-        user.userId,
-      );
+    const data = await this.employeeDocumentsService.getInserviceTrainingsByEmployeeTags(
+      organizationId,
+      employeeId,
+      user.userId,
+    );
     return SuccessHelper.createSuccessResponse(data);
   }
 
@@ -105,9 +103,7 @@ export class EmployeeDocumentsController {
     @Body() dto: EmployeeDocumentsChatRequestDto,
     @LoggedInUser() user: UserWithRolesInterface,
   ) {
-    const history = dto.history as
-      | { role: 'user' | 'assistant'; content: string }[]
-      | undefined;
+    const history = dto.history as { role: 'user' | 'assistant'; content: string }[] | undefined;
     const result = await this.employeeDocumentsChatService.chat(
       organizationId,
       employeeId,
@@ -168,18 +164,19 @@ export class EmployeeDocumentsController {
         },
         user.userId,
       );
-      return SuccessHelper.createSuccessResponse(
-        result,
-        'Document uploaded successfully',
-      );
+      return SuccessHelper.createSuccessResponse(result, 'Document uploaded successfully');
     }
 
     const legacyRequest = request as FastifyRequest & {
-      file: () => Promise<{ filename: string; toBuffer: () => Promise<Buffer>; mimetype?: string } | undefined>;
+      file: () => Promise<
+        { filename: string; toBuffer: () => Promise<Buffer>; mimetype?: string } | undefined
+      >;
     };
     const data = await legacyRequest.file?.();
     if (!data) {
-      throw new BadRequestException('No file uploaded. Use multipart/form-data with field "file" and "document_type_id".');
+      throw new BadRequestException(
+        'No file uploaded. Use multipart/form-data with field "file" and "document_type_id".',
+      );
     }
     const buffer = await data.toBuffer();
     const docTypeId = (request.body as { document_type_id?: string })?.document_type_id;
@@ -197,10 +194,7 @@ export class EmployeeDocumentsController {
       },
       user.userId,
     );
-    return SuccessHelper.createSuccessResponse(
-      result,
-      'Document uploaded successfully',
-    );
+    return SuccessHelper.createSuccessResponse(result, 'Document uploaded successfully');
   }
 
   @Get(':documentId/download')
@@ -251,16 +245,8 @@ export class EmployeeDocumentsController {
     @Param('documentId') documentId: string,
     @LoggedInUser() user: UserWithRolesInterface,
   ) {
-    await this.employeeDocumentsService.delete(
-      organizationId,
-      employeeId,
-      documentId,
-      user.userId,
-    );
-    return SuccessHelper.createSuccessResponse(
-      null,
-      'Document deleted successfully',
-    );
+    await this.employeeDocumentsService.delete(organizationId, employeeId, documentId, user.userId);
+    return SuccessHelper.createSuccessResponse(null, 'Document deleted successfully');
   }
 
   @Patch(':documentId')
@@ -279,9 +265,6 @@ export class EmployeeDocumentsController {
       dto,
       user.userId,
     );
-    return SuccessHelper.createSuccessResponse(
-      result,
-      'Document updated successfully',
-    );
+    return SuccessHelper.createSuccessResponse(result, 'Document updated successfully');
   }
 }

@@ -8,4 +8,3 @@ export class AssignRoleDto {
   @Type(() => Number)
   role_id: number;
 }
-

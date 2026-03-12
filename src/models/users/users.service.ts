@@ -18,7 +18,7 @@ export class UsersService {
 
   async findAll(): Promise<UserInterface[]> {
     const users = await this.usersRepository.find();
-    return this.userSerializer.serializeMany(users);
+    return this.userSerializer.serializeMany(users) as UserInterface[];
   }
 
   async findOne(id: string): Promise<UserInterface> {
@@ -26,7 +26,7 @@ export class UsersService {
     if (!user) {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
-    return this.userSerializer.serialize(user);
+    return this.userSerializer.serialize(user) as UserInterface;
   }
 
   /**
@@ -52,6 +52,6 @@ export class UsersService {
     }
 
     this.logger.log(`User found successfully for email: ${maskedEmail}`);
-    return this.userSerializer.serialize(user);
+    return this.userSerializer.serialize(user) as UserInterface;
   }
 }

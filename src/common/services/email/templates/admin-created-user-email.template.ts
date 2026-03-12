@@ -348,4 +348,3 @@ AI-Powered Healthcare Management Platform
     };
   }
 }
-

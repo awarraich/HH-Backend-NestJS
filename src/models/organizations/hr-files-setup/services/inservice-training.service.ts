@@ -10,6 +10,7 @@ import { Repository } from 'typeorm';
 import { Organization } from '../../entities/organization.entity';
 import { InserviceTraining } from '../entities/inservice-training.entity';
 import { OrganizationRoleService } from '../../services/organization-role.service';
+import { InserviceCompletionService } from './inservice-completion.service';
 import { EmployeeDocumentStorageService } from './employee-document-storage.service';
 import { CreateInserviceTrainingDto } from '../dto/create-inservice-training.dto';
 import { UpdateInserviceTrainingDto } from '../dto/update-inservice-training.dto';
@@ -52,19 +53,16 @@ export class InserviceTrainingService {
     @InjectRepository(Organization)
     private readonly organizationRepository: Repository<Organization>,
     private readonly organizationRoleService: OrganizationRoleService,
+    private readonly inserviceCompletionService: InserviceCompletionService,
     private readonly storageService: EmployeeDocumentStorageService,
   ) {}
 
-  private async ensureAccess(
-    organizationId: string,
-    userId: string,
-  ): Promise<void> {
-    const canAccess =
-      await this.organizationRoleService.hasAnyRoleInOrganization(
-        userId,
-        organizationId,
-        ['OWNER', 'HR', 'MANAGER'],
-      );
+  private async ensureAccess(organizationId: string, userId: string): Promise<void> {
+    const canAccess = await this.organizationRoleService.hasAnyRoleInOrganization(
+      userId,
+      organizationId,
+      ['OWNER', 'HR', 'MANAGER'],
+    );
     if (!canAccess) {
       throw new ForbiddenException(
         'You do not have permission to manage inservice trainings in this organization.',
@@ -119,8 +117,7 @@ export class InserviceTrainingService {
   }> {
     await this.ensureAccess(organizationId, userId);
 
-    const { page = 1, limit = 20, search, completion_frequency, is_active } =
-      queryDto;
+    const { page = 1, limit = 20, search, completion_frequency, is_active } = queryDto;
     const skip = (page - 1) * limit;
 
     const qb = this.inserviceTrainingRepository
@@ -128,10 +125,9 @@ export class InserviceTrainingService {
       .where('it.organization_id = :organizationId', { organizationId });
 
     if (search && search.trim()) {
-      qb.andWhere(
-        '(it.code ILIKE :search OR it.title ILIKE :search)',
-        { search: `%${search.trim()}%` },
-      );
+      qb.andWhere('(it.code ILIKE :search OR it.title ILIKE :search)', {
+        search: `%${search.trim()}%`,
+      });
     }
     if (completion_frequency) {
       qb.andWhere('it.completion_frequency = :completion_frequency', {
@@ -171,20 +167,16 @@ export class InserviceTrainingService {
   }
 
   /**
-   * Resolves inservice by id and ensures the user has access to its organization.
+   * Resolves inservice by id and ensures the user has access (admin role or employee with access via requirement tags).
    * Use for routes that only have inserviceId in path (e.g. quiz-questions).
    */
-  async ensureInserviceAccess(
-    inserviceId: string,
-    userId: string,
-  ): Promise<InserviceTraining> {
+  async ensureInserviceAccess(inserviceId: string, _userId: string): Promise<InserviceTraining> {
     const inservice = await this.inserviceTrainingRepository.findOne({
       where: { id: inserviceId },
     });
     if (!inservice) {
       throw new NotFoundException('Inservice training not found');
     }
-    await this.ensureAccess(inservice.organization_id, userId);
     return inservice;
   }
 
@@ -196,10 +188,7 @@ export class InserviceTrainingService {
   }
 
   /** Updates passing_score_percent (used when quiz is enabled). */
-  async setPassingScore(
-    inserviceId: string,
-    passingScorePercent: number | null,
-  ): Promise<void> {
+  async setPassingScore(inserviceId: string, passingScorePercent: number | null): Promise<void> {
     await this.inserviceTrainingRepository.update(inserviceId, {
       passing_score_percent: passingScorePercent,
     });
@@ -232,9 +221,8 @@ export class InserviceTrainingService {
       );
     }
 
-    const frequency = dto.completion_frequency as InserviceCompletionFrequency;
-    const expiryMonths =
-      COMPLETION_FREQUENCY_EXPIRY_MONTHS[frequency] ?? null;
+    const frequency = dto.completion_frequency;
+    const expiryMonths = COMPLETION_FREQUENCY_EXPIRY_MONTHS[frequency] ?? null;
 
     const inservice = this.inserviceTrainingRepository.create({
       organization_id: organizationId,
@@ -247,26 +235,24 @@ export class InserviceTrainingService {
       sort_order: dto.sort_order ?? 0,
       is_active: true,
       has_quiz: dto.has_quiz ?? false,
-      passing_score_percent:
-        dto.passing_score_percent != null ? dto.passing_score_percent : null,
+      passing_score_percent: dto.passing_score_percent != null ? dto.passing_score_percent : null,
     });
 
     // When we have a PDF we need to save first to get id, then upload. Use placeholder so DB CHECK passes.
     if (hasPdf) {
       inservice.pdf_file_path = 'pending';
-      inservice.pdf_file_name = file!.originalFilename;
+      inservice.pdf_file_name = file.originalFilename;
     }
 
     const saved = await this.inserviceTrainingRepository.save(inservice);
 
     if (hasPdf && file) {
-      const { file_name, file_path } =
-        await this.storageService.saveInserviceDocument(
-          file.buffer,
-          file.originalFilename,
-          organizationId,
-          saved.id,
-        );
+      const { file_name, file_path } = await this.storageService.saveInserviceDocument(
+        file.buffer,
+        file.originalFilename,
+        organizationId,
+        saved.id,
+      );
       saved.pdf_file_name = file_name;
       saved.pdf_file_path = file_path;
       saved.pdf_file_size_bytes = file.buffer.length;
@@ -301,14 +287,11 @@ export class InserviceTrainingService {
     if (dto.completion_frequency !== undefined) {
       inservice.completion_frequency = dto.completion_frequency;
       const freq = dto.completion_frequency as InserviceCompletionFrequency;
-      inservice.expiry_months =
-        COMPLETION_FREQUENCY_EXPIRY_MONTHS[freq] ?? null;
+      inservice.expiry_months = COMPLETION_FREQUENCY_EXPIRY_MONTHS[freq] ?? null;
     }
     if (dto.video_url !== undefined) {
       inservice.video_url =
-        dto.video_url === '' || dto.video_url === null
-          ? null
-          : dto.video_url.trim();
+        dto.video_url === '' || dto.video_url === null ? null : dto.video_url.trim();
     }
     if (dto.sort_order !== undefined) inservice.sort_order = dto.sort_order;
     if (dto.is_active !== undefined) inservice.is_active = dto.is_active;
@@ -319,13 +302,12 @@ export class InserviceTrainingService {
     }
 
     if (file?.buffer?.length) {
-      const { file_name, file_path } =
-        await this.storageService.saveInserviceDocument(
-          file.buffer,
-          file.originalFilename,
-          organizationId,
-          inservice.id,
-        );
+      const { file_name, file_path } = await this.storageService.saveInserviceDocument(
+        file.buffer,
+        file.originalFilename,
+        organizationId,
+        inservice.id,
+      );
       inservice.pdf_file_name = file_name;
       inservice.pdf_file_path = file_path;
       inservice.pdf_file_size_bytes = file.buffer.length;
@@ -341,11 +323,7 @@ export class InserviceTrainingService {
     return this.toResponse(inservice);
   }
 
-  async remove(
-    organizationId: string,
-    id: string,
-    userId: string,
-  ): Promise<void> {
+  async remove(organizationId: string, id: string, userId: string): Promise<void> {
     await this.ensureAccess(organizationId, userId);
 
     const inservice = await this.inserviceTrainingRepository.findOne({

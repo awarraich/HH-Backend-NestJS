@@ -8,12 +8,19 @@ import {
   createChatWithEmployeeDocumentsHandler,
 } from './chat-with-employee-documents.tool';
 
+export type McpToolResult = Promise<{ content: Array<{ type: 'text'; text: string }> }>;
+
 export function registerEmployeeDocumentHandlers(
   employeeDocumentsService: EmployeeDocumentsService,
   organizationId: string,
   employeeId: string,
   userId: string,
-) {
+): Array<{
+  name: string;
+  description: string;
+  inputSchema: object;
+  handler: (args: unknown) => McpToolResult;
+}> {
   return [
     {
       ...getDocumentExpirationStatusTool,

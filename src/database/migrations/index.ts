@@ -21,6 +21,13 @@ import { SeedOrganizationTypesTable20260219100001 } from './20260219100001-seed-
 import { CreateBlogsTable1708000000000 } from './20260220000000-create-blogs-table.js';
 import { CreatePatientChatTables20260302000000 } from './20260302000000-create-patient-chat-tables.js';
 import { CreateJobPostingsTable20260304000000 } from './20260304000000-create-job-postings-table.js';
+import { CreateJobApplicationsTable20260307000000 } from './20260307000000-create-job-applications-table.js';
+import { CreateInserviceCompletionsAndQuizAttempts20260311100000 } from './20260311100000-create-inservice-completions-and-quiz-attempts.js';
+import { AddDisplayNameToUsers20260312000000 } from './20260312000000-add-display-name-to-users.js';
+import { CreateBlogLikesAndComments20260312000001 } from './20260312000001-create-blog-likes-and-comments.js';
+import { AddGuestSupportToBlogLikesComments20260313000000 } from './20260313000000-add-guest-support-to-blog-likes-comments.js';
+import { AddApplicationFormFieldsToOrganizations20260314000000 } from './20260314000000-add-application-form-fields-to-organizations.js';
+import { AddCommentStatusForModeration20260315000000 } from './20260315000000-add-comment-status-for-moderation.js';
 
 /** Type for migration class constructors (TypeORM instantiates these at runtime). */
 type MigrationConstructor = new () => MigrationInterface;
@@ -52,4 +59,11 @@ export const migrations: MigrationConstructor[] = [
   CreateBlogsTable1708000000000,
   CreatePatientChatTables20260302000000,
   CreateJobPostingsTable20260304000000,
+  CreateJobApplicationsTable20260307000000,
+  CreateInserviceCompletionsAndQuizAttempts20260311100000,
+  AddDisplayNameToUsers20260312000000,
+  CreateBlogLikesAndComments20260312000001,
+  AddGuestSupportToBlogLikesComments20260313000000,
+  AddApplicationFormFieldsToOrganizations20260314000000,
+  AddCommentStatusForModeration20260315000000,
 ];

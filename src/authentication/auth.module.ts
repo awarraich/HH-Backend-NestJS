@@ -12,7 +12,6 @@ import { Role } from './entities/role.entity';
 import { UserRole } from './entities/user-role.entity';
 import { UserRepository } from './repositories/user.repository';
 import { RoleRepository } from './repositories/role.repository';
-import { TwoFactorService } from './services/two-factor.service';
 import { TwoFactorModule } from './services/two-factor.module';
 import { EmailModule } from '../common/services/email/email.module';
 import { RecaptchaModule } from '../common/services/recaptcha/recaptcha.module';

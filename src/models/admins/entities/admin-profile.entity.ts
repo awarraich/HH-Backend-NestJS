@@ -39,7 +39,7 @@ export class AdminProfile {
   age: number;
 
   @Column({ type: 'jsonb', nullable: true })
-  emergency_contact: Record<string, any>;
+  emergency_contact: Record<string, unknown>;
 
   @Column({ type: 'varchar', length: 10, default: 'pending' })
   onboarding_status: string;

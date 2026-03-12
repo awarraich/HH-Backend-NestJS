@@ -3,7 +3,7 @@ export class VerificationEmailTemplate {
     verificationUrl: string,
     token: string,
     userName: string,
-    userEmail: string,
+    _userEmail: string,
   ): {
     subject: string;
     html: string;

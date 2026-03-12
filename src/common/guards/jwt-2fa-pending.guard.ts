@@ -15,8 +15,8 @@ export class Jwt2FAPendingGuard implements CanActivate {
 
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest();
-    const token = request.cookies?.accessToken || 
-                  request.headers?.authorization?.replace('Bearer ', '');
+    const token =
+      request.cookies?.accessToken || request.headers?.authorization?.replace('Bearer ', '');
 
     if (!token) {
       throw new UnauthorizedException('Token required');
@@ -41,7 +41,7 @@ export class Jwt2FAPendingGuard implements CanActivate {
       };
 
       return true;
-    } catch (error) {
+    } catch {
       throw new UnauthorizedException('Invalid or expired token');
     }
   }

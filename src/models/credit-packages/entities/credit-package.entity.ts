@@ -35,4 +35,3 @@ export class CreditPackage {
   @UpdateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   updated_at: Date;
 }
-

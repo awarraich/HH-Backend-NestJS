@@ -5,6 +5,8 @@ import {
   MinLength,
   Matches,
   IsNumber,
+  IsOptional,
+  MaxLength,
   Validate,
   ValidationArguments,
   ValidatorConstraint,
@@ -14,12 +16,13 @@ import {
 @ValidatorConstraint({ name: 'matchPassword', async: false })
 export class MatchPasswordConstraint implements ValidatorConstraintInterface {
   validate(confirmPassword: string, args: ValidationArguments): boolean {
-    const [relatedPropertyName] = args.constraints;
-    const relatedValue = (args.object as any)[relatedPropertyName];
+    const [relatedPropertyName] = args.constraints as [string];
+    const obj = args.object as Record<string, unknown>;
+    const relatedValue = obj[relatedPropertyName];
     return confirmPassword === relatedValue;
   }
 
-  defaultMessage(args: ValidationArguments): string {
+  defaultMessage(_args: ValidationArguments): string {
     return 'Passwords do not match';
   }
 }
@@ -32,6 +35,12 @@ export class CreateUserByAdminDto {
   @IsString()
   @IsNotEmpty()
   lastName: string;
+
+  /** Display name for blog byline (e.g. "Dr. Jane Smith"). Shown as author on blog posts. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  displayName?: string;
 
   @IsEmail()
   @IsNotEmpty()
@@ -55,4 +64,3 @@ export class CreateUserByAdminDto {
   @IsNotEmpty()
   roleId: number;
 }
-

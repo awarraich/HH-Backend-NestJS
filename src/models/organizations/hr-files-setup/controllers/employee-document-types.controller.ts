@@ -22,9 +22,7 @@ import { UpdateHrDocumentTypeDto } from '../dto/update-hr-document-type.dto';
 @Controller('v1/api/employees/:employeeId/document-types')
 @UseGuards(JwtAuthGuard, EmployeeDocumentTypeAccessGuard)
 export class EmployeeDocumentTypesController {
-  constructor(
-    private readonly employeeDocumentTypeService: EmployeeDocumentTypeService,
-  ) {}
+  constructor(private readonly employeeDocumentTypeService: EmployeeDocumentTypeService) {}
 
   @Get()
   @HttpCode(HttpStatus.OK)
@@ -32,10 +30,7 @@ export class EmployeeDocumentTypesController {
     @Param('employeeId') employeeId: string,
     @LoggedInUser() user: UserWithRolesInterface,
   ) {
-    const data = await this.employeeDocumentTypeService.listForEmployee(
-      employeeId,
-      user.userId,
-    );
+    const data = await this.employeeDocumentTypeService.listForEmployee(employeeId, user.userId);
     return SuccessHelper.createSuccessResponse(data);
   }
 
@@ -51,10 +46,7 @@ export class EmployeeDocumentTypesController {
       dto,
       user.userId,
     );
-    return SuccessHelper.createSuccessResponse(
-      result,
-      'Document type created successfully',
-    );
+    return SuccessHelper.createSuccessResponse(result, 'Document type created successfully');
   }
 
   @Patch(':id')
@@ -71,10 +63,7 @@ export class EmployeeDocumentTypesController {
       dto,
       user.userId,
     );
-    return SuccessHelper.createSuccessResponse(
-      result,
-      'Document type updated successfully',
-    );
+    return SuccessHelper.createSuccessResponse(result, 'Document type updated successfully');
   }
 
   @Delete(':id')
@@ -84,14 +73,7 @@ export class EmployeeDocumentTypesController {
     @Param('id') id: string,
     @LoggedInUser() user: UserWithRolesInterface,
   ) {
-    await this.employeeDocumentTypeService.removeForEmployee(
-      employeeId,
-      id,
-      user.userId,
-    );
-    return SuccessHelper.createSuccessResponse(
-      null,
-      'Document type deactivated successfully',
-    );
+    await this.employeeDocumentTypeService.removeForEmployee(employeeId, id, user.userId);
+    return SuccessHelper.createSuccessResponse(null, 'Document type deactivated successfully');
   }
 }

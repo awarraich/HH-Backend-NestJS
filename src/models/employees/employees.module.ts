@@ -26,7 +26,12 @@ import { EmployeeContextService } from './employee-context/services/employee-con
     EmailModule,
   ],
   controllers: [EmployeesController, ProviderRolesController, EmployeeContextController],
-  providers: [EmployeesService, ProviderRolesService, OrganizationRoleGuard, EmployeeContextService],
+  providers: [
+    EmployeesService,
+    ProviderRolesService,
+    OrganizationRoleGuard,
+    EmployeeContextService,
+  ],
   exports: [TypeOrmModule, EmployeesService, ProviderRolesService],
 })
 export class EmployeesModule {}

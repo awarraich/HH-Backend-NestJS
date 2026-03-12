@@ -8,19 +8,19 @@ import { migrations } from '../../../database/migrations/index.js';
   imports: [
     TypeOrmModule.forRootAsync({
       imports: [PostgresConfigModule],
-      useFactory: async (postgresConfigService: PostgresConfigService) => {
+      useFactory: (postgresConfigService: PostgresConfigService) => {
         const isProduction = process.env.NODE_ENV === 'production';
         const host = postgresConfigService.host;
         const isLocalhost = host === 'localhost' || host === '127.0.0.1';
-        
+
         let sslConfig: boolean | object = false;
-        
+
         if (isProduction && !isLocalhost) {
           // Remote database - check if SSL certificates are provided
           const sslCa = process.env.DB_SSL_CA;
           const sslCert = process.env.DB_SSL_CERT;
           const sslKey = process.env.DB_SSL_KEY;
-          
+
           if (sslCa || sslCert || sslKey) {
             // SSL certificates provided - use them
             sslConfig = {
@@ -32,7 +32,7 @@ import { migrations } from '../../../database/migrations/index.js';
           }
           // If no certificates, SSL remains false (connection will use non-SSL)
         }
-        
+
         // Allow explicit SSL override via environment variable
         if (process.env.DB_USE_SSL === 'true' && process.env.DB_SSL_CA) {
           sslConfig = {

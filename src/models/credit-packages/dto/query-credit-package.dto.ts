@@ -20,4 +20,3 @@ export class QueryCreditPackageDto {
   @Type(() => Number)
   limit?: number = 20;
 }
-

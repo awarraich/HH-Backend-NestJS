@@ -66,7 +66,12 @@ export class OrganizationStaffService {
     userId: string,
     ipAddress?: string,
     userAgent?: string,
-  ): Promise<{ id: string; user_id: string; email: string; roles: { id: string; name: string }[] }> {
+  ): Promise<{
+    id: string;
+    user_id: string;
+    email: string;
+    roles: { id: string; name: string }[];
+  }> {
     const isOwner = await this.organizationRoleService.isOrganizationOwner(userId, organizationId);
     if (!isOwner) {
       await this.auditLogService.log({
@@ -184,7 +189,7 @@ export class OrganizationStaffService {
         this.logger.warn('Audit log failed', e);
       }
 
-      const loginUrl = this.configService.get<string>('HOME_HEALTH_AI_URL')
+      const loginUrl = this.configService.get<string>('HOME_HEALTH_AI_URL');
       const loginUrlPath = `${loginUrl}/login`;
       const userName = [dto.firstName, dto.lastName].filter(Boolean).join(' ') || dto.email;
 
@@ -235,16 +240,20 @@ export class OrganizationStaffService {
     queryDto: QueryOrganizationStaffDto,
     userId: string,
   ): Promise<{ data: any[]; total: number; page: number; limit: number }> {
-    const canAccess = await this.organizationRoleService.hasAnyRoleInOrganization(userId, organizationId, [
-      'OWNER',
-      'HR',
-      'MANAGER',
-    ]);
+    const canAccess = await this.organizationRoleService.hasAnyRoleInOrganization(
+      userId,
+      organizationId,
+      ['OWNER', 'HR', 'MANAGER'],
+    );
     if (!canAccess) {
-      throw new ForbiddenException('You do not have permission to list staff in this organization.');
+      throw new ForbiddenException(
+        'You do not have permission to list staff in this organization.',
+      );
     }
 
-    const organization = await this.organizationRepository.findOne({ where: { id: organizationId } });
+    const organization = await this.organizationRepository.findOne({
+      where: { id: organizationId },
+    });
     if (!organization) {
       throw new NotFoundException('Organization not found');
     }
@@ -277,7 +286,17 @@ export class OrganizationStaffService {
 
     const byUser = new Map<
       string,
-      { user_id: string; email: string; firstName: string; lastName: string; roles: any[]; status: string; department: string | null; position_title: string | null; features: { id: string; code: string; name: string | null }[] }
+      {
+        user_id: string;
+        email: string;
+        firstName: string;
+        lastName: string;
+        roles: any[];
+        status: string;
+        department: string | null;
+        position_title: string | null;
+        features: { id: string; code: string; name: string | null }[];
+      }
     >();
     const staffRoleIdsByUser = new Map<string, string[]>();
     for (const row of rows) {
@@ -320,12 +339,22 @@ export class OrganizationStaffService {
     organizationId: string,
     staffUserId: string,
     userId: string,
-  ): Promise<{ user_id: string; email: string; firstName: string; lastName: string; roles: any[]; status: string; department: string | null; position_title: string | null; features: { id: string; code: string; name: string | null }[] }> {
-    const canAccess = await this.organizationRoleService.hasAnyRoleInOrganization(userId, organizationId, [
-      'OWNER',
-      'HR',
-      'MANAGER',
-    ]);
+  ): Promise<{
+    user_id: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    roles: any[];
+    status: string;
+    department: string | null;
+    position_title: string | null;
+    features: { id: string; code: string; name: string | null }[];
+  }> {
+    const canAccess = await this.organizationRoleService.hasAnyRoleInOrganization(
+      userId,
+      organizationId,
+      ['OWNER', 'HR', 'MANAGER'],
+    );
     if (!canAccess) {
       throw new ForbiddenException('You do not have permission to view this staff member.');
     }
@@ -369,7 +398,11 @@ export class OrganizationStaffService {
     userAgent?: string,
   ): Promise<{ message: string }> {
     const isOwner = await this.organizationRoleService.isOrganizationOwner(userId, organizationId);
-    const hasRole = await this.organizationRoleService.hasAnyRoleInOrganization(userId, organizationId, ['OWNER', 'HR', 'MANAGER']);
+    const hasRole = await this.organizationRoleService.hasAnyRoleInOrganization(
+      userId,
+      organizationId,
+      ['OWNER', 'HR', 'MANAGER'],
+    );
     if (!isOwner && !hasRole) {
       throw new ForbiddenException('You do not have permission to update staff.');
     }
@@ -381,7 +414,12 @@ export class OrganizationStaffService {
       throw new NotFoundException('Staff member not found in this organization.');
     }
 
-    const updatePayload: Partial<OrganizationStaff> = { updated_by: userId };
+    const updatePayload: {
+      updated_by?: string;
+      status?: string;
+      department?: string;
+      position_title?: string;
+    } = { updated_by: userId };
     if (dto.status !== undefined) updatePayload.status = dto.status;
     if (dto.department !== undefined) updatePayload.department = dto.department;
     if (dto.position_title !== undefined) updatePayload.position_title = dto.position_title;
@@ -445,7 +483,11 @@ export class OrganizationStaffService {
     userAgent?: string,
   ): Promise<{ id: string; staff_role_id: string; name: string }> {
     const isOwner = await this.organizationRoleService.isOrganizationOwner(userId, organizationId);
-    const hasRole = await this.organizationRoleService.hasAnyRoleInOrganization(userId, organizationId, ['OWNER', 'HR', 'MANAGER']);
+    const hasRole = await this.organizationRoleService.hasAnyRoleInOrganization(
+      userId,
+      organizationId,
+      ['OWNER', 'HR', 'MANAGER'],
+    );
     if (!isOwner && !hasRole) {
       throw new ForbiddenException('You do not have permission to assign roles.');
     }
@@ -487,7 +529,11 @@ export class OrganizationStaffService {
       resourceType: 'ORGANIZATION_STAFF',
       resourceId: saved.id,
       description: 'Staff role assigned',
-      metadata: { organization_id: organizationId, user_id: staffUserId, staff_role_id: staffRoleId },
+      metadata: {
+        organization_id: organizationId,
+        user_id: staffUserId,
+        staff_role_id: staffRoleId,
+      },
       ipAddress,
       userAgent,
       status: 'success',
@@ -508,7 +554,11 @@ export class OrganizationStaffService {
     userAgent?: string,
   ): Promise<{ message: string }> {
     const isOwner = await this.organizationRoleService.isOrganizationOwner(userId, organizationId);
-    const hasRole = await this.organizationRoleService.hasAnyRoleInOrganization(userId, organizationId, ['OWNER', 'HR', 'MANAGER']);
+    const hasRole = await this.organizationRoleService.hasAnyRoleInOrganization(
+      userId,
+      organizationId,
+      ['OWNER', 'HR', 'MANAGER'],
+    );
     if (!isOwner && !hasRole) {
       throw new ForbiddenException('You do not have permission to remove roles.');
     }
@@ -524,7 +574,9 @@ export class OrganizationStaffService {
       where: { organization_id: organizationId, user_id: staffUserId },
     });
     if (count <= 1) {
-      throw new BadRequestException('Cannot remove the only role. Update status or add another role first.');
+      throw new BadRequestException(
+        'Cannot remove the only role. Update status or add another role first.',
+      );
     }
 
     await this.organizationStaffRepository.remove(row);
@@ -535,7 +587,11 @@ export class OrganizationStaffService {
       resourceType: 'ORGANIZATION_STAFF',
       resourceId: row.id,
       description: 'Staff role removed',
-      metadata: { organization_id: organizationId, user_id: staffUserId, staff_role_id: staffRoleId },
+      metadata: {
+        organization_id: organizationId,
+        user_id: staffUserId,
+        staff_role_id: staffRoleId,
+      },
       ipAddress,
       userAgent,
       status: 'success',
