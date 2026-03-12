@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { Blog } from '../entities/blog.entity';
 import { BlogLike } from '../entities/blog-like.entity';
 import { BlogComment } from '../entities/blog-comment.entity';
@@ -61,18 +61,23 @@ export class BlogService {
     const skip = (page - 1) * limit;
     const queryBuilder = this.blogRepository
       .createQueryBuilder('blog')
-      .leftJoinAndSelect('blog.author', 'author')
       .where('blog.author_id = :userId', { userId })
       .orderBy('blog.created_at', 'DESC')
       .skip(skip)
       .take(limit);
 
     const [blogs, total] = await queryBuilder.getManyAndCount();
-    const countMap = await this.getLikeAndCommentCountMap(blogs.map((b) => b.id));
+    const authorsMap = await this.getAuthorsMap(blogs.map((b) => b.author_id).filter(Boolean));
+    let countMap: Map<string, { likeCount: number; commentCount: number }>;
+    try {
+      countMap = await this.getLikeAndCommentCountMap(blogs.map((b) => b.id));
+    } catch {
+      countMap = new Map();
+    }
     return {
       data: this.blogSerializer.serializeMany(
         blogs as (Blog & { author?: User })[],
-        undefined,
+        authorsMap,
         countMap,
       ),
       total,
@@ -90,9 +95,7 @@ export class BlogService {
     const { is_published, category, search, page = 1, limit = 20 } = queryDto;
     const skip = (page - 1) * limit;
 
-    const queryBuilder = this.blogRepository
-      .createQueryBuilder('blog')
-      .leftJoinAndSelect('blog.author', 'author');
+    const queryBuilder = this.blogRepository.createQueryBuilder('blog');
 
     if (is_published !== undefined) {
       queryBuilder.andWhere('blog.is_published = :is_published', {
@@ -115,17 +118,41 @@ export class BlogService {
     queryBuilder.skip(skip).take(limit);
 
     const [blogs, total] = await queryBuilder.getManyAndCount();
-    const countMap = await this.getLikeAndCommentCountMap(blogs.map((b) => b.id));
+    const authorsMap = await this.getAuthorsMap(blogs.map((b) => b.author_id).filter(Boolean));
+    let countMap: Map<string, { likeCount: number; commentCount: number }>;
+    try {
+      countMap = await this.getLikeAndCommentCountMap(blogs.map((b) => b.id));
+    } catch {
+      countMap = new Map();
+    }
     return {
       data: this.blogSerializer.serializeMany(
         blogs as (Blog & { author?: User })[],
-        undefined,
+        authorsMap,
         countMap,
       ),
       total,
       page,
       limit,
     };
+  }
+
+  /**
+   * Load users by ids for author names. Uses only id/firstName/lastName so it works when
+   * displayName column is missing on production (serializer falls back to firstName + lastName).
+   */
+  private async getAuthorsMap(authorIds: string[]): Promise<Map<string, User>> {
+    if (authorIds.length === 0) return new Map();
+    const unique = [...new Set(authorIds)];
+    try {
+      const users = await this.userRepository.find({
+        where: { id: In(unique) },
+        select: ['id', 'firstName', 'lastName'],
+      });
+      return new Map(users.map((u) => [u.id, u]));
+    } catch {
+      return new Map();
+    }
   }
 
   async findOne(
@@ -145,11 +172,18 @@ export class BlogService {
       throw new NotFoundException(`Blog post with ID ${id} not found`);
     }
 
-    const [likeCount, commentCount, userHasLiked] = await Promise.all([
-      this.getLikeCount(id),
-      this.getCommentCount(id),
-      options?.userId ? this.userHasLiked(id, options.userId) : Promise.resolve(undefined),
-    ]);
+    let likeCount = 0;
+    let commentCount = 0;
+    let userHasLiked: boolean | undefined;
+    try {
+      [likeCount, commentCount, userHasLiked] = await Promise.all([
+        this.getLikeCount(id),
+        this.getCommentCount(id),
+        options?.userId ? this.userHasLiked(id, options.userId) : Promise.resolve(undefined),
+      ]);
+    } catch {
+      // Tables may not exist on older DBs; use zeros
+    }
     return this.blogSerializer.serialize(blog, (blog as Blog & { author?: User }).author, {
       likeCount,
       commentCount,
@@ -174,11 +208,18 @@ export class BlogService {
       throw new NotFoundException(`Blog post with slug "${slug}" not found`);
     }
 
-    const [likeCount, commentCount, userHasLiked] = await Promise.all([
-      this.getLikeCount(blog.id),
-      this.getCommentCount(blog.id),
-      options?.userId ? this.userHasLiked(blog.id, options.userId) : Promise.resolve(undefined),
-    ]);
+    let likeCount = 0;
+    let commentCount = 0;
+    let userHasLiked: boolean | undefined;
+    try {
+      [likeCount, commentCount, userHasLiked] = await Promise.all([
+        this.getLikeCount(blog.id),
+        this.getCommentCount(blog.id),
+        options?.userId ? this.userHasLiked(blog.id, options.userId) : Promise.resolve(undefined),
+      ]);
+    } catch {
+      // Tables may not exist on older DBs; use zeros
+    }
     return this.blogSerializer.serialize(blog, (blog as Blog & { author?: User }).author, {
       likeCount,
       commentCount,
