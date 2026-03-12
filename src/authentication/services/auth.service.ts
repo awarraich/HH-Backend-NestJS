@@ -29,6 +29,21 @@ import { JwtPayload } from '../interfaces/jwt-payload.interface';
 import { DataSource, Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 
+/** Same shape as a user in admin list and in nested users array */
+interface FormattedUserWithRoles {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  is_active: boolean;
+  email_verified: boolean;
+  is_two_fa_enabled: boolean;
+  last_login: Date | null;
+  created_at: Date;
+  updated_at: Date;
+  roles: { id: number; name: string; description: string }[];
+}
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -1153,7 +1168,9 @@ export class AuthService {
 
   /**
    * Get all users with their roles (paginated)
-   * Excludes the current admin user
+   * Excludes the current admin user.
+   * Optionally filter by userType (organization owner / employee / staff) and organizationName.
+   * Attaches organization associations for each user when they have any.
    */
   async getAllUsersWithRoles(
     page: number = 1,
@@ -1161,6 +1178,8 @@ export class AuthService {
     search?: string,
     roleId?: number,
     excludeUserId?: string,
+    userType?: 'organization' | 'employee' | 'staff',
+    organizationName?: string,
   ): Promise<{ users: any[]; total: number; page: number; limit: number }> {
     const skip = (page - 1) * limit;
     const queryBuilder = this.userRepository
@@ -1192,13 +1211,153 @@ export class AuthService {
       }
     }
 
+    const orgNamePattern = organizationName ? `%${organizationName}%` : null;
+    const hasOrgFilter = userType || organizationName;
+
+    if (hasOrgFilter && userType === 'organization') {
+      const orgCondition =
+        'EXISTS (SELECT 1 FROM organizations o WHERE o.user_id = user.id' +
+        (orgNamePattern ? ' AND o.organization_name ILIKE :organizationNamePattern)' : ')');
+      queryBuilder.andWhere(orgCondition);
+      if (orgNamePattern) {
+        queryBuilder.setParameter('organizationNamePattern', orgNamePattern);
+      }
+    } else if (hasOrgFilter && userType === 'employee') {
+      const empCondition =
+        'EXISTS (SELECT 1 FROM employees e INNER JOIN organizations o ON e.organization_id = o.id WHERE e.user_id = user.id' +
+        (orgNamePattern ? ' AND o.organization_name ILIKE :organizationNamePattern)' : ')');
+      queryBuilder.andWhere(empCondition);
+      if (orgNamePattern) {
+        queryBuilder.setParameter('organizationNamePattern', orgNamePattern);
+      }
+    } else if (hasOrgFilter && userType === 'staff') {
+      const staffCondition =
+        "EXISTS (SELECT 1 FROM organization_staff os INNER JOIN organizations o ON os.organization_id = o.id WHERE os.user_id = user.id AND os.status = 'ACTIVE'" +
+        (orgNamePattern ? ' AND o.organization_name ILIKE :organizationNamePattern)' : ')');
+      queryBuilder.andWhere(staffCondition);
+      if (orgNamePattern) {
+        queryBuilder.setParameter('organizationNamePattern', orgNamePattern);
+      }
+    } else if (organizationName && !userType) {
+      const anyOrgCondition =
+        '(EXISTS (SELECT 1 FROM organizations o WHERE o.user_id = user.id AND o.organization_name ILIKE :organizationNamePattern) OR ' +
+        'EXISTS (SELECT 1 FROM organization_staff os INNER JOIN organizations o ON os.organization_id = o.id WHERE os.user_id = user.id AND os.status = \'ACTIVE\' AND o.organization_name ILIKE :organizationNamePattern) OR ' +
+        'EXISTS (SELECT 1 FROM employees e INNER JOIN organizations o ON e.organization_id = o.id WHERE e.user_id = user.id AND o.organization_name ILIKE :organizationNamePattern))';
+      queryBuilder.andWhere(anyOrgCondition);
+      queryBuilder.setParameter('organizationNamePattern', orgNamePattern);
+    }
+
     const [users, total] = await queryBuilder
       .orderBy('user.created_at', 'DESC')
       .skip(skip)
       .take(limit)
       .getManyAndCount();
 
-    const usersWithRoles = users.map((user) => ({
+    const userIds = users.map((u) => u.id);
+    const associationsMap = await this.getUserOrganizationAssociations(userIds);
+
+    const ownerOrgIdsMap = new Map<string, string[]>();
+    for (const [uid, associations] of associationsMap) {
+      const ownerOrgs = associations.filter((a) => a.associationType === 'OWNER').map((a) => a.organizationId);
+      if (ownerOrgs.length > 0) ownerOrgIdsMap.set(uid, ownerOrgs);
+    }
+
+    const ownerToMemberUserIds = new Map<string, string[]>();
+    if (ownerOrgIdsMap.size > 0) {
+      const allOrgIds = [...new Set([...ownerOrgIdsMap.values()].flat())];
+      const memberIdsByOrg = await this.getStaffAndEmployeeUserIdsByOrganizationIds(allOrgIds);
+      for (const [ownerId, orgIds] of ownerOrgIdsMap) {
+        const memberIds = [...new Set(orgIds.flatMap((oid) => memberIdsByOrg.get(oid) ?? []))].filter(
+          (id) => id !== ownerId,
+        );
+        if (memberIds.length > 0) ownerToMemberUserIds.set(ownerId, memberIds);
+      }
+    }
+
+    const allMemberIds = [...new Set([...ownerToMemberUserIds.values()].flat())];
+    const membersWithRolesMap = new Map<string, FormattedUserWithRoles>();
+    if (allMemberIds.length > 0) {
+      const membersList = await this.getUsersByIdsWithRoles(allMemberIds);
+      for (const u of membersList) membersWithRolesMap.set(u.id, u);
+    }
+
+    const usersWithRoles = users.map((user) => {
+      const formatted: FormattedUserWithRoles & { organizations: any[]; users: FormattedUserWithRoles[] | null } = {
+        id: user.id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        is_active: user.is_active,
+        email_verified: user.email_verified,
+        is_two_fa_enabled: user.is_two_fa_enabled,
+        last_login: user.last_login,
+        created_at: user.created_at,
+        updated_at: user.updated_at,
+        roles:
+          user.userRoles?.map((ur) => ({
+            id: ur.role.id,
+            name: ur.role.name,
+            description: ur.role.description,
+          })) || [],
+        organizations: associationsMap.get(user.id) ?? [],
+        users: null,
+      };
+      const memberIds = ownerToMemberUserIds.get(user.id);
+      if (memberIds?.length) {
+        formatted.users = memberIds
+          .map((id) => membersWithRolesMap.get(id))
+          .filter((u): u is FormattedUserWithRoles => u != null);
+      }
+      return formatted;
+    });
+
+    return {
+      users: usersWithRoles,
+      total,
+      page,
+      limit,
+    };
+  }
+
+  /**
+   * Get distinct user IDs that are staff or employees in the given organization IDs.
+   * Returns a Map of organizationId -> array of user_id (staff + employees).
+   */
+  private async getStaffAndEmployeeUserIdsByOrganizationIds(
+    organizationIds: string[],
+  ): Promise<Map<string, string[]>> {
+    if (organizationIds.length === 0) return new Map();
+    const staffRows = await this.dataSource.query<{ organization_id: string; user_id: string }[]>(
+      `SELECT os.organization_id, os.user_id FROM organization_staff os
+       WHERE os.organization_id = ANY($1::uuid[]) AND os.status = 'ACTIVE'`,
+      [organizationIds],
+    );
+    const employeeRows = await this.dataSource.query<{ organization_id: string; user_id: string }[]>(
+      `SELECT e.organization_id, e.user_id FROM employees e
+       WHERE e.organization_id = ANY($1::uuid[])`,
+      [organizationIds],
+    );
+    const map = new Map<string, string[]>();
+    for (const row of [...staffRows, ...employeeRows]) {
+      const list = map.get(row.organization_id) ?? [];
+      if (!list.includes(row.user_id)) list.push(row.user_id);
+      map.set(row.organization_id, list);
+    }
+    return map;
+  }
+
+  /**
+   * Load users by IDs with roles and return in the same shape as getCurrentUserWithRoles / list items.
+   */
+  private async getUsersByIdsWithRoles(userIds: string[]): Promise<FormattedUserWithRoles[]> {
+    if (userIds.length === 0) return [];
+    const found = await this.userRepository
+      .createQueryBuilder('user')
+      .leftJoinAndSelect('user.userRoles', 'userRoles')
+      .leftJoinAndSelect('userRoles.role', 'role')
+      .where('user.id IN (:...userIds)', { userIds })
+      .getMany();
+    return found.map((user) => ({
       id: user.id,
       firstName: user.firstName,
       lastName: user.lastName,
@@ -1216,13 +1375,67 @@ export class AuthService {
           description: ur.role.description,
         })) || [],
     }));
+  }
 
-    return {
-      users: usersWithRoles,
-      total,
-      page,
-      limit,
-    };
+  /**
+   * Load organization associations (OWNER, STAFF, EMPLOYEE) for the given user IDs.
+   * Returns a Map of userId -> array of { organizationId, organizationName, associationType }.
+   */
+  private async getUserOrganizationAssociations(
+    userIds: string[],
+  ): Promise<Map<string, { organizationId: string; organizationName: string | null; associationType: string }[]>> {
+    if (userIds.length === 0) {
+      return new Map();
+    }
+    const ownerRows = await this.dataSource.query<{ user_id: string; id: string; organization_name: string | null }[]>(
+      `SELECT o.user_id, o.id, o.organization_name FROM organizations o WHERE o.user_id = ANY($1::uuid[])`,
+      [userIds],
+    );
+    const staffRows = await this.dataSource.query<
+      { user_id: string; id: string; organization_name: string | null }[]
+    >(
+      `SELECT os.user_id, o.id, o.organization_name FROM organization_staff os
+       INNER JOIN organizations o ON os.organization_id = o.id
+       WHERE os.user_id = ANY($1::uuid[]) AND os.status = 'ACTIVE'`,
+      [userIds],
+    );
+    const employeeRows = await this.dataSource.query<
+      { user_id: string; id: string; organization_name: string | null }[]
+    >(
+      `SELECT e.user_id, o.id, o.organization_name FROM employees e
+       INNER JOIN organizations o ON e.organization_id = o.id
+       WHERE e.user_id = ANY($1::uuid[])`,
+      [userIds],
+    );
+    const map = new Map<string, { organizationId: string; organizationName: string | null; associationType: string }[]>();
+    for (const row of ownerRows) {
+      const list = map.get(row.user_id) ?? [];
+      list.push({
+        organizationId: row.id,
+        organizationName: row.organization_name,
+        associationType: 'OWNER',
+      });
+      map.set(row.user_id, list);
+    }
+    for (const row of staffRows) {
+      const list = map.get(row.user_id) ?? [];
+      list.push({
+        organizationId: row.id,
+        organizationName: row.organization_name,
+        associationType: 'STAFF',
+      });
+      map.set(row.user_id, list);
+    }
+    for (const row of employeeRows) {
+      const list = map.get(row.user_id) ?? [];
+      list.push({
+        organizationId: row.id,
+        organizationName: row.organization_name,
+        associationType: 'EMPLOYEE',
+      });
+      map.set(row.user_id, list);
+    }
+    return map;
   }
 
   /**

@@ -59,6 +59,8 @@ export class AdminsController {
       queryDto.search,
       queryDto.roleId,
       adminUserId, // Exclude current admin user
+      queryDto.userType,
+      queryDto.organizationName,
     );
     return SuccessHelper.createPaginatedResponse(
       result.users,
