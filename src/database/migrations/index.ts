@@ -28,6 +28,7 @@ import { CreateBlogLikesAndComments20260312000001 } from './20260312000001-creat
 import { AddGuestSupportToBlogLikesComments20260313000000 } from './20260313000000-add-guest-support-to-blog-likes-comments.js';
 import { AddApplicationFormFieldsToOrganizations20260314000000 } from './20260314000000-add-application-form-fields-to-organizations.js';
 import { AddCommentStatusForModeration20260315000000 } from './20260315000000-add-comment-status-for-moderation.js';
+import { CreateSchedulingTables20260316000000 } from './20260316000000-create-scheduling-tables.js';
 
 /** Type for migration class constructors (TypeORM instantiates these at runtime). */
 type MigrationConstructor = new () => MigrationInterface;
@@ -66,4 +67,5 @@ export const migrations: MigrationConstructor[] = [
   AddGuestSupportToBlogLikesComments20260313000000,
   AddApplicationFormFieldsToOrganizations20260314000000,
   AddCommentStatusForModeration20260315000000,
+  CreateSchedulingTables20260316000000,
 ];
