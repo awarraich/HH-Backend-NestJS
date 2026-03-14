@@ -83,11 +83,8 @@ export class ShiftService {
       name: dto.name ?? null,
       status: 'ACTIVE',
       recurrence_type: dto.recurrence_type ?? 'ONE_TIME',
-      recurrence_days:
-        dto.recurrence_days?.length ? dto.recurrence_days.join(',') : null,
-      recurrence_start_date: dto.recurrence_start_date
-        ? new Date(dto.recurrence_start_date)
-        : null,
+      recurrence_days: dto.recurrence_days?.length ? dto.recurrence_days.join(',') : null,
+      recurrence_start_date: dto.recurrence_start_date ? new Date(dto.recurrence_start_date) : null,
       recurrence_end_date: dto.recurrence_end_date ? new Date(dto.recurrence_end_date) : null,
     });
     return this.shiftRepository.save(shift);

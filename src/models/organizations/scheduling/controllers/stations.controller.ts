@@ -41,12 +41,7 @@ export class StationsController {
   ) {
     const userId = req.user?.userId ?? req.user?.sub;
     if (!userId) throw new UnauthorizedException('User ID not found');
-    const result = await this.stationService.findAll(
-      organizationId,
-      departmentId,
-      query,
-      userId,
-    );
+    const result = await this.stationService.findAll(organizationId, departmentId, query, userId);
     return SuccessHelper.createPaginatedResponse(
       result.data,
       result.total,
@@ -65,12 +60,7 @@ export class StationsController {
   ) {
     const userId = req.user?.userId ?? req.user?.sub;
     if (!userId) throw new UnauthorizedException('User ID not found');
-    const data = await this.stationService.findOne(
-      organizationId,
-      departmentId,
-      stationId,
-      userId,
-    );
+    const data = await this.stationService.findOne(organizationId, departmentId, stationId, userId);
     return SuccessHelper.createSuccessResponse(data);
   }
 
@@ -84,12 +74,7 @@ export class StationsController {
   ) {
     const userId = req.user?.userId ?? req.user?.sub;
     if (!userId) throw new UnauthorizedException('User ID not found');
-    const data = await this.stationService.create(
-      organizationId,
-      departmentId,
-      dto,
-      userId,
-    );
+    const data = await this.stationService.create(organizationId, departmentId, dto, userId);
     return SuccessHelper.createSuccessResponse(data);
   }
 

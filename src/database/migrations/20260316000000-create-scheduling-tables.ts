@@ -19,14 +19,33 @@ export class CreateSchedulingTables20260316000000 implements MigrationInterface 
           { name: 'code', type: 'varchar', length: '50', isNullable: true },
           { name: 'is_active', type: 'boolean', default: true, isNullable: false },
           { name: 'sort_order', type: 'smallint', isNullable: true },
-          { name: 'created_at', type: 'timestamp', default: 'CURRENT_TIMESTAMP', isNullable: false },
-          { name: 'updated_at', type: 'timestamp', default: 'CURRENT_TIMESTAMP', isNullable: false },
+          {
+            name: 'created_at',
+            type: 'timestamp',
+            default: 'CURRENT_TIMESTAMP',
+            isNullable: false,
+          },
+          {
+            name: 'updated_at',
+            type: 'timestamp',
+            default: 'CURRENT_TIMESTAMP',
+            isNullable: false,
+          },
         ],
       }),
       true,
     );
-    await queryRunner.createIndex('departments', new TableIndex({ name: 'idx_departments_organization_id', columnNames: ['organization_id'] }));
-    await queryRunner.createIndex('departments', new TableIndex({ name: 'idx_departments_org_active', columnNames: ['organization_id', 'is_active'] }));
+    await queryRunner.createIndex(
+      'departments',
+      new TableIndex({ name: 'idx_departments_organization_id', columnNames: ['organization_id'] }),
+    );
+    await queryRunner.createIndex(
+      'departments',
+      new TableIndex({
+        name: 'idx_departments_org_active',
+        columnNames: ['organization_id', 'is_active'],
+      }),
+    );
     await queryRunner.createForeignKey(
       'departments',
       new TableForeignKey({
@@ -48,14 +67,33 @@ export class CreateSchedulingTables20260316000000 implements MigrationInterface 
           { name: 'code', type: 'varchar', length: '50', isNullable: true },
           { name: 'is_active', type: 'boolean', default: true, isNullable: false },
           { name: 'sort_order', type: 'smallint', isNullable: true },
-          { name: 'created_at', type: 'timestamp', default: 'CURRENT_TIMESTAMP', isNullable: false },
-          { name: 'updated_at', type: 'timestamp', default: 'CURRENT_TIMESTAMP', isNullable: false },
+          {
+            name: 'created_at',
+            type: 'timestamp',
+            default: 'CURRENT_TIMESTAMP',
+            isNullable: false,
+          },
+          {
+            name: 'updated_at',
+            type: 'timestamp',
+            default: 'CURRENT_TIMESTAMP',
+            isNullable: false,
+          },
         ],
       }),
       true,
     );
-    await queryRunner.createIndex('stations', new TableIndex({ name: 'idx_stations_department_id', columnNames: ['department_id'] }));
-    await queryRunner.createIndex('stations', new TableIndex({ name: 'idx_stations_dept_active', columnNames: ['department_id', 'is_active'] }));
+    await queryRunner.createIndex(
+      'stations',
+      new TableIndex({ name: 'idx_stations_department_id', columnNames: ['department_id'] }),
+    );
+    await queryRunner.createIndex(
+      'stations',
+      new TableIndex({
+        name: 'idx_stations_dept_active',
+        columnNames: ['department_id', 'is_active'],
+      }),
+    );
     await queryRunner.createForeignKey(
       'stations',
       new TableForeignKey({
@@ -76,14 +114,33 @@ export class CreateSchedulingTables20260316000000 implements MigrationInterface 
           { name: 'name', type: 'varchar', length: '100', isNullable: false },
           { name: 'is_active', type: 'boolean', default: true, isNullable: false },
           { name: 'sort_order', type: 'smallint', isNullable: true },
-          { name: 'created_at', type: 'timestamp', default: 'CURRENT_TIMESTAMP', isNullable: false },
-          { name: 'updated_at', type: 'timestamp', default: 'CURRENT_TIMESTAMP', isNullable: false },
+          {
+            name: 'created_at',
+            type: 'timestamp',
+            default: 'CURRENT_TIMESTAMP',
+            isNullable: false,
+          },
+          {
+            name: 'updated_at',
+            type: 'timestamp',
+            default: 'CURRENT_TIMESTAMP',
+            isNullable: false,
+          },
         ],
       }),
       true,
     );
-    await queryRunner.createIndex('rooms', new TableIndex({ name: 'idx_rooms_station_id', columnNames: ['station_id'] }));
-    await queryRunner.createIndex('rooms', new TableIndex({ name: 'idx_rooms_station_active', columnNames: ['station_id', 'is_active'] }));
+    await queryRunner.createIndex(
+      'rooms',
+      new TableIndex({ name: 'idx_rooms_station_id', columnNames: ['station_id'] }),
+    );
+    await queryRunner.createIndex(
+      'rooms',
+      new TableIndex({
+        name: 'idx_rooms_station_active',
+        columnNames: ['station_id', 'is_active'],
+      }),
+    );
     await queryRunner.createForeignKey(
       'rooms',
       new TableForeignKey({
@@ -103,14 +160,30 @@ export class CreateSchedulingTables20260316000000 implements MigrationInterface 
           { name: 'room_id', type: 'uuid', isNullable: false },
           { name: 'bed_number', type: 'varchar', length: '50', isNullable: false },
           { name: 'is_active', type: 'boolean', default: true, isNullable: false },
-          { name: 'created_at', type: 'timestamp', default: 'CURRENT_TIMESTAMP', isNullable: false },
-          { name: 'updated_at', type: 'timestamp', default: 'CURRENT_TIMESTAMP', isNullable: false },
+          {
+            name: 'created_at',
+            type: 'timestamp',
+            default: 'CURRENT_TIMESTAMP',
+            isNullable: false,
+          },
+          {
+            name: 'updated_at',
+            type: 'timestamp',
+            default: 'CURRENT_TIMESTAMP',
+            isNullable: false,
+          },
         ],
       }),
       true,
     );
-    await queryRunner.createIndex('beds', new TableIndex({ name: 'idx_beds_room_id', columnNames: ['room_id'] }));
-    await queryRunner.createIndex('beds', new TableIndex({ name: 'idx_beds_room_active', columnNames: ['room_id', 'is_active'] }));
+    await queryRunner.createIndex(
+      'beds',
+      new TableIndex({ name: 'idx_beds_room_id', columnNames: ['room_id'] }),
+    );
+    await queryRunner.createIndex(
+      'beds',
+      new TableIndex({ name: 'idx_beds_room_active', columnNames: ['room_id', 'is_active'] }),
+    );
     await queryRunner.createForeignKey(
       'beds',
       new TableForeignKey({
@@ -133,19 +206,47 @@ export class CreateSchedulingTables20260316000000 implements MigrationInterface 
           { name: 'shift_type', type: 'varchar', length: '50', isNullable: true },
           { name: 'name', type: 'varchar', length: '255', isNullable: true },
           { name: 'status', type: 'varchar', length: '20', default: "'ACTIVE'", isNullable: false },
-          { name: 'recurrence_type', type: 'varchar', length: '20', default: "'ONE_TIME'", isNullable: false },
+          {
+            name: 'recurrence_type',
+            type: 'varchar',
+            length: '20',
+            default: "'ONE_TIME'",
+            isNullable: false,
+          },
           { name: 'recurrence_days', type: 'varchar', length: '50', isNullable: true },
           { name: 'recurrence_start_date', type: 'date', isNullable: true },
           { name: 'recurrence_end_date', type: 'date', isNullable: true },
-          { name: 'created_at', type: 'timestamp', default: 'CURRENT_TIMESTAMP', isNullable: false },
-          { name: 'updated_at', type: 'timestamp', default: 'CURRENT_TIMESTAMP', isNullable: false },
+          {
+            name: 'created_at',
+            type: 'timestamp',
+            default: 'CURRENT_TIMESTAMP',
+            isNullable: false,
+          },
+          {
+            name: 'updated_at',
+            type: 'timestamp',
+            default: 'CURRENT_TIMESTAMP',
+            isNullable: false,
+          },
         ],
       }),
       true,
     );
-    await queryRunner.createIndex('shifts', new TableIndex({ name: 'idx_shifts_organization_id', columnNames: ['organization_id'] }));
-    await queryRunner.createIndex('shifts', new TableIndex({ name: 'idx_shifts_org_start_at', columnNames: ['organization_id', 'start_at'] }));
-    await queryRunner.createIndex('shifts', new TableIndex({ name: 'idx_shifts_org_status', columnNames: ['organization_id', 'status'] }));
+    await queryRunner.createIndex(
+      'shifts',
+      new TableIndex({ name: 'idx_shifts_organization_id', columnNames: ['organization_id'] }),
+    );
+    await queryRunner.createIndex(
+      'shifts',
+      new TableIndex({
+        name: 'idx_shifts_org_start_at',
+        columnNames: ['organization_id', 'start_at'],
+      }),
+    );
+    await queryRunner.createIndex(
+      'shifts',
+      new TableIndex({ name: 'idx_shifts_org_status', columnNames: ['organization_id', 'status'] }),
+    );
     await queryRunner.createForeignKey(
       'shifts',
       new TableForeignKey({
@@ -168,23 +269,54 @@ export class CreateSchedulingTables20260316000000 implements MigrationInterface 
           { name: 'station_id', type: 'uuid', isNullable: true },
           { name: 'room_id', type: 'uuid', isNullable: true },
           { name: 'bed_id', type: 'uuid', isNullable: true },
-          { name: 'status', type: 'varchar', length: '20', default: "'SCHEDULED'", isNullable: false },
+          {
+            name: 'status',
+            type: 'varchar',
+            length: '20',
+            default: "'SCHEDULED'",
+            isNullable: false,
+          },
           { name: 'notes', type: 'text', isNullable: true },
           { name: 'actual_start_at', type: 'timestamp', isNullable: true },
           { name: 'actual_end_at', type: 'timestamp', isNullable: true },
-          { name: 'created_at', type: 'timestamp', default: 'CURRENT_TIMESTAMP', isNullable: false },
-          { name: 'updated_at', type: 'timestamp', default: 'CURRENT_TIMESTAMP', isNullable: false },
+          {
+            name: 'created_at',
+            type: 'timestamp',
+            default: 'CURRENT_TIMESTAMP',
+            isNullable: false,
+          },
+          {
+            name: 'updated_at',
+            type: 'timestamp',
+            default: 'CURRENT_TIMESTAMP',
+            isNullable: false,
+          },
         ],
       }),
       true,
     );
     await queryRunner.createUniqueConstraint(
       'employee_shifts',
-      new TableUnique({ name: 'uq_employee_shifts_shift_employee', columnNames: ['shift_id', 'employee_id'] }),
+      new TableUnique({
+        name: 'uq_employee_shifts_shift_employee',
+        columnNames: ['shift_id', 'employee_id'],
+      }),
     );
-    await queryRunner.createIndex('employee_shifts', new TableIndex({ name: 'idx_employee_shifts_shift_id', columnNames: ['shift_id'] }));
-    await queryRunner.createIndex('employee_shifts', new TableIndex({ name: 'idx_employee_shifts_employee_id', columnNames: ['employee_id'] }));
-    await queryRunner.createIndex('employee_shifts', new TableIndex({ name: 'idx_employee_shifts_employee_status', columnNames: ['employee_id', 'status'] }));
+    await queryRunner.createIndex(
+      'employee_shifts',
+      new TableIndex({ name: 'idx_employee_shifts_shift_id', columnNames: ['shift_id'] }),
+    );
+    await queryRunner.createIndex(
+      'employee_shifts',
+      new TableIndex({ name: 'idx_employee_shifts_employee_id', columnNames: ['employee_id'] }),
+    );
+    await queryRunner.createIndex(
+      'employee_shifts',
+      new TableIndex({
+        name: 'idx_employee_shifts_employee_status',
+        columnNames: ['employee_id', 'status'],
+      }),
+    );
     await queryRunner.createForeignKey(
       'employee_shifts',
       new TableForeignKey({
