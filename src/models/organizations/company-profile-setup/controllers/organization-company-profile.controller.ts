@@ -25,9 +25,7 @@ import { UpdateOrganizationCompanyProfileDto } from '../dto/update-organization-
 
 @Controller('v1/api/organizations/:organizationId/company-profile')
 export class OrganizationCompanyProfileController {
-  constructor(
-    private readonly companyProfileService: OrganizationCompanyProfileService,
-  ) {}
+  constructor(private readonly companyProfileService: OrganizationCompanyProfileService) {}
 
   /** Public profile (no auth); for public profile page. Media URLs use public-media path. */
   @Get('public')
@@ -47,10 +45,7 @@ export class OrganizationCompanyProfileController {
   ) {
     const userId = user?.userId;
     if (!userId) throw new UnauthorizedException('User not found');
-    const data = await this.companyProfileService.getByOrganizationId(
-      organizationId,
-      userId,
-    );
+    const data = await this.companyProfileService.getByOrganizationId(organizationId, userId);
     return SuccessHelper.createSuccessResponse(data);
   }
 
@@ -91,7 +86,9 @@ export class OrganizationCompanyProfileController {
     };
 
     if (!multipartRequest.isMultipart?.()) {
-      throw new BadRequestException('Use multipart/form-data with field "file", optional "caption", "category".');
+      throw new BadRequestException(
+        'Use multipart/form-data with field "file", optional "caption", "category".',
+      );
     }
 
     const body = multipartRequest.body;
@@ -99,16 +96,18 @@ export class OrganizationCompanyProfileController {
     const singleFile = Array.isArray(filePart) ? filePart[0] : filePart;
     const captionRaw = body?.caption;
     const categoryRaw = body?.category;
-    const caption = typeof captionRaw === 'object' && captionRaw && 'value' in captionRaw
-      ? (captionRaw as { value?: string }).value ?? ''
-      : typeof captionRaw === 'string'
-        ? captionRaw
-        : '';
-    const category = typeof categoryRaw === 'object' && categoryRaw && 'value' in categoryRaw
-      ? (categoryRaw as { value?: string }).value ?? ''
-      : typeof categoryRaw === 'string'
-        ? categoryRaw
-        : '';
+    const caption =
+      typeof captionRaw === 'object' && captionRaw && 'value' in captionRaw
+        ? ((captionRaw as { value?: string }).value ?? '')
+        : typeof captionRaw === 'string'
+          ? captionRaw
+          : '';
+    const category =
+      typeof categoryRaw === 'object' && categoryRaw && 'value' in categoryRaw
+        ? ((categoryRaw as { value?: string }).value ?? '')
+        : typeof categoryRaw === 'string'
+          ? categoryRaw
+          : '';
 
     if (!singleFile?.toBuffer || !singleFile?.filename) {
       throw new BadRequestException('No file uploaded. Send a field named "file".');
@@ -157,7 +156,8 @@ export class OrganizationCompanyProfileController {
     const singleFile = Array.isArray(filePart) ? filePart[0] : filePart;
     const getStr = (key: string): string => {
       const raw = body?.[key];
-      if (typeof raw === 'object' && raw && 'value' in raw) return (raw as { value?: string }).value ?? '';
+      if (typeof raw === 'object' && raw && 'value' in raw)
+        return (raw as { value?: string }).value ?? '';
       return typeof raw === 'string' ? raw : '';
     };
     const title = getStr('title');
@@ -200,13 +200,12 @@ export class OrganizationCompanyProfileController {
     if (type !== 'gallery' && type !== 'video') {
       throw new BadRequestException('type must be "gallery" or "video"');
     }
-    const { stream, contentType, file_name } =
-      await this.companyProfileService.getMediaStream(
-        organizationId,
-        type as 'gallery' | 'video',
-        fileId,
-        userId,
-      );
+    const { stream, contentType, file_name } = await this.companyProfileService.getMediaStream(
+      organizationId,
+      type as 'gallery' | 'video',
+      fileId,
+      userId,
+    );
     const safeName = (file_name ?? 'file').replace(/["\\]/g, '_');
     return reply
       .header('Content-Type', contentType)

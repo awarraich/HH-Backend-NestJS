@@ -101,7 +101,13 @@ export class OrganizationCompanyProfile {
   videos: VideoItemStored[];
 
   @Column({ type: 'jsonb', nullable: true, default: '[]' })
-  packages: Array<{ id: string; name: string; description: string; price: string; features?: string[] }>;
+  packages: Array<{
+    id: string;
+    name: string;
+    description: string;
+    price: string;
+    features?: string[];
+  }>;
 
   @Column({ type: 'jsonb', nullable: true })
   specialty_services: string[] | null;

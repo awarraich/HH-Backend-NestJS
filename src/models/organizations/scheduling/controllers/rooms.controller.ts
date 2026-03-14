@@ -135,13 +135,7 @@ export class RoomsController {
   ) {
     const userId = req.user?.userId ?? req.user?.sub;
     if (!userId) throw new UnauthorizedException('User ID not found');
-    await this.roomService.remove(
-      organizationId,
-      departmentId,
-      stationId,
-      roomId,
-      userId,
-    );
+    await this.roomService.remove(organizationId, departmentId, stationId, roomId, userId);
     return SuccessHelper.createSuccessResponse(null, 'Room deleted');
   }
 }

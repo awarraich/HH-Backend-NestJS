@@ -1,14 +1,13 @@
-import {
-  Injectable,
-  NotFoundException,
-  ForbiddenException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { randomUUID } from 'crypto';
 import { Organization } from '../../entities/organization.entity';
 import { OrganizationCompanyProfile } from '../entities/organization-company-profile.entity';
-import type { GalleryItemStored, VideoItemStored } from '../entities/organization-company-profile.entity';
+import type {
+  GalleryItemStored,
+  VideoItemStored,
+} from '../entities/organization-company-profile.entity';
 import { OrganizationRoleService } from '../../services/organization-role.service';
 import { CompanyProfileStorageService } from './company-profile-storage.service';
 import { UpdateOrganizationCompanyProfileDto } from '../dto/update-organization-company-profile.dto';
@@ -51,7 +50,13 @@ export type CompanyProfileResponse = {
     duration?: string;
     category?: string;
   }>;
-  packages: Array<{ id: string; name: string; description: string; price: string; features?: string[] }>;
+  packages: Array<{
+    id: string;
+    name: string;
+    description: string;
+    price: string;
+    features?: string[];
+  }>;
   specialty_services: string[] | null;
   accepted_insurance: string[] | null;
   amenities: AmenityItemResponse[] | null;
@@ -128,20 +133,18 @@ export class OrganizationCompanyProfileService {
     organizationId: string,
     usePublicMedia = false,
   ): CompanyProfileResponse {
-    const mediaPath = usePublicMedia ? this.buildPublicMediaPath.bind(this) : this.buildMediaPath.bind(this);
+    const mediaPath = usePublicMedia
+      ? this.buildPublicMediaPath.bind(this)
+      : this.buildMediaPath.bind(this);
     const gallery = (profile.gallery ?? []).map((item: GalleryItemStored) => ({
       id: item.id,
-      url: item.file_path
-        ? mediaPath(organizationId, 'gallery', item.id)
-        : (item.url ?? ''),
+      url: item.file_path ? mediaPath(organizationId, 'gallery', item.id) : (item.url ?? ''),
       caption: item.caption ?? '',
       category: item.category ?? '',
     }));
     const videos = (profile.videos ?? []).map((item: VideoItemStored) => ({
       id: item.id,
-      url: item.file_path
-        ? mediaPath(organizationId, 'video', item.id)
-        : (item.url ?? ''),
+      url: item.file_path ? mediaPath(organizationId, 'video', item.id) : (item.url ?? ''),
       title: item.title,
       thumbnail: item.thumbnail,
       description: item.description,
@@ -162,8 +165,11 @@ export class OrganizationCompanyProfileService {
       id: profile.id,
       organization_id: profile.organization_id,
       company_name: profile.company_name,
-      logo: usePublicMedia ? this.toPublicMediaPath(profile.logo) ?? profile.logo : profile.logo,
-      cover_image: coverImages[0] ?? (usePublicMedia ? this.toPublicMediaPath(profile.cover_image) : profile.cover_image) ?? null,
+      logo: usePublicMedia ? (this.toPublicMediaPath(profile.logo) ?? profile.logo) : profile.logo,
+      cover_image:
+        coverImages[0] ??
+        (usePublicMedia ? this.toPublicMediaPath(profile.cover_image) : profile.cover_image) ??
+        null,
       cover_images: coverImages,
       organization_type: profile.organization_type,
       description: profile.description,
@@ -212,9 +218,7 @@ export class OrganizationCompanyProfileService {
   }
 
   /** Get profile for public view (no auth); returns null if not found. Media URLs use public-media path. */
-  async getPublicByOrganizationId(
-    organizationId: string,
-  ): Promise<CompanyProfileResponse | null> {
+  async getPublicByOrganizationId(organizationId: string): Promise<CompanyProfileResponse | null> {
     const profile = await this.profileRepository.findOne({
       where: { organization_id: organizationId },
     });
@@ -373,7 +377,8 @@ export class OrganizationCompanyProfileService {
     if (dto.room_types !== undefined) profile.room_types = dto.room_types;
     if (dto.equipment_catalog !== undefined) profile.equipment_catalog = dto.equipment_catalog;
     if (dto.transport_types !== undefined) profile.transport_types = dto.transport_types;
-    if (dto.availability_status !== undefined) profile.availability_status = dto.availability_status;
+    if (dto.availability_status !== undefined)
+      profile.availability_status = dto.availability_status;
     if (dto.rating !== undefined) profile.rating = dto.rating;
     if (dto.review_count !== undefined) profile.review_count = dto.review_count;
     if (dto.reviews !== undefined) profile.reviews = dto.reviews;
@@ -485,7 +490,7 @@ export class OrganizationCompanyProfileService {
       where: { organization_id: organizationId },
     });
     if (!profile) throw new NotFoundException('Company profile not found');
-    const list = type === 'gallery' ? profile.gallery ?? [] : profile.videos ?? [];
+    const list = type === 'gallery' ? (profile.gallery ?? []) : (profile.videos ?? []);
     const item = list.find((x: { id: string; file_path?: string }) => x.id === fileId);
     if (!item?.file_path) {
       throw new NotFoundException(`${type} item not found or not an uploaded file`);
@@ -508,7 +513,7 @@ export class OrganizationCompanyProfileService {
       where: { organization_id: organizationId },
     });
     if (!profile) throw new NotFoundException('Company profile not found');
-    const list = type === 'gallery' ? profile.gallery ?? [] : profile.videos ?? [];
+    const list = type === 'gallery' ? (profile.gallery ?? []) : (profile.videos ?? []);
     const item = list.find((x: { id: string; file_path?: string }) => x.id === fileId);
     if (!item?.file_path) {
       throw new NotFoundException(`${type} item not found or not an uploaded file`);

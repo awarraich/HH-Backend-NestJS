@@ -58,8 +58,7 @@ export class EmployeeShiftService {
     organizationId: string,
     dto: { department_id?: string; station_id?: string; room_id?: string; bed_id?: string },
   ): Promise<void> {
-    const hasLocation =
-      dto.department_id || dto.station_id || dto.room_id || dto.bed_id;
+    const hasLocation = dto.department_id || dto.station_id || dto.room_id || dto.bed_id;
     if (!hasLocation) return;
 
     if (dto.department_id) {
@@ -199,7 +198,12 @@ export class EmployeeShiftService {
     if (dto.notes !== undefined) es.notes = dto.notes;
     if (dto.actual_start_at !== undefined) es.actual_start_at = new Date(dto.actual_start_at);
     if (dto.actual_end_at !== undefined) es.actual_end_at = new Date(dto.actual_end_at);
-    if (dto.department_id !== undefined || dto.station_id !== undefined || dto.room_id !== undefined || dto.bed_id !== undefined) {
+    if (
+      dto.department_id !== undefined ||
+      dto.station_id !== undefined ||
+      dto.room_id !== undefined ||
+      dto.bed_id !== undefined
+    ) {
       await this.validateLocationInOrg(organizationId, {
         department_id: es.department_id ?? undefined,
         station_id: es.station_id ?? undefined,
