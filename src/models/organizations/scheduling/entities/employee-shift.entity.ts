@@ -15,6 +15,7 @@ import { Department } from './department.entity';
 import { Station } from './station.entity';
 import { Room } from './room.entity';
 import { Bed } from './bed.entity';
+import { Chair } from './chair.entity';
 
 @Entity('employee_shifts')
 @Unique(['shift_id', 'employee_id'])
@@ -42,6 +43,9 @@ export class EmployeeShift {
 
   @Column({ type: 'uuid', nullable: true })
   bed_id: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  chair_id: string | null;
 
   @Column({ type: 'varchar', length: 20, default: 'SCHEDULED' })
   status: string;
@@ -84,4 +88,8 @@ export class EmployeeShift {
   @ManyToOne(() => Bed, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'bed_id' })
   bed: Bed | null;
+
+  @ManyToOne(() => Chair, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'chair_id' })
+  chair: Chair | null;
 }

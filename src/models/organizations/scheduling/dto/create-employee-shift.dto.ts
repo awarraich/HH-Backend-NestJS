@@ -22,6 +22,10 @@ export class CreateEmployeeShiftDto {
   bed_id?: string;
 
   @IsOptional()
+  @IsUUID('4')
+  chair_id?: string;
+
+  @IsOptional()
   @IsString()
   @MaxLength(20)
   status?: string;

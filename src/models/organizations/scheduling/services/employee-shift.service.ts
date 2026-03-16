@@ -15,6 +15,7 @@ import { Department } from '../entities/department.entity';
 import { Station } from '../entities/station.entity';
 import { Room } from '../entities/room.entity';
 import { Bed } from '../entities/bed.entity';
+import { Chair } from '../entities/chair.entity';
 import { OrganizationRoleService } from '../../services/organization-role.service';
 import { CreateEmployeeShiftDto } from '../dto/create-employee-shift.dto';
 import { UpdateEmployeeShiftDto } from '../dto/update-employee-shift.dto';
@@ -38,6 +39,8 @@ export class EmployeeShiftService {
     private readonly roomRepository: Repository<Room>,
     @InjectRepository(Bed)
     private readonly bedRepository: Repository<Bed>,
+    @InjectRepository(Chair)
+    private readonly chairRepository: Repository<Chair>,
     @InjectRepository(Organization)
     private readonly organizationRepository: Repository<Organization>,
     private readonly organizationRoleService: OrganizationRoleService,
@@ -56,10 +59,20 @@ export class EmployeeShiftService {
 
   private async validateLocationInOrg(
     organizationId: string,
-    dto: { department_id?: string; station_id?: string; room_id?: string; bed_id?: string },
+    dto: {
+      department_id?: string;
+      station_id?: string;
+      room_id?: string;
+      bed_id?: string;
+      chair_id?: string;
+    },
   ): Promise<void> {
     const hasLocation =
-      dto.department_id || dto.station_id || dto.room_id || dto.bed_id;
+      dto.department_id ||
+      dto.station_id ||
+      dto.room_id ||
+      dto.bed_id ||
+      dto.chair_id;
     if (!hasLocation) return;
 
     if (dto.department_id) {
@@ -95,6 +108,18 @@ export class EmployeeShiftService {
         throw new BadRequestException('Invalid bed for this organization');
       }
     }
+    if (dto.chair_id) {
+      const chair = await this.chairRepository.findOne({
+        where: { id: dto.chair_id },
+        relations: ['room', 'room.station', 'room.station.department'],
+      });
+      if (
+        !chair ||
+        chair.room.station.department.organization_id !== organizationId
+      ) {
+        throw new BadRequestException('Invalid chair for this organization');
+      }
+    }
   }
 
   async findByShift(
@@ -120,6 +145,7 @@ export class EmployeeShiftService {
       .leftJoinAndSelect('es.station', 'station')
       .leftJoinAndSelect('es.room', 'room')
       .leftJoinAndSelect('es.bed', 'bed')
+      .leftJoinAndSelect('es.chair', 'chair')
       .where('es.shift_id = :shiftId', { shiftId });
 
     if (employee_id) qb.andWhere('es.employee_id = :employee_id', { employee_id });
@@ -138,7 +164,16 @@ export class EmployeeShiftService {
     await this.ensureAccess(organizationId, userId);
     const es = await this.employeeShiftRepository.findOne({
       where: { id: employeeShiftId },
-      relations: ['shift', 'employee', 'employee.user', 'department', 'station', 'room', 'bed'],
+      relations: [
+        'shift',
+        'employee',
+        'employee.user',
+        'department',
+        'station',
+        'room',
+        'bed',
+        'chair',
+      ],
     });
     if (!es || !es.shift || es.shift.organization_id !== organizationId) {
       throw new NotFoundException('Employee shift not found');
@@ -177,6 +212,7 @@ export class EmployeeShiftService {
       station_id: dto.station_id ?? null,
       room_id: dto.room_id ?? null,
       bed_id: dto.bed_id ?? null,
+      chair_id: dto.chair_id ?? null,
       status: dto.status ?? 'SCHEDULED',
       notes: dto.notes ?? null,
     });
@@ -195,16 +231,24 @@ export class EmployeeShiftService {
     if (dto.station_id !== undefined) es.station_id = dto.station_id;
     if (dto.room_id !== undefined) es.room_id = dto.room_id;
     if (dto.bed_id !== undefined) es.bed_id = dto.bed_id;
+    if (dto.chair_id !== undefined) es.chair_id = dto.chair_id;
     if (dto.status !== undefined) es.status = dto.status;
     if (dto.notes !== undefined) es.notes = dto.notes;
     if (dto.actual_start_at !== undefined) es.actual_start_at = new Date(dto.actual_start_at);
     if (dto.actual_end_at !== undefined) es.actual_end_at = new Date(dto.actual_end_at);
-    if (dto.department_id !== undefined || dto.station_id !== undefined || dto.room_id !== undefined || dto.bed_id !== undefined) {
+    if (
+      dto.department_id !== undefined ||
+      dto.station_id !== undefined ||
+      dto.room_id !== undefined ||
+      dto.bed_id !== undefined ||
+      dto.chair_id !== undefined
+    ) {
       await this.validateLocationInOrg(organizationId, {
         department_id: es.department_id ?? undefined,
         station_id: es.station_id ?? undefined,
         room_id: es.room_id ?? undefined,
         bed_id: es.bed_id ?? undefined,
+        chair_id: es.chair_id ?? undefined,
       });
     }
     return this.employeeShiftRepository.save(es);

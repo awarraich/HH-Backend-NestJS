@@ -11,6 +11,7 @@ import {
 } from 'typeorm';
 import { Station } from './station.entity';
 import { Bed } from './bed.entity';
+import { Chair } from './chair.entity';
 
 @Entity('rooms')
 @Index(['station_id'])
@@ -24,6 +25,21 @@ export class Room {
 
   @Column({ type: 'varchar', length: 100 })
   name: string;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  location_or_wing: string | null;
+
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  floor: string | null;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  configuration_type: string | null;
+
+  @Column({ type: 'smallint', nullable: true })
+  beds_per_room: number | null;
+
+  @Column({ type: 'smallint', nullable: true })
+  chairs_per_room: number | null;
 
   @Column({ type: 'boolean', default: true })
   is_active: boolean;
@@ -43,4 +59,7 @@ export class Room {
 
   @OneToMany(() => Bed, (bed) => bed.room)
   beds: Bed[];
+
+  @OneToMany(() => Chair, (chair) => chair.room)
+  chairs: Chair[];
 }

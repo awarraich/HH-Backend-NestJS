@@ -76,18 +76,21 @@ import { Department } from './scheduling/entities/department.entity';
 import { Station } from './scheduling/entities/station.entity';
 import { Room } from './scheduling/entities/room.entity';
 import { Bed } from './scheduling/entities/bed.entity';
+import { Chair } from './scheduling/entities/chair.entity';
 import { Shift } from './scheduling/entities/shift.entity';
 import { EmployeeShift } from './scheduling/entities/employee-shift.entity';
 import { DepartmentService } from './scheduling/services/department.service';
 import { StationService } from './scheduling/services/station.service';
 import { RoomService } from './scheduling/services/room.service';
 import { BedService } from './scheduling/services/bed.service';
+import { ChairService } from './scheduling/services/chair.service';
 import { ShiftService } from './scheduling/services/shift.service';
 import { EmployeeShiftService } from './scheduling/services/employee-shift.service';
 import { DepartmentsController } from './scheduling/controllers/departments.controller';
 import { StationsController } from './scheduling/controllers/stations.controller';
 import { RoomsController } from './scheduling/controllers/rooms.controller';
 import { BedsController } from './scheduling/controllers/beds.controller';
+import { ChairsController } from './scheduling/controllers/chairs.controller';
 import { ShiftsController } from './scheduling/controllers/shifts.controller';
 import { EmployeeShiftsController } from './scheduling/controllers/employee-shifts.controller';
 import { EmployeeShiftsByEmployeeController } from './scheduling/controllers/employee-shifts-by-employee.controller';
@@ -101,6 +104,7 @@ import { EmployeeShiftsByEmployeeController } from './scheduling/controllers/emp
       Station,
       Room,
       Bed,
+      Chair,
       Shift,
       EmployeeShift,
       Organization,
@@ -158,6 +162,7 @@ import { EmployeeShiftsByEmployeeController } from './scheduling/controllers/emp
     StationsController,
     RoomsController,
     BedsController,
+    ChairsController,
     ShiftsController,
     EmployeeShiftsController,
     EmployeeShiftsByEmployeeController,
@@ -167,6 +172,7 @@ import { EmployeeShiftsByEmployeeController } from './scheduling/controllers/emp
     StationService,
     RoomService,
     BedService,
+    ChairService,
     ShiftService,
     EmployeeShiftService,
     OrganizationsService,

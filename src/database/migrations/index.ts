@@ -29,6 +29,7 @@ import { AddGuestSupportToBlogLikesComments20260313000000 } from './202603130000
 import { AddApplicationFormFieldsToOrganizations20260314000000 } from './20260314000000-add-application-form-fields-to-organizations.js';
 import { AddCommentStatusForModeration20260315000000 } from './20260315000000-add-comment-status-for-moderation.js';
 import { CreateSchedulingTables20260316000000 } from './20260316000000-create-scheduling-tables.js';
+import { AddDepartmentsStationsRoomsChairsAndEmployeeShiftChair20260316100000 } from './20260316100000-add-departments-stations-rooms-chairs-and-employee-shift-chair.js';
 
 /** Type for migration class constructors (TypeORM instantiates these at runtime). */
 type MigrationConstructor = new () => MigrationInterface;
@@ -68,4 +69,5 @@ export const migrations: MigrationConstructor[] = [
   AddApplicationFormFieldsToOrganizations20260314000000,
   AddCommentStatusForModeration20260315000000,
   CreateSchedulingTables20260316000000,
+  AddDepartmentsStationsRoomsChairsAndEmployeeShiftChair20260316100000,
 ];

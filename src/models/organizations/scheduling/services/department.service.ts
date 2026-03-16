@@ -40,6 +40,7 @@ export class DepartmentService {
 
     const qb = this.departmentRepository
       .createQueryBuilder('d')
+      .loadRelationCountAndMap('d.stationCount', 'd.stations')
       .where('d.organization_id = :organizationId', { organizationId });
 
     if (is_active !== undefined) {
@@ -66,6 +67,8 @@ export class DepartmentService {
       organization_id: organizationId,
       name: dto.name,
       code: dto.code ?? null,
+      description: dto.description ?? null,
+      department_type: dto.department_type ?? null,
       is_active: dto.is_active ?? true,
       sort_order: dto.sort_order ?? null,
     });
@@ -82,6 +85,8 @@ export class DepartmentService {
     const department = await this.findOne(organizationId, departmentId, userId);
     if (dto.name !== undefined) department.name = dto.name;
     if (dto.code !== undefined) department.code = dto.code;
+    if (dto.description !== undefined) department.description = dto.description;
+    if (dto.department_type !== undefined) department.department_type = dto.department_type;
     if (dto.is_active !== undefined) department.is_active = dto.is_active;
     if (dto.sort_order !== undefined) department.sort_order = dto.sort_order;
     return this.departmentRepository.save(department);

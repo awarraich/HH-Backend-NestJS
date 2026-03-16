@@ -25,8 +25,50 @@ export class Station {
   @Column({ type: 'varchar', length: 255 })
   name: string;
 
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  location: string | null;
+
   @Column({ type: 'varchar', length: 50, nullable: true })
   code: string | null;
+
+  @Column({ type: 'smallint', default: 0 })
+  required_charge_nurses: number;
+
+  @Column({ type: 'smallint', default: 0 })
+  required_cnas: number;
+
+  @Column({ type: 'smallint', default: 0 })
+  required_sitters: number;
+
+  @Column({ type: 'smallint', default: 0 })
+  required_treatment_nurses: number;
+
+  @Column({ type: 'smallint', default: 0 })
+  required_nps: number;
+
+  @Column({ type: 'smallint', default: 0 })
+  required_mds: number;
+
+  @Column({ type: 'boolean', default: false })
+  multi_station_am: boolean;
+
+  @Column({ type: 'boolean', default: false })
+  multi_station_pm: boolean;
+
+  @Column({ type: 'boolean', default: false })
+  multi_station_noc: boolean;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  configuration_type: string | null;
+
+  @Column({ type: 'smallint', nullable: true })
+  default_beds_per_room: number | null;
+
+  @Column({ type: 'smallint', nullable: true })
+  default_chairs_per_room: number | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  custom_shift_times: Record<string, { start: string; end: string }> | null;
 
   @Column({ type: 'boolean', default: true })
   is_active: boolean;

@@ -28,6 +28,12 @@ export class Department {
   @Column({ type: 'varchar', length: 50, nullable: true })
   code: string | null;
 
+  @Column({ type: 'text', nullable: true })
+  description: string | null;
+
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  department_type: string | null;
+
   @Column({ type: 'boolean', default: true })
   is_active: boolean;
 
@@ -46,4 +52,6 @@ export class Department {
 
   @OneToMany(() => Station, (station) => station.department)
   stations: Station[];
+
+  stationCount?: number;
 }

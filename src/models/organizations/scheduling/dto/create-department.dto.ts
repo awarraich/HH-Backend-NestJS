@@ -13,6 +13,15 @@ export class CreateDepartmentDto {
   code?: string;
 
   @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  department_type?: string;
+
+  @IsOptional()
   @Type(() => Boolean)
   @IsBoolean()
   is_active?: boolean;
