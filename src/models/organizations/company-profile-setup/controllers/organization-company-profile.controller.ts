@@ -43,11 +43,18 @@ export class OrganizationCompanyProfileController {
     );
   }
 
+  private ensureOrganizationId(organizationId: string): void {
+    if (!organizationId || typeof organizationId !== 'string' || !organizationId.trim()) {
+      throw new BadRequestException('Organization ID is required.');
+    }
+  }
+
   /** Public profile (no auth); for public profile page. :organizationId can be UUID or slug (URL-friendly name). */
   @Get('public')
   @HttpCode(HttpStatus.OK)
   async getPublic(@Param('organizationId') organizationId: string) {
     try {
+      this.ensureOrganizationId(organizationId);
       const isUuid =
         /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
           organizationId,
@@ -70,6 +77,7 @@ export class OrganizationCompanyProfileController {
     @LoggedInUser() user: UserWithRolesInterface,
   ) {
     try {
+      this.ensureOrganizationId(organizationId);
       const userId = user?.userId;
       if (!userId) throw new UnauthorizedException('User not found');
       const data = await this.companyProfileService.getByOrganizationId(organizationId, userId);
@@ -89,6 +97,7 @@ export class OrganizationCompanyProfileController {
     @LoggedInUser() user: UserWithRolesInterface,
   ) {
     try {
+      this.ensureOrganizationId(organizationId);
       const userId = user?.userId;
       if (!userId) throw new UnauthorizedException('User not found');
       const data = await this.companyProfileService.upsert(organizationId, dto, userId);
@@ -108,6 +117,7 @@ export class OrganizationCompanyProfileController {
     @LoggedInUser() user: UserWithRolesInterface,
   ) {
     try {
+      this.ensureOrganizationId(organizationId);
       const userId = user?.userId;
       if (!userId) throw new UnauthorizedException('User not found');
 
@@ -172,6 +182,7 @@ export class OrganizationCompanyProfileController {
     @LoggedInUser() user: UserWithRolesInterface,
   ) {
     try {
+      this.ensureOrganizationId(organizationId);
       const userId = user?.userId;
       if (!userId) throw new UnauthorizedException('User not found');
 
@@ -238,10 +249,14 @@ export class OrganizationCompanyProfileController {
     @LoggedInUser() user: UserWithRolesInterface,
   ) {
     try {
+      this.ensureOrganizationId(organizationId);
       const userId = user?.userId;
       if (!userId) throw new UnauthorizedException('User not found');
       if (type !== 'gallery' && type !== 'video') {
         throw new BadRequestException('type must be "gallery" or "video"');
+      }
+      if (!fileId?.trim()) {
+        throw new BadRequestException('fileId is required.');
       }
       const { stream, contentType, file_name } = await this.companyProfileService.getMediaStream(
         organizationId,
@@ -269,8 +284,12 @@ export class OrganizationCompanyProfileController {
     @Res() reply: FastifyReply,
   ) {
     try {
+      this.ensureOrganizationId(organizationId);
       if (type !== 'gallery' && type !== 'video') {
         throw new BadRequestException('type must be "gallery" or "video"');
+      }
+      if (!fileId?.trim()) {
+        throw new BadRequestException('fileId is required.');
       }
       const { stream, contentType, file_name } =
         await this.companyProfileService.getMediaStreamPublic(
