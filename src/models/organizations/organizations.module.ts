@@ -66,43 +66,22 @@ import { InserviceQuizQuestionService } from './hr-files-setup/services/inservic
 import { InserviceQuizQuestion } from './hr-files-setup/entities/inservice-quiz-question.entity';
 import { InserviceCompletion } from './hr-files-setup/entities/inservice-completion.entity';
 import { InserviceQuizAttempt } from './hr-files-setup/entities/inservice-quiz-attempt.entity';
+import { OrganizationCompanyProfile } from './company-profile-setup/entities/organization-company-profile.entity';
+import { OrganizationCompanyProfileService } from './company-profile-setup/services/organization-company-profile.service';
+import { CompanyProfileStorageService } from './company-profile-setup/services/company-profile-storage.service';
+import { OrganizationCompanyProfileController } from './company-profile-setup/controllers/organization-company-profile.controller';
 import { EmployeeDocumentAccessGuard } from '../../common/guards/employee-document-access.guard';
 import { EmployeeDocumentTypeAccessGuard } from '../../common/guards/employee-document-type-access.guard';
 import { EmbeddingModule } from '../../common/services/embedding/embedding.module';
 import { OrganizationRepository } from './repositories/organization.repository';
 import { ReferralRepository } from './repositories/referral.repository';
 import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
-import { Department } from './scheduling/entities/department.entity';
-import { Station } from './scheduling/entities/station.entity';
-import { Room } from './scheduling/entities/room.entity';
-import { Bed } from './scheduling/entities/bed.entity';
-import { Shift } from './scheduling/entities/shift.entity';
-import { EmployeeShift } from './scheduling/entities/employee-shift.entity';
-import { DepartmentService } from './scheduling/services/department.service';
-import { StationService } from './scheduling/services/station.service';
-import { RoomService } from './scheduling/services/room.service';
-import { BedService } from './scheduling/services/bed.service';
-import { ShiftService } from './scheduling/services/shift.service';
-import { EmployeeShiftService } from './scheduling/services/employee-shift.service';
-import { DepartmentsController } from './scheduling/controllers/departments.controller';
-import { StationsController } from './scheduling/controllers/stations.controller';
-import { RoomsController } from './scheduling/controllers/rooms.controller';
-import { BedsController } from './scheduling/controllers/beds.controller';
-import { ShiftsController } from './scheduling/controllers/shifts.controller';
-import { EmployeeShiftsController } from './scheduling/controllers/employee-shifts.controller';
-import { EmployeeShiftsByEmployeeController } from './scheduling/controllers/employee-shifts-by-employee.controller';
 
 @Module({
   imports: [
     ConfigModule,
     StorageConfigModule,
     TypeOrmModule.forFeature([
-      Department,
-      Station,
-      Room,
-      Bed,
-      Shift,
-      EmployeeShift,
       Organization,
       OrganizationType,
       OrganizationTypeAssignment,
@@ -124,6 +103,7 @@ import { EmployeeShiftsByEmployeeController } from './scheduling/controllers/emp
       EmployeeRequirementTag,
       EmployeeDocument,
       DocumentChunk,
+      OrganizationCompanyProfile,
       Employee,
       User,
       Referral,
@@ -154,21 +134,9 @@ import { EmployeeShiftsByEmployeeController } from './scheduling/controllers/emp
     InserviceQuizQuestionsController,
     InserviceQuizQuestionsOrgController,
     EmployeeInserviceController,
-    DepartmentsController,
-    StationsController,
-    RoomsController,
-    BedsController,
-    ShiftsController,
-    EmployeeShiftsController,
-    EmployeeShiftsByEmployeeController,
+    OrganizationCompanyProfileController,
   ],
   providers: [
-    DepartmentService,
-    StationService,
-    RoomService,
-    BedService,
-    ShiftService,
-    EmployeeShiftService,
     OrganizationsService,
     OrganizationRoleService,
     OrganizationPermissionService,
@@ -188,6 +156,8 @@ import { EmployeeShiftsByEmployeeController } from './scheduling/controllers/emp
     EmployeeDocumentStorageService,
     EmployeeDocumentAccessGuard,
     EmployeeDocumentTypeAccessGuard,
+    OrganizationCompanyProfileService,
+    CompanyProfileStorageService,
     OrganizationRepository,
     ReferralRepository,
     OrganizationRoleGuard,

@@ -144,14 +144,7 @@ export class BedsController {
   ) {
     const userId = req.user?.userId ?? req.user?.sub;
     if (!userId) throw new UnauthorizedException('User ID not found');
-    await this.bedService.remove(
-      organizationId,
-      departmentId,
-      stationId,
-      roomId,
-      bedId,
-      userId,
-    );
+    await this.bedService.remove(organizationId, departmentId, stationId, roomId, bedId, userId);
     return SuccessHelper.createSuccessResponse(null, 'Bed deleted');
   }
 }

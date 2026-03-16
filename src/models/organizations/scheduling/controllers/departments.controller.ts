@@ -85,12 +85,7 @@ export class DepartmentsController {
   ) {
     const userId = req.user?.userId ?? req.user?.sub;
     if (!userId) throw new UnauthorizedException('User ID not found');
-    const data = await this.departmentService.update(
-      organizationId,
-      departmentId,
-      dto,
-      userId,
-    );
+    const data = await this.departmentService.update(organizationId, departmentId, dto, userId);
     return SuccessHelper.createSuccessResponse(data);
   }
 
