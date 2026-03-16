@@ -224,15 +224,51 @@ export class OrganizationCompanyProfileService {
     };
   }
 
+  /**
+   * Load profile using raw query (only columns from base migration).
+   * Use when entity columns (e.g. fax, cover_images) are missing in DB so findOne() would throw.
+   */
+  private async getByOrganizationIdRaw(
+    organizationId: string,
+  ): Promise<OrganizationCompanyProfile | null> {
+    const baseColumns =
+      'id, organization_id, company_name, logo, cover_image, organization_type, description, phone, email, website, address, business_hours, service_area, coverage_radius, selected_services, licenses, certifications, gallery, videos, packages, specialty_services, accepted_insurance, amenities, room_types, equipment_catalog, transport_types, availability_status, rating, review_count, reviews, created_at, updated_at';
+    const rows = await this.profileRepository.query(
+      `SELECT ${baseColumns} FROM organization_company_profiles WHERE organization_id = $1 LIMIT 1`,
+      [organizationId],
+    );
+    const row = rows[0];
+    if (!row) return null;
+    const profile: OrganizationCompanyProfile = {
+      ...row,
+      cover_images: [],
+      fax: null,
+    } as OrganizationCompanyProfile;
+    return profile;
+  }
+
   async getByOrganizationId(
     organizationId: string,
     userId: string,
   ): Promise<CompanyProfileResponse | null> {
     try {
       await this.ensureAccess(organizationId, userId);
-      const profile = await this.profileRepository.findOne({
-        where: { organization_id: organizationId },
-      });
+      let profile: OrganizationCompanyProfile | null = null;
+      try {
+        profile = await this.profileRepository.findOne({
+          where: { organization_id: organizationId },
+        });
+      } catch (findError: any) {
+        const msg = findError?.message ?? String(findError);
+        if (msg.includes('column') && (msg.includes('does not exist') || msg.includes('undefined'))) {
+          this.logger.warn(
+            `getByOrganizationId: entity column missing in DB, using raw fallback. ${msg}`,
+          );
+          profile = await this.getByOrganizationIdRaw(organizationId);
+        } else {
+          throw findError;
+        }
+      }
       if (!profile) return null;
       return this.mapProfileToResponse(profile, organizationId, false);
     } catch (error) {
@@ -249,9 +285,22 @@ export class OrganizationCompanyProfileService {
   /** Get profile for public view (no auth); returns null if not found. Media URLs use public-media path. */
   async getPublicByOrganizationId(organizationId: string): Promise<CompanyProfileResponse | null> {
     try {
-      const profile = await this.profileRepository.findOne({
-        where: { organization_id: organizationId },
-      });
+      let profile: OrganizationCompanyProfile | null = null;
+      try {
+        profile = await this.profileRepository.findOne({
+          where: { organization_id: organizationId },
+        });
+      } catch (findError: any) {
+        const msg = findError?.message ?? String(findError);
+        if (msg.includes('column') && (msg.includes('does not exist') || msg.includes('undefined'))) {
+          this.logger.warn(
+            `getPublicByOrganizationId: entity column missing in DB, using raw fallback. ${msg}`,
+          );
+          profile = await this.getByOrganizationIdRaw(organizationId);
+        } else {
+          throw findError;
+        }
+      }
       if (!profile) return null;
       return this.mapProfileToResponse(profile, organizationId, true);
     } catch (error) {
