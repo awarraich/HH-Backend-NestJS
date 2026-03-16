@@ -30,6 +30,7 @@ import { AddApplicationFormFieldsToOrganizations20260314000000 } from './2026031
 import { AddCommentStatusForModeration20260315000000 } from './20260315000000-add-comment-status-for-moderation.js';
 import { CreateOrganizationCompanyProfilesTable20260317000000 } from './20260317000000-create-organization-company-profiles-table.js';
 import { AddFaxCoverImagesToCompanyProfile20260318000000 } from './20260318000000-add-fax-cover-images-to-company-profile.js';
+import { UniqueCompanyNameCompanyProfile20260319000000 } from './20260319000000-unique-company-name-company-profile.js';
 
 /** Type for migration class constructors (TypeORM instantiates these at runtime). */
 type MigrationConstructor = new () => MigrationInterface;
@@ -70,4 +71,5 @@ export const migrations: MigrationConstructor[] = [
   AddCommentStatusForModeration20260315000000,
   CreateOrganizationCompanyProfilesTable20260317000000,
   AddFaxCoverImagesToCompanyProfile20260318000000,
+  UniqueCompanyNameCompanyProfile20260319000000,
 ];

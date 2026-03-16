@@ -27,11 +27,17 @@ import { UpdateOrganizationCompanyProfileDto } from '../dto/update-organization-
 export class OrganizationCompanyProfileController {
   constructor(private readonly companyProfileService: OrganizationCompanyProfileService) {}
 
-  /** Public profile (no auth); for public profile page. Media URLs use public-media path. */
+  /** Public profile (no auth); for public profile page. :organizationId can be UUID or slug (URL-friendly name). */
   @Get('public')
   @HttpCode(HttpStatus.OK)
   async getPublic(@Param('organizationId') organizationId: string) {
-    const data = await this.companyProfileService.getPublicByOrganizationId(organizationId);
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        organizationId,
+      );
+    const data = isUuid
+      ? await this.companyProfileService.getPublicByOrganizationId(organizationId)
+      : await this.companyProfileService.getPublicBySlug(organizationId);
     return SuccessHelper.createSuccessResponse(data);
   }
 

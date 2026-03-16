@@ -1,4 +1,10 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+  BadRequestException,
+  ConflictException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { randomUUID } from 'crypto';
@@ -226,6 +232,33 @@ export class OrganizationCompanyProfileService {
     return this.mapProfileToResponse(profile, organizationId, true);
   }
 
+  /** Normalize company name to URL slug: lowercase, replace non-alphanumeric with hyphen, trim. */
+  private static slugify(name: string | null | undefined): string {
+    if (name == null || typeof name !== 'string') return '';
+    return name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
+
+  /** Get profile for public view by slug (URL-friendly name). Returns null if not found. */
+  async getPublicBySlug(slug: string): Promise<CompanyProfileResponse | null> {
+    if (!slug || typeof slug !== 'string') return null;
+    const normalizedSlug = OrganizationCompanyProfileService.slugify(slug);
+    if (!normalizedSlug) return null;
+    const profiles = await this.profileRepository
+      .createQueryBuilder('p')
+      .where(
+        "TRIM(BOTH '-' FROM LOWER(TRIM(REGEXP_REPLACE(COALESCE(p.company_name, ''), '[^a-z0-9]+', '-', 'gi')))) = :slug",
+        { slug: normalizedSlug },
+      )
+      .getMany();
+    const profile = profiles[0] ?? null;
+    if (!profile) return null;
+    return this.mapProfileToResponse(profile, profile.organization_id, true);
+  }
+
   /** Normalize amenities from DB: may be legacy string[] or object[]. */
   private normalizeAmenitiesFromDb(
     raw: OrganizationCompanyProfile['amenities'],
@@ -348,6 +381,23 @@ export class OrganizationCompanyProfileService {
     }
 
     if (dto.company_name !== undefined) profile.company_name = dto.company_name;
+    const companyNameTrimmed = profile.company_name?.trim() ?? '';
+    if (!companyNameTrimmed) {
+      throw new BadRequestException('Company name is required.');
+    }
+    const existingWithSameName = await this.profileRepository
+      .createQueryBuilder('p')
+      .where('p.organization_id != :organizationId', { organizationId })
+      .andWhere(
+        "TRIM(BOTH '-' FROM LOWER(TRIM(REGEXP_REPLACE(COALESCE(p.company_name, ''), '[^a-z0-9]+', '-', 'gi')))) = :norm",
+        { norm: OrganizationCompanyProfileService.slugify(profile.company_name) },
+      )
+      .getOne();
+    if (existingWithSameName) {
+      throw new ConflictException(
+        'Another organization already uses this company name. Company names must be unique.',
+      );
+    }
     if (dto.logo !== undefined) profile.logo = dto.logo;
     if (dto.cover_image !== undefined) profile.cover_image = dto.cover_image;
     if (dto.organization_type !== undefined) profile.organization_type = dto.organization_type;
