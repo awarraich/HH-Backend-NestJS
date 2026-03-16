@@ -102,7 +102,12 @@ export class CompanyProfileStorageService {
         const contentType = response.ContentType ?? this.guessContentType(fileName);
         return { stream: response.Body as NodeJS.ReadableStream, contentType };
       } catch (err: unknown) {
-        if (err && typeof err === 'object' && 'name' in err && (err as { name: string }).name === 'NoSuchKey') {
+        if (
+          err &&
+          typeof err === 'object' &&
+          'name' in err &&
+          (err as { name: string }).name === 'NoSuchKey'
+        ) {
           throw new NotFoundException('File not found in storage');
         }
         if (err instanceof HttpException) throw err;
