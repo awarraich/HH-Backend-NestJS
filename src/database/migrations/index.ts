@@ -31,6 +31,7 @@ import { AddCommentStatusForModeration20260315000000 } from './20260315000000-ad
 import { CreateSchedulingTables20260316000000 } from './20260316000000-create-scheduling-tables.js';
 import { AddDepartmentsStationsRoomsChairsAndEmployeeShiftChair20260316100000 } from './20260316100000-add-departments-stations-rooms-chairs-and-employee-shift-chair.js';
 import { CreateOrganizationCompanyProfilesTable20260317000000 } from './20260317000000-create-organization-company-profiles-table.js';
+import { AddFaxCoverImagesToCompanyProfile20260318000000 } from './20260318000000-add-fax-cover-images-to-company-profile.js';
 import { UniqueCompanyNameCompanyProfile20260319000000 } from './20260319000000-unique-company-name-company-profile.js';
 
 /** Type for migration class constructors (TypeORM instantiates these at runtime). */
@@ -73,5 +74,6 @@ export const migrations: MigrationConstructor[] = [
   CreateSchedulingTables20260316000000,
   AddDepartmentsStationsRoomsChairsAndEmployeeShiftChair20260316100000,
   CreateOrganizationCompanyProfilesTable20260317000000,
+  AddFaxCoverImagesToCompanyProfile20260318000000,
   UniqueCompanyNameCompanyProfile20260319000000,
 ];

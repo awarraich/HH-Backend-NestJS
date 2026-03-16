@@ -295,7 +295,9 @@ export class OrganizationCompanyProfileService {
         try {
           profile = await this.getByOrganizationIdRaw(organizationId);
         } catch (rawError) {
-          this.logger.warn(`getByOrganizationId: raw fallback failed. ${rawError instanceof Error ? rawError.message : rawError}`);
+          this.logger.warn(
+            `getByOrganizationId: raw fallback failed. ${rawError instanceof Error ? rawError.message : rawError}`,
+          );
           return null;
         }
       }
@@ -326,7 +328,9 @@ export class OrganizationCompanyProfileService {
         try {
           profile = await this.getByOrganizationIdRaw(organizationId);
         } catch (rawError) {
-          this.logger.warn(`getPublicByOrganizationId: raw fallback failed. ${rawError instanceof Error ? rawError.message : rawError}`);
+          this.logger.warn(
+            `getPublicByOrganizationId: raw fallback failed. ${rawError instanceof Error ? rawError.message : rawError}`,
+          );
           return null;
         }
       }
@@ -372,7 +376,9 @@ export class OrganizationCompanyProfileService {
       try {
         profile = await this.getPublicBySlugRaw(normalizedSlug);
       } catch (rawError) {
-        this.logger.warn(`getPublicBySlug: raw fallback failed. ${rawError instanceof Error ? rawError.message : rawError}`);
+        this.logger.warn(
+          `getPublicBySlug: raw fallback failed. ${rawError instanceof Error ? rawError.message : rawError}`,
+        );
         return null;
       }
     }
@@ -517,15 +523,15 @@ export class OrganizationCompanyProfileService {
     if (!companyNameTrimmed) {
       throw new BadRequestException('Company name is required.');
     }
-    const existingWithSameName = await this.profileRepository
-      .createQueryBuilder('p')
-      .where('p.organization_id != :organizationId', { organizationId })
-      .andWhere(
-        "TRIM(BOTH '-' FROM LOWER(TRIM(REGEXP_REPLACE(COALESCE(p.company_name, ''), '[^a-z0-9]+', '-', 'gi')))) = :norm",
-        { norm: OrganizationCompanyProfileService.slugify(profile.company_name) },
-      )
-      .getOne();
-    if (existingWithSameName) {
+    const slugNorm = OrganizationCompanyProfileService.slugify(profile.company_name);
+    const duplicateRows = await this.profileRepository.query(
+      `SELECT id FROM organization_company_profiles
+       WHERE organization_id != $1
+       AND TRIM(BOTH '-' FROM LOWER(TRIM(REGEXP_REPLACE(COALESCE(company_name, ''), '[^a-z0-9]+', '-', 'gi')))) = $2
+       LIMIT 1`,
+      [organizationId, slugNorm],
+    );
+    if (duplicateRows.length > 0) {
       throw new ConflictException(
         'Another organization already uses this company name. Company names must be unique.',
       );
@@ -582,8 +588,19 @@ export class OrganizationCompanyProfileService {
       profile.videos = this.mergeVideos(profile.videos ?? [], dto.videos);
     }
 
-    const saved = await this.profileRepository.save(profile);
-    return this.mapProfileToResponse(saved, organizationId, false);
+    try {
+      const saved = await this.profileRepository.save(profile);
+      return this.mapProfileToResponse(saved, organizationId, false);
+    } catch (saveError: unknown) {
+      const msg = saveError instanceof Error ? saveError.message : String(saveError);
+      if (msg.includes('column') && (msg.includes('does not exist') || msg.includes('undefined'))) {
+        this.logger.warn(`upsert: save failed (missing column). Run migration 20260318. ${msg}`);
+        throw new BadRequestException(
+          'Company profile could not be saved. The database may need an update. Please try again later or contact support.',
+        );
+      }
+      throw saveError;
+    }
   }
 
   async uploadGalleryImage(
@@ -625,7 +642,20 @@ export class OrganizationCompanyProfileService {
     }
     const gallery = [...(profile.gallery ?? []), { id, file_path, caption, category }];
     profile.gallery = gallery;
-    await this.profileRepository.save(profile);
+    try {
+      await this.profileRepository.save(profile);
+    } catch (saveError: unknown) {
+      const msg = saveError instanceof Error ? saveError.message : String(saveError);
+      if (msg.includes('column') && (msg.includes('does not exist') || msg.includes('undefined'))) {
+        this.logger.warn(
+          `uploadGalleryImage: save failed (missing column). Run migration 20260318. ${msg}`,
+        );
+        throw new BadRequestException(
+          'Upload could not be saved. The database may need an update. Please try again later or contact support.',
+        );
+      }
+      throw saveError;
+    }
     const url = this.buildMediaPath(organizationId, 'gallery', id);
     return { id, url };
   }
@@ -678,7 +708,20 @@ export class OrganizationCompanyProfileService {
       },
     ];
     profile.videos = videos;
-    await this.profileRepository.save(profile);
+    try {
+      await this.profileRepository.save(profile);
+    } catch (saveError: unknown) {
+      const msg = saveError instanceof Error ? saveError.message : String(saveError);
+      if (msg.includes('column') && (msg.includes('does not exist') || msg.includes('undefined'))) {
+        this.logger.warn(
+          `uploadVideo: save failed (missing column). Run migration 20260318. ${msg}`,
+        );
+        throw new BadRequestException(
+          'Upload could not be saved. The database may need an update. Please try again later or contact support.',
+        );
+      }
+      throw saveError;
+    }
     const url = this.buildMediaPath(organizationId, 'video', id);
     return { id, url };
   }
