@@ -647,7 +647,9 @@ export class OrganizationCompanyProfileService {
     } catch (saveError: unknown) {
       const msg = saveError instanceof Error ? saveError.message : String(saveError);
       if (msg.includes('column') && (msg.includes('does not exist') || msg.includes('undefined'))) {
-        this.logger.warn(`uploadGalleryImage: save failed (missing column). Run migration 20260318. ${msg}`);
+        this.logger.warn(
+          `uploadGalleryImage: save failed (missing column). Run migration 20260318. ${msg}`,
+        );
         throw new BadRequestException(
           'Upload could not be saved. The database may need an update. Please try again later or contact support.',
         );
@@ -711,7 +713,9 @@ export class OrganizationCompanyProfileService {
     } catch (saveError: unknown) {
       const msg = saveError instanceof Error ? saveError.message : String(saveError);
       if (msg.includes('column') && (msg.includes('does not exist') || msg.includes('undefined'))) {
-        this.logger.warn(`uploadVideo: save failed (missing column). Run migration 20260318. ${msg}`);
+        this.logger.warn(
+          `uploadVideo: save failed (missing column). Run migration 20260318. ${msg}`,
+        );
         throw new BadRequestException(
           'Upload could not be saved. The database may need an update. Please try again later or contact support.',
         );
