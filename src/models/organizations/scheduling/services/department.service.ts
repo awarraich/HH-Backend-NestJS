@@ -61,7 +61,11 @@ export class DepartmentService {
     return department;
   }
 
-  async create(organizationId: string, dto: CreateDepartmentDto, userId: string): Promise<Department> {
+  async create(
+    organizationId: string,
+    dto: CreateDepartmentDto,
+    userId: string,
+  ): Promise<Department> {
     await this.ensureAccess(organizationId, userId);
     const department = this.departmentRepository.create({
       organization_id: organizationId,

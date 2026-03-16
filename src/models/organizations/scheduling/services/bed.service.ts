@@ -72,9 +72,7 @@ export class BedService {
     const { page = 1, limit = 20, is_active } = query;
     const skip = (page - 1) * limit;
 
-    const qb = this.bedRepository
-      .createQueryBuilder('b')
-      .where('b.room_id = :roomId', { roomId });
+    const qb = this.bedRepository.createQueryBuilder('b').where('b.room_id = :roomId', { roomId });
 
     if (is_active !== undefined) {
       qb.andWhere('b.is_active = :is_active', { is_active });
@@ -130,14 +128,7 @@ export class BedService {
     userId: string,
   ): Promise<Bed> {
     await this.ensureAccess(organizationId, userId);
-    const bed = await this.findOne(
-      organizationId,
-      departmentId,
-      stationId,
-      roomId,
-      bedId,
-      userId,
-    );
+    const bed = await this.findOne(organizationId, departmentId, stationId, roomId, bedId, userId);
     if (dto.bed_number !== undefined) bed.bed_number = dto.bed_number;
     if (dto.is_active !== undefined) bed.is_active = dto.is_active;
     return this.bedRepository.save(bed);
@@ -152,14 +143,7 @@ export class BedService {
     userId: string,
   ): Promise<void> {
     await this.ensureAccess(organizationId, userId);
-    const bed = await this.findOne(
-      organizationId,
-      departmentId,
-      stationId,
-      roomId,
-      bedId,
-      userId,
-    );
+    const bed = await this.findOne(organizationId, departmentId, stationId, roomId, bedId, userId);
     await this.bedRepository.remove(bed);
   }
 }

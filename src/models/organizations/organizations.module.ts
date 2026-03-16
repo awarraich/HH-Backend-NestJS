@@ -66,6 +66,10 @@ import { InserviceQuizQuestionService } from './hr-files-setup/services/inservic
 import { InserviceQuizQuestion } from './hr-files-setup/entities/inservice-quiz-question.entity';
 import { InserviceCompletion } from './hr-files-setup/entities/inservice-completion.entity';
 import { InserviceQuizAttempt } from './hr-files-setup/entities/inservice-quiz-attempt.entity';
+import { OrganizationCompanyProfile } from './company-profile-setup/entities/organization-company-profile.entity';
+import { OrganizationCompanyProfileService } from './company-profile-setup/services/organization-company-profile.service';
+import { CompanyProfileStorageService } from './company-profile-setup/services/company-profile-storage.service';
+import { OrganizationCompanyProfileController } from './company-profile-setup/controllers/organization-company-profile.controller';
 import { EmployeeDocumentAccessGuard } from '../../common/guards/employee-document-access.guard';
 import { EmployeeDocumentTypeAccessGuard } from '../../common/guards/employee-document-type-access.guard';
 import { EmbeddingModule } from '../../common/services/embedding/embedding.module';
@@ -128,6 +132,7 @@ import { EmployeeShiftsByEmployeeController } from './scheduling/controllers/emp
       EmployeeRequirementTag,
       EmployeeDocument,
       DocumentChunk,
+      OrganizationCompanyProfile,
       Employee,
       User,
       Referral,
@@ -158,6 +163,7 @@ import { EmployeeShiftsByEmployeeController } from './scheduling/controllers/emp
     InserviceQuizQuestionsController,
     InserviceQuizQuestionsOrgController,
     EmployeeInserviceController,
+    OrganizationCompanyProfileController,
     DepartmentsController,
     StationsController,
     RoomsController,
@@ -194,6 +200,8 @@ import { EmployeeShiftsByEmployeeController } from './scheduling/controllers/emp
     EmployeeDocumentStorageService,
     EmployeeDocumentAccessGuard,
     EmployeeDocumentTypeAccessGuard,
+    OrganizationCompanyProfileService,
+    CompanyProfileStorageService,
     OrganizationRepository,
     ReferralRepository,
     OrganizationRoleGuard,

@@ -1,4 +1,4 @@
-import { IsUUID, IsNotEmpty, IsOptional, IsString, IsDateString, MaxLength } from 'class-validator';
+import { IsUUID, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class CreateEmployeeShiftDto {
   @IsNotEmpty()

@@ -10,6 +10,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Organization } from '../entities/organization.entity';
 import { OrganizationProfile } from '../entities/organization-profile.entity';
+import { OrganizationCompanyProfile } from '../company-profile-setup/entities/organization-company-profile.entity';
 import { OrganizationTypeAssignment } from '../entities/organization-type-assignment.entity';
 import { OrganizationType } from '../entities/organization-type.entity';
 import { OrganizationRepository } from '../repositories/organization.repository';
@@ -40,6 +41,8 @@ export class OrganizationsService {
     private organizationTypeAssignmentRepository: Repository<OrganizationTypeAssignment>,
     @InjectRepository(OrganizationType)
     private organizationTypeRepository: Repository<OrganizationType>,
+    @InjectRepository(OrganizationCompanyProfile)
+    private companyProfileRepository: Repository<OrganizationCompanyProfile>,
     private dataSource: DataSource,
     private auditLogService: AuditLogService,
     private organizationPermissionService: OrganizationPermissionService,
@@ -179,27 +182,51 @@ export class OrganizationsService {
   }
 
   async findMyOrganization(userId: string): Promise<any> {
-    const organization = await this.organizationRepository.findByUserId(userId);
-    if (organization) {
-      return this.organizationSerializer.serialize(organization);
+    let organization = await this.organizationRepository.findByUserId(userId);
+    if (!organization) {
+      const staffOrgs = await this.organizationRepository.findOrganizationsByStaffUserId(userId);
+      if (staffOrgs.length === 0) {
+        throw new NotFoundException('You do not have an organization');
+      }
+      organization = staffOrgs[0];
     }
-    const staffOrgs = await this.organizationRepository.findOrganizationsByStaffUserId(userId);
-    if (staffOrgs.length === 0) {
-      throw new NotFoundException('You do not have an organization');
-    }
-    return this.organizationSerializer.serialize(staffOrgs[0]);
+    return this.mergeCompanyProfileIntoSerialized(organization);
   }
 
   async findMyOrganizations(userId: string): Promise<{ organization: any; isOwner: boolean }[]> {
     const owned = await this.organizationRepository.findByUserId(userId);
     if (owned) {
-      return [{ organization: this.organizationSerializer.serialize(owned), isOwner: true }];
+      const serialized = await this.mergeCompanyProfileIntoSerialized(owned);
+      return [{ organization: serialized, isOwner: true }];
     }
     const staffOrgs = await this.organizationRepository.findOrganizationsByStaffUserId(userId);
-    return staffOrgs.map((org) => ({
-      organization: this.organizationSerializer.serialize(org),
-      isOwner: false,
-    }));
+    const result = await Promise.all(
+      staffOrgs.map(async (org) => ({
+        organization: await this.mergeCompanyProfileIntoSerialized(org),
+        isOwner: false,
+      })),
+    );
+    return result;
+  }
+
+  /** Merge company profile display fields (name, website, description) into serialized organization for my-organization response. */
+  private async mergeCompanyProfileIntoSerialized(organization: Organization): Promise<any> {
+    const result = this.organizationSerializer.serialize(organization);
+    try {
+      const companyProfile = await this.companyProfileRepository.findOne({
+        where: { organization_id: organization.id },
+        select: ['company_name', 'website', 'description'],
+      });
+      if (companyProfile) {
+        if (companyProfile.company_name?.trim())
+          result.organization_name = companyProfile.company_name.trim();
+        if (companyProfile.website != null) result.website = companyProfile.website;
+        if (companyProfile.description != null) result.description = companyProfile.description;
+      }
+    } catch {
+      // Return serialized org without company profile merge (e.g. if company_profile table unavailable)
+    }
+    return result;
   }
 
   async findForReferralSelection(

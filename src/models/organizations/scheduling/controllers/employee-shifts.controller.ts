@@ -5,7 +5,6 @@ import {
   Delete,
   Body,
   Param,
-  Query,
   UseGuards,
   Request,
   HttpCode,
@@ -19,7 +18,6 @@ import { Roles } from '../../../../common/decorators/roles.decorator';
 import { SuccessHelper } from '../../../../common/helpers/responses/success.helper';
 import { EmployeeShiftService } from '../services/employee-shift.service';
 import { UpdateEmployeeShiftDto } from '../dto/update-employee-shift.dto';
-import { QueryEmployeeShiftsByEmployeeDto } from '../dto/query-employee-shifts-by-employee.dto';
 
 type RequestWithUser = FastifyRequest & { user?: { userId?: string; sub?: string } };
 
@@ -38,11 +36,7 @@ export class EmployeeShiftsController {
   ) {
     const userId = req.user?.userId ?? req.user?.sub;
     if (!userId) throw new UnauthorizedException('User ID not found');
-    const data = await this.employeeShiftService.findOne(
-      organizationId,
-      employeeShiftId,
-      userId,
-    );
+    const data = await this.employeeShiftService.findOne(organizationId, employeeShiftId, userId);
     return SuccessHelper.createSuccessResponse(data);
   }
 

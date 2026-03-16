@@ -89,12 +89,7 @@ export class ShiftsController {
   ) {
     const userId = req.user?.userId ?? req.user?.sub;
     if (!userId) throw new UnauthorizedException('User ID not found');
-    const data = await this.employeeShiftService.create(
-      organizationId,
-      shiftId,
-      dto,
-      userId,
-    );
+    const data = await this.employeeShiftService.create(organizationId, shiftId, dto, userId);
     return SuccessHelper.createSuccessResponse(data);
   }
 
@@ -134,12 +129,7 @@ export class ShiftsController {
   ) {
     const userId = req.user?.userId ?? req.user?.sub;
     if (!userId) throw new UnauthorizedException('User ID not found');
-    const data = await this.shiftService.update(
-      organizationId,
-      shiftId,
-      dto,
-      userId,
-    );
+    const data = await this.shiftService.update(organizationId, shiftId, dto, userId);
     return SuccessHelper.createSuccessResponse(data);
   }
 
