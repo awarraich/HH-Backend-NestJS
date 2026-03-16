@@ -4,6 +4,9 @@ import {
   ForbiddenException,
   BadRequestException,
   ConflictException,
+  InternalServerErrorException,
+  HttpException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -87,6 +90,8 @@ export type CompanyProfileResponse = {
 
 @Injectable()
 export class OrganizationCompanyProfileService {
+  private readonly logger = new Logger(OrganizationCompanyProfileService.name);
+
   constructor(
     @InjectRepository(OrganizationCompanyProfile)
     private readonly profileRepository: Repository<OrganizationCompanyProfile>,
@@ -142,26 +147,29 @@ export class OrganizationCompanyProfileService {
     const mediaPath = usePublicMedia
       ? this.buildPublicMediaPath.bind(this)
       : this.buildMediaPath.bind(this);
-    const gallery = (profile.gallery ?? []).map((item: GalleryItemStored) => ({
-      id: item.id,
-      url: item.file_path ? mediaPath(organizationId, 'gallery', item.id) : (item.url ?? ''),
-      caption: item.caption ?? '',
-      category: item.category ?? '',
+    const galleryRaw = Array.isArray(profile.gallery) ? profile.gallery : [];
+    const gallery = galleryRaw.map((item: GalleryItemStored) => ({
+      id: item?.id ?? '',
+      url: item?.file_path ? mediaPath(organizationId, 'gallery', item.id) : (item?.url ?? ''),
+      caption: item?.caption ?? '',
+      category: item?.category ?? '',
     }));
-    const videos = (profile.videos ?? []).map((item: VideoItemStored) => ({
-      id: item.id,
-      url: item.file_path ? mediaPath(organizationId, 'video', item.id) : (item.url ?? ''),
-      title: item.title,
-      thumbnail: item.thumbnail,
-      description: item.description,
-      duration: item.duration,
-      category: item.category,
+    const videosRaw = Array.isArray(profile.videos) ? profile.videos : [];
+    const videos = videosRaw.map((item: VideoItemStored) => ({
+      id: item?.id ?? '',
+      url: item?.file_path ? mediaPath(organizationId, 'video', item.id) : (item?.url ?? ''),
+      title: item?.title ?? '',
+      thumbnail: item?.thumbnail,
+      description: item?.description,
+      duration: item?.duration,
+      category: item?.category,
     }));
-    const coverImagesRaw = (profile.cover_images as string[] | undefined)?.length
-      ? (profile.cover_images as string[])
-      : profile.cover_image
-        ? [profile.cover_image]
-        : [];
+    const coverImagesRaw =
+      Array.isArray(profile.cover_images) && profile.cover_images.length > 0
+        ? profile.cover_images
+        : profile.cover_image
+          ? [profile.cover_image]
+          : [];
     const coverImages = usePublicMedia
       ? coverImagesRaw.map((p) => this.toPublicMediaPath(p) ?? p)
       : coverImagesRaw;
@@ -202,9 +210,14 @@ export class OrganizationCompanyProfileService {
       availability_status: profile.availability_status,
       rating: profile.rating != null ? Number(profile.rating) : null,
       review_count: profile.review_count ?? null,
-      reviews: (profile.reviews ?? []).map((r) => ({
-        ...r,
-        replied_at: r.replied_at,
+      reviews: (Array.isArray(profile.reviews) ? profile.reviews : []).map((r: any) => ({
+        id: r?.id ?? '',
+        author: r?.author ?? '',
+        rating: r?.rating ?? 0,
+        text: r?.text ?? '',
+        date: r?.date ?? '',
+        reply: r?.reply,
+        replied_at: r?.replied_at ?? r?.repliedAt,
       })),
       created_at: profile.created_at,
       updated_at: profile.updated_at,
@@ -215,21 +228,38 @@ export class OrganizationCompanyProfileService {
     organizationId: string,
     userId: string,
   ): Promise<CompanyProfileResponse | null> {
-    await this.ensureAccess(organizationId, userId);
-    const profile = await this.profileRepository.findOne({
-      where: { organization_id: organizationId },
-    });
-    if (!profile) return null;
-    return this.mapProfileToResponse(profile, organizationId, false);
+    try {
+      await this.ensureAccess(organizationId, userId);
+      const profile = await this.profileRepository.findOne({
+        where: { organization_id: organizationId },
+      });
+      if (!profile) return null;
+      return this.mapProfileToResponse(profile, organizationId, false);
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      this.logger.error(`getByOrganizationId failed: ${error instanceof Error ? error.message : error}`);
+      throw new InternalServerErrorException(
+        'Failed to load company profile. Please try again later.',
+      );
+    }
   }
 
   /** Get profile for public view (no auth); returns null if not found. Media URLs use public-media path. */
   async getPublicByOrganizationId(organizationId: string): Promise<CompanyProfileResponse | null> {
-    const profile = await this.profileRepository.findOne({
-      where: { organization_id: organizationId },
-    });
-    if (!profile) return null;
-    return this.mapProfileToResponse(profile, organizationId, true);
+    try {
+      const profile = await this.profileRepository.findOne({
+        where: { organization_id: organizationId },
+      });
+      if (!profile) return null;
+      return this.mapProfileToResponse(profile, organizationId, true);
+    } catch (error) {
+      this.logger.error(
+        `getPublicByOrganizationId failed: ${error instanceof Error ? error.message : error}`,
+      );
+      throw new InternalServerErrorException(
+        'Failed to load public profile. Please try again later.',
+      );
+    }
   }
 
   /** Normalize company name to URL slug: lowercase, replace non-alphanumeric with hyphen, trim. */
@@ -244,19 +274,26 @@ export class OrganizationCompanyProfileService {
 
   /** Get profile for public view by slug (URL-friendly name). Returns null if not found. */
   async getPublicBySlug(slug: string): Promise<CompanyProfileResponse | null> {
-    if (!slug || typeof slug !== 'string') return null;
-    const normalizedSlug = OrganizationCompanyProfileService.slugify(slug);
-    if (!normalizedSlug) return null;
-    const profiles = await this.profileRepository
-      .createQueryBuilder('p')
-      .where(
-        "TRIM(BOTH '-' FROM LOWER(TRIM(REGEXP_REPLACE(COALESCE(p.company_name, ''), '[^a-z0-9]+', '-', 'gi')))) = :slug",
-        { slug: normalizedSlug },
-      )
-      .getMany();
-    const profile = profiles[0] ?? null;
-    if (!profile) return null;
-    return this.mapProfileToResponse(profile, profile.organization_id, true);
+    try {
+      if (!slug || typeof slug !== 'string') return null;
+      const normalizedSlug = OrganizationCompanyProfileService.slugify(slug);
+      if (!normalizedSlug) return null;
+      const profiles = await this.profileRepository
+        .createQueryBuilder('p')
+        .where(
+          "TRIM(BOTH '-' FROM LOWER(TRIM(REGEXP_REPLACE(COALESCE(p.company_name, ''), '[^a-z0-9]+', '-', 'gi')))) = :slug",
+          { slug: normalizedSlug },
+        )
+        .getMany();
+      const profile = profiles[0] ?? null;
+      if (!profile) return null;
+      return this.mapProfileToResponse(profile, profile.organization_id, true);
+    } catch (error) {
+      this.logger.error(`getPublicBySlug failed: ${error instanceof Error ? error.message : error}`);
+      throw new InternalServerErrorException(
+        'Failed to load public profile. Please try again later.',
+      );
+    }
   }
 
   /** Normalize amenities from DB: may be legacy string[] or object[]. */
@@ -535,22 +572,28 @@ export class OrganizationCompanyProfileService {
     fileId: string,
     userId: string,
   ): Promise<{ stream: NodeJS.ReadableStream; contentType: string; file_name: string }> {
-    await this.ensureAccess(organizationId, userId);
-    const profile = await this.profileRepository.findOne({
-      where: { organization_id: organizationId },
-    });
-    if (!profile) throw new NotFoundException('Company profile not found');
-    const list = type === 'gallery' ? (profile.gallery ?? []) : (profile.videos ?? []);
-    const item = list.find((x: { id: string; file_path?: string }) => x.id === fileId);
-    if (!item?.file_path) {
-      throw new NotFoundException(`${type} item not found or not an uploaded file`);
+    try {
+      await this.ensureAccess(organizationId, userId);
+      const profile = await this.profileRepository.findOne({
+        where: { organization_id: organizationId },
+      });
+      if (!profile) throw new NotFoundException('Company profile not found');
+      const list = type === 'gallery' ? (profile.gallery ?? []) : (profile.videos ?? []);
+      const item = list.find((x: { id: string; file_path?: string }) => x.id === fileId);
+      if (!item?.file_path) {
+        throw new NotFoundException(`${type} item not found or not an uploaded file`);
+      }
+      const fileName = item.file_path.split('/').pop() ?? 'file';
+      const { stream, contentType } = await this.storageService.getFileStream(
+        item.file_path,
+        fileName,
+      );
+      return { stream, contentType, file_name: fileName };
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      this.logger.error(`getMediaStream failed: ${error instanceof Error ? error.message : error}`);
+      throw new InternalServerErrorException('Failed to load media. Please try again later.');
     }
-    const fileName = item.file_path.split('/').pop() ?? 'file';
-    const { stream, contentType } = await this.storageService.getFileStream(
-      item.file_path,
-      fileName,
-    );
-    return { stream, contentType, file_name: fileName };
   }
 
   /** Serve media for public view (e.g. embedded image/video); no auth. */
@@ -559,20 +602,28 @@ export class OrganizationCompanyProfileService {
     type: 'gallery' | 'video',
     fileId: string,
   ): Promise<{ stream: NodeJS.ReadableStream; contentType: string; file_name: string }> {
-    const profile = await this.profileRepository.findOne({
-      where: { organization_id: organizationId },
-    });
-    if (!profile) throw new NotFoundException('Company profile not found');
-    const list = type === 'gallery' ? (profile.gallery ?? []) : (profile.videos ?? []);
-    const item = list.find((x: { id: string; file_path?: string }) => x.id === fileId);
-    if (!item?.file_path) {
-      throw new NotFoundException(`${type} item not found or not an uploaded file`);
+    try {
+      const profile = await this.profileRepository.findOne({
+        where: { organization_id: organizationId },
+      });
+      if (!profile) throw new NotFoundException('Company profile not found');
+      const list = type === 'gallery' ? (profile.gallery ?? []) : (profile.videos ?? []);
+      const item = list.find((x: { id: string; file_path?: string }) => x.id === fileId);
+      if (!item?.file_path) {
+        throw new NotFoundException(`${type} item not found or not an uploaded file`);
+      }
+      const fileName = item.file_path.split('/').pop() ?? 'file';
+      const { stream, contentType } = await this.storageService.getFileStream(
+        item.file_path,
+        fileName,
+      );
+      return { stream, contentType, file_name: fileName };
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      this.logger.error(
+        `getMediaStreamPublic failed: ${error instanceof Error ? error.message : error}`,
+      );
+      throw new InternalServerErrorException('Failed to load media. Please try again later.');
     }
-    const fileName = item.file_path.split('/').pop() ?? 'file';
-    const { stream, contentType } = await this.storageService.getFileStream(
-      item.file_path,
-      fileName,
-    );
-    return { stream, contentType, file_name: fileName };
   }
 }
