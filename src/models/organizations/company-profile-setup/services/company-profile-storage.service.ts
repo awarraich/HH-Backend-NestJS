@@ -66,9 +66,7 @@ export class CompanyProfileStorageService {
       return this.saveToLocal(buffer, relativePath, originalFilename);
     } catch (error) {
       if (error instanceof HttpException) throw error;
-      throw new InternalServerErrorException(
-        'Failed to save video. Please try again later.',
-      );
+      throw new InternalServerErrorException('Failed to save video. Please try again later.');
     }
   }
 

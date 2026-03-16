@@ -237,7 +237,9 @@ export class OrganizationCompanyProfileService {
       return this.mapProfileToResponse(profile, organizationId, false);
     } catch (error) {
       if (error instanceof HttpException) throw error;
-      this.logger.error(`getByOrganizationId failed: ${error instanceof Error ? error.message : error}`);
+      this.logger.error(
+        `getByOrganizationId failed: ${error instanceof Error ? error.message : error}`,
+      );
       throw new InternalServerErrorException(
         'Failed to load company profile. Please try again later.',
       );
@@ -289,7 +291,9 @@ export class OrganizationCompanyProfileService {
       if (!profile) return null;
       return this.mapProfileToResponse(profile, profile.organization_id, true);
     } catch (error) {
-      this.logger.error(`getPublicBySlug failed: ${error instanceof Error ? error.message : error}`);
+      this.logger.error(
+        `getPublicBySlug failed: ${error instanceof Error ? error.message : error}`,
+      );
       throw new InternalServerErrorException(
         'Failed to load public profile. Please try again later.',
       );
