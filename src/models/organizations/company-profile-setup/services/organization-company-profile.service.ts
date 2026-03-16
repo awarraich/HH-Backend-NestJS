@@ -210,41 +210,72 @@ export class OrganizationCompanyProfileService {
       availability_status: profile.availability_status,
       rating: profile.rating != null ? Number(profile.rating) : null,
       review_count: profile.review_count ?? null,
-      reviews: (Array.isArray(profile.reviews) ? profile.reviews : []).map((r: any) => ({
-        id: r?.id ?? '',
-        author: r?.author ?? '',
-        rating: r?.rating ?? 0,
-        text: r?.text ?? '',
-        date: r?.date ?? '',
-        reply: r?.reply,
-        replied_at: r?.replied_at ?? r?.repliedAt,
-      })),
+      reviews: (Array.isArray(profile.reviews) ? profile.reviews : []).map(
+        (r: {
+          id?: string;
+          author?: string;
+          rating?: number;
+          text?: string;
+          date?: string;
+          reply?: string;
+          replied_at?: string;
+          repliedAt?: string;
+        }) => ({
+          id: r?.id ?? '',
+          author: r?.author ?? '',
+          rating: r?.rating ?? 0,
+          text: r?.text ?? '',
+          date: r?.date ?? '',
+          reply: r?.reply,
+          replied_at: r?.replied_at ?? r?.repliedAt,
+        }),
+      ),
       created_at: profile.created_at,
       updated_at: profile.updated_at,
     };
   }
 
+  private static readonly BASE_COLUMNS =
+    'id, organization_id, company_name, logo, cover_image, organization_type, description, phone, email, website, address, business_hours, service_area, coverage_radius, selected_services, licenses, certifications, gallery, videos, packages, specialty_services, accepted_insurance, amenities, room_types, equipment_catalog, transport_types, availability_status, rating, review_count, reviews, created_at, updated_at';
+
   /**
-   * Load profile using raw query (only columns from base migration).
+   * Load profile using raw query (only columns that always exist).
    * Use when entity columns (e.g. fax, cover_images) are missing in DB so findOne() would throw.
    */
   private async getByOrganizationIdRaw(
     organizationId: string,
   ): Promise<OrganizationCompanyProfile | null> {
-    const baseColumns =
-      'id, organization_id, company_name, logo, cover_image, organization_type, description, phone, email, website, address, business_hours, service_area, coverage_radius, selected_services, licenses, certifications, gallery, videos, packages, specialty_services, accepted_insurance, amenities, room_types, equipment_catalog, transport_types, availability_status, rating, review_count, reviews, created_at, updated_at';
     const rows = await this.profileRepository.query(
-      `SELECT ${baseColumns} FROM organization_company_profiles WHERE organization_id = $1 LIMIT 1`,
+      `SELECT ${OrganizationCompanyProfileService.BASE_COLUMNS} FROM organization_company_profiles WHERE organization_id = $1 LIMIT 1`,
       [organizationId],
     );
     const row = rows[0];
     if (!row) return null;
-    const profile: OrganizationCompanyProfile = {
+    return {
       ...row,
       cover_images: [],
       fax: null,
     } as OrganizationCompanyProfile;
-    return profile;
+  }
+
+  /**
+   * Same as getByOrganizationIdRaw but match by URL slug (normalized company_name).
+   * Uses only base columns so it works when fax/cover_images are missing.
+   */
+  private async getPublicBySlugRaw(slug: string): Promise<OrganizationCompanyProfile | null> {
+    const rows = await this.profileRepository.query(
+      `SELECT ${OrganizationCompanyProfileService.BASE_COLUMNS} FROM organization_company_profiles
+       WHERE TRIM(BOTH '-' FROM LOWER(TRIM(REGEXP_REPLACE(COALESCE(company_name, ''), '[^a-z0-9]+', '-', 'gi')))) = $1
+       LIMIT 1`,
+      [slug],
+    );
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      ...row,
+      cover_images: [],
+      fax: null,
+    } as OrganizationCompanyProfile;
   }
 
   async getByOrganizationId(
@@ -258,15 +289,14 @@ export class OrganizationCompanyProfileService {
         profile = await this.profileRepository.findOne({
           where: { organization_id: organizationId },
         });
-      } catch (findError: any) {
-        const msg = findError?.message ?? String(findError);
-        if (msg.includes('column') && (msg.includes('does not exist') || msg.includes('undefined'))) {
-          this.logger.warn(
-            `getByOrganizationId: entity column missing in DB, using raw fallback. ${msg}`,
-          );
+      } catch (findError: unknown) {
+        const msg = findError instanceof Error ? findError.message : String(findError);
+        this.logger.warn(`getByOrganizationId: findOne failed, trying raw fallback. ${msg}`);
+        try {
           profile = await this.getByOrganizationIdRaw(organizationId);
-        } else {
-          throw findError;
+        } catch (rawError) {
+          this.logger.warn(`getByOrganizationId: raw fallback failed. ${rawError instanceof Error ? rawError.message : rawError}`);
+          return null;
         }
       }
       if (!profile) return null;
@@ -290,26 +320,24 @@ export class OrganizationCompanyProfileService {
         profile = await this.profileRepository.findOne({
           where: { organization_id: organizationId },
         });
-      } catch (findError: any) {
-        const msg = findError?.message ?? String(findError);
-        if (msg.includes('column') && (msg.includes('does not exist') || msg.includes('undefined'))) {
-          this.logger.warn(
-            `getPublicByOrganizationId: entity column missing in DB, using raw fallback. ${msg}`,
-          );
+      } catch (findError: unknown) {
+        const msg = findError instanceof Error ? findError.message : String(findError);
+        this.logger.warn(`getPublicByOrganizationId: findOne failed, trying raw fallback. ${msg}`);
+        try {
           profile = await this.getByOrganizationIdRaw(organizationId);
-        } else {
-          throw findError;
+        } catch (rawError) {
+          this.logger.warn(`getPublicByOrganizationId: raw fallback failed. ${rawError instanceof Error ? rawError.message : rawError}`);
+          return null;
         }
       }
       if (!profile) return null;
       return this.mapProfileToResponse(profile, organizationId, true);
     } catch (error) {
+      if (error instanceof HttpException) throw error;
       this.logger.error(
         `getPublicByOrganizationId failed: ${error instanceof Error ? error.message : error}`,
       );
-      throw new InternalServerErrorException(
-        'Failed to load public profile. Please try again later.',
-      );
+      return null;
     }
   }
 
@@ -323,12 +351,13 @@ export class OrganizationCompanyProfileService {
       .replace(/^-+|-+$/g, '');
   }
 
-  /** Get profile for public view by slug (URL-friendly name). Returns null if not found. */
+  /** Get profile for public view by slug (URL-friendly name). Returns null if not found. Never throws 500. */
   async getPublicBySlug(slug: string): Promise<CompanyProfileResponse | null> {
+    if (!slug || typeof slug !== 'string') return null;
+    const normalizedSlug = OrganizationCompanyProfileService.slugify(slug);
+    if (!normalizedSlug) return null;
+    let profile: OrganizationCompanyProfile | null = null;
     try {
-      if (!slug || typeof slug !== 'string') return null;
-      const normalizedSlug = OrganizationCompanyProfileService.slugify(slug);
-      if (!normalizedSlug) return null;
       const profiles = await this.profileRepository
         .createQueryBuilder('p')
         .where(
@@ -336,17 +365,19 @@ export class OrganizationCompanyProfileService {
           { slug: normalizedSlug },
         )
         .getMany();
-      const profile = profiles[0] ?? null;
-      if (!profile) return null;
-      return this.mapProfileToResponse(profile, profile.organization_id, true);
-    } catch (error) {
-      this.logger.error(
-        `getPublicBySlug failed: ${error instanceof Error ? error.message : error}`,
-      );
-      throw new InternalServerErrorException(
-        'Failed to load public profile. Please try again later.',
-      );
+      profile = profiles[0] ?? null;
+    } catch (findError: unknown) {
+      const msg = findError instanceof Error ? findError.message : String(findError);
+      this.logger.warn(`getPublicBySlug: query failed, trying raw fallback. ${msg}`);
+      try {
+        profile = await this.getPublicBySlugRaw(normalizedSlug);
+      } catch (rawError) {
+        this.logger.warn(`getPublicBySlug: raw fallback failed. ${rawError instanceof Error ? rawError.message : rawError}`);
+        return null;
+      }
     }
+    if (!profile) return null;
+    return this.mapProfileToResponse(profile, profile.organization_id, true);
   }
 
   /** Normalize amenities from DB: may be legacy string[] or object[]. */
@@ -457,9 +488,18 @@ export class OrganizationCompanyProfileService {
     userId: string,
   ): Promise<CompanyProfileResponse> {
     await this.ensureAccess(organizationId, userId);
-    let profile = await this.profileRepository.findOne({
-      where: { organization_id: organizationId },
-    });
+    let profile: OrganizationCompanyProfile | null = null;
+    try {
+      profile = await this.profileRepository.findOne({
+        where: { organization_id: organizationId },
+      });
+    } catch {
+      try {
+        profile = await this.getByOrganizationIdRaw(organizationId);
+      } catch {
+        profile = null;
+      }
+    }
     if (!profile) {
       profile = this.profileRepository.create({
         organization_id: organizationId,
@@ -467,6 +507,8 @@ export class OrganizationCompanyProfileService {
         videos: [],
         packages: [],
         reviews: [],
+        cover_images: [],
+        fax: null,
       });
     }
 
@@ -558,9 +600,18 @@ export class OrganizationCompanyProfileService {
       organizationId,
     );
     const id = randomUUID();
-    let profile = await this.profileRepository.findOne({
-      where: { organization_id: organizationId },
-    });
+    let profile: OrganizationCompanyProfile | null = null;
+    try {
+      profile = await this.profileRepository.findOne({
+        where: { organization_id: organizationId },
+      });
+    } catch {
+      try {
+        profile = await this.getByOrganizationIdRaw(organizationId);
+      } catch {
+        profile = null;
+      }
+    }
     if (!profile) {
       profile = this.profileRepository.create({
         organization_id: organizationId,
@@ -568,6 +619,8 @@ export class OrganizationCompanyProfileService {
         videos: [],
         packages: [],
         reviews: [],
+        cover_images: [],
+        fax: null,
       });
     }
     const gallery = [...(profile.gallery ?? []), { id, file_path, caption, category }];
@@ -590,9 +643,18 @@ export class OrganizationCompanyProfileService {
       organizationId,
     );
     const id = randomUUID();
-    let profile = await this.profileRepository.findOne({
-      where: { organization_id: organizationId },
-    });
+    let profile: OrganizationCompanyProfile | null = null;
+    try {
+      profile = await this.profileRepository.findOne({
+        where: { organization_id: organizationId },
+      });
+    } catch {
+      try {
+        profile = await this.getByOrganizationIdRaw(organizationId);
+      } catch {
+        profile = null;
+      }
+    }
     if (!profile) {
       profile = this.profileRepository.create({
         organization_id: organizationId,
@@ -600,6 +662,8 @@ export class OrganizationCompanyProfileService {
         videos: [],
         packages: [],
         reviews: [],
+        cover_images: [],
+        fax: null,
       });
     }
     const videos = [
@@ -627,9 +691,18 @@ export class OrganizationCompanyProfileService {
   ): Promise<{ stream: NodeJS.ReadableStream; contentType: string; file_name: string }> {
     try {
       await this.ensureAccess(organizationId, userId);
-      const profile = await this.profileRepository.findOne({
-        where: { organization_id: organizationId },
-      });
+      let profile: OrganizationCompanyProfile | null = null;
+      try {
+        profile = await this.profileRepository.findOne({
+          where: { organization_id: organizationId },
+        });
+      } catch {
+        try {
+          profile = await this.getByOrganizationIdRaw(organizationId);
+        } catch {
+          profile = null;
+        }
+      }
       if (!profile) throw new NotFoundException('Company profile not found');
       const list = type === 'gallery' ? (profile.gallery ?? []) : (profile.videos ?? []);
       const item = list.find((x: { id: string; file_path?: string }) => x.id === fileId);
@@ -645,7 +718,7 @@ export class OrganizationCompanyProfileService {
     } catch (error) {
       if (error instanceof HttpException) throw error;
       this.logger.error(`getMediaStream failed: ${error instanceof Error ? error.message : error}`);
-      throw new InternalServerErrorException('Failed to load media. Please try again later.');
+      throw new NotFoundException('Company profile or media not found.');
     }
   }
 
@@ -656,9 +729,18 @@ export class OrganizationCompanyProfileService {
     fileId: string,
   ): Promise<{ stream: NodeJS.ReadableStream; contentType: string; file_name: string }> {
     try {
-      const profile = await this.profileRepository.findOne({
-        where: { organization_id: organizationId },
-      });
+      let profile: OrganizationCompanyProfile | null = null;
+      try {
+        profile = await this.profileRepository.findOne({
+          where: { organization_id: organizationId },
+        });
+      } catch {
+        try {
+          profile = await this.getByOrganizationIdRaw(organizationId);
+        } catch {
+          profile = null;
+        }
+      }
       if (!profile) throw new NotFoundException('Company profile not found');
       const list = type === 'gallery' ? (profile.gallery ?? []) : (profile.videos ?? []);
       const item = list.find((x: { id: string; file_path?: string }) => x.id === fileId);
@@ -676,7 +758,7 @@ export class OrganizationCompanyProfileService {
       this.logger.error(
         `getMediaStreamPublic failed: ${error instanceof Error ? error.message : error}`,
       );
-      throw new InternalServerErrorException('Failed to load media. Please try again later.');
+      throw new NotFoundException('Company profile or media not found.');
     }
   }
 }

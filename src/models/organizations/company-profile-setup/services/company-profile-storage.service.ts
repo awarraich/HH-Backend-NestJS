@@ -101,20 +101,28 @@ export class CompanyProfileStorageService {
         }
         const contentType = response.ContentType ?? this.guessContentType(fileName);
         return { stream: response.Body as NodeJS.ReadableStream, contentType };
-      } catch (err: any) {
-        if (err?.name === 'NoSuchKey') {
+      } catch (err: unknown) {
+        if (err && typeof err === 'object' && 'name' in err && (err as { name: string }).name === 'NoSuchKey') {
           throw new NotFoundException('File not found in storage');
         }
-        throw err;
+        if (err instanceof HttpException) throw err;
+        throw new InternalServerErrorException(
+          'Failed to load file from storage. Please try again later.',
+        );
       }
     }
     const fullPath = this.getLocalFilePath(relativePath);
     if (!fullPath) {
       throw new NotFoundException('File not found in storage');
     }
-    const stream = fs.createReadStream(fullPath);
-    const contentType = this.guessContentType(fileName);
-    return { stream, contentType };
+    try {
+      const stream = fs.createReadStream(fullPath);
+      const contentType = this.guessContentType(fileName);
+      return { stream, contentType };
+    } catch (err: unknown) {
+      if (err instanceof HttpException) throw err;
+      throw new NotFoundException('File not found in storage');
+    }
   }
 
   private sanitizeFilename(name: string): string {
