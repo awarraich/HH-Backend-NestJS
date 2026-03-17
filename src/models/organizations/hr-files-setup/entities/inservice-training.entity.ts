@@ -35,17 +35,11 @@ export class InserviceTraining {
   @Column({ type: 'integer', nullable: true })
   expiry_months: number | null;
 
-  @Column({ type: 'varchar', length: 255, nullable: true })
-  pdf_file_name: string | null;
+  @Column({ type: 'jsonb', default: [] })
+  pdf_files: Array<{ file_name: string; file_path: string; file_size_bytes: number }>;
 
-  @Column({ type: 'varchar', length: 500, nullable: true })
-  pdf_file_path: string | null;
-
-  @Column({ type: 'bigint', nullable: true })
-  pdf_file_size_bytes: number | null;
-
-  @Column({ type: 'varchar', length: 2048, nullable: true })
-  video_url: string | null;
+  @Column({ type: 'jsonb', default: [] })
+  video_urls: string[];
 
   @Column({ type: 'integer', default: 0 })
   sort_order: number;

@@ -254,7 +254,7 @@ export class EmployeesService {
 
     const existingUser = await this.userRepository.findByEmail(dto.email);
     if (existingUser) {
-      throw new ConflictException('User with this email already exists. Use add-by-user-id flow.');
+      throw new ConflictException('User with this email already exists.');
     }
 
     let user: User;
@@ -302,7 +302,10 @@ export class EmployeesService {
         phone_number: dto.phone_number ?? null,
         gender: dto.gender ?? null,
         date_of_birth: dto.date_of_birth ? new Date(dto.date_of_birth) : null,
-        address: dto.address ?? null,
+        address_line_1: dto.address_line_1 ?? null,
+        address_line_2: dto.address_line_2 ?? null,
+        city: dto.city ?? null,
+        state: dto.state ?? null,
         specialization: dto.specialization ?? null,
         years_of_experience: dto.years_of_experience ?? null,
         certification: dto.certification ?? null,
@@ -961,7 +964,10 @@ export class EmployeesService {
           employee_id: employee.profile.employee_id,
           name: employee.profile.name,
           profile_image: employee.profile.profile_image,
-          address: employee.profile.address,
+          address_line_1: employee.profile.address_line_1,
+          address_line_2: employee.profile.address_line_2,
+          city: employee.profile.city,
+          state: employee.profile.state,
           phone_number: employee.profile.phone_number,
           gender: employee.profile.gender,
           age: employee.profile.age,

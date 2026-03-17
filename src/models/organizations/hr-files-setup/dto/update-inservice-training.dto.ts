@@ -8,7 +8,7 @@ import {
   IsIn,
   IsUrl,
   IsBoolean,
-  ValidateIf,
+  IsArray,
 } from 'class-validator';
 import { INSERVICE_COMPLETION_FREQUENCIES } from './create-inservice-training.dto';
 
@@ -28,11 +28,10 @@ export class UpdateInserviceTrainingDto {
   completion_frequency?: string;
 
   @IsOptional()
-  @ValidateIf((_o, v) => v != null && v !== '')
-  @IsString()
-  @IsUrl()
-  @MaxLength(2048)
-  video_url?: string | null;
+  @IsArray()
+  @IsUrl({}, { each: true })
+  @MaxLength(2048, { each: true })
+  video_urls?: string[];
 
   @IsOptional()
   @IsInt()

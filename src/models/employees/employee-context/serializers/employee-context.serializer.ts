@@ -52,7 +52,10 @@ export class EmployeeContextSerializer {
     employee_id: string;
     name: string;
     profile_image: string | null;
-    address: string | null;
+    address_line_1: string | null;
+    address_line_2: string | null;
+    city: string | null;
+    state: string | null;
     phone_number: string | null;
     gender: string | null;
     age: number | null;
@@ -71,7 +74,10 @@ export class EmployeeContextSerializer {
       employee_id: profile.employee_id,
       name: profile.name,
       profile_image: profile.profile_image,
-      address: profile.address,
+      address_line_1: profile.address_line_1,
+      address_line_2: profile.address_line_2,
+      city: profile.city,
+      state: profile.state,
       phone_number: profile.phone_number,
       gender: profile.gender,
       age: profile.age,

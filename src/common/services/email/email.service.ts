@@ -1,5 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
+import * as fs from 'fs';
+import * as path from 'path';
 import { EmailConfigService } from '../../../config/email/config.service';
 import { VerificationEmailTemplate } from './templates/verification-email.template';
 import { PasswordResetEmailTemplate } from './templates/password-reset-email.template';
@@ -14,6 +16,7 @@ import { OfferLetterEmailTemplate } from './templates/offer-letter-email.templat
 export class EmailService implements OnModuleInit {
   private readonly logger = new Logger(EmailService.name);
   private transporter: nodemailer.Transporter;
+  private logoBuffer: Buffer | null = null;
 
   constructor(private emailConfigService: EmailConfigService) {
     this.transporter = nodemailer.createTransport({
@@ -22,6 +25,28 @@ export class EmailService implements OnModuleInit {
       secure: this.emailConfigService.secure,
       auth: this.emailConfigService.auth,
     });
+    this.loadLogo();
+  }
+
+  private loadLogo(): void {
+    try {
+      const logoPath = path.join(process.cwd(), 'src', 'common', 'services', 'email', 'assets', 'logo-email.png');
+      this.logoBuffer = fs.readFileSync(logoPath);
+    } catch {
+      this.logger.warn('Could not load email logo from src/. Emails will be sent without logo.');
+    }
+  }
+
+  private get logoAttachment(): nodemailer.SendMailOptions['attachments'] {
+    if (!this.logoBuffer) return [];
+    return [
+      {
+        filename: 'logo.png',
+        content: this.logoBuffer,
+        contentType: 'image/png',
+        cid: 'logo@homehealth.ai',
+      },
+    ];
   }
 
   async onModuleInit(): Promise<void> {
@@ -86,6 +111,7 @@ export class EmailService implements OnModuleInit {
         subject: template.subject,
         html: template.html,
         text: template.text,
+        attachments: this.logoAttachment,
       };
 
       const info = await this.transporter.sendMail(mailOptions);
@@ -133,6 +159,7 @@ export class EmailService implements OnModuleInit {
         subject: template.subject,
         html: template.html,
         text: template.text,
+        attachments: this.logoAttachment,
       };
 
       const info = await this.transporter.sendMail(mailOptions);
@@ -184,6 +211,7 @@ export class EmailService implements OnModuleInit {
         subject: template.subject,
         html: template.html,
         text: template.text,
+        attachments: this.logoAttachment,
       };
 
       const info = await this.transporter.sendMail(mailOptions);
@@ -233,6 +261,7 @@ export class EmailService implements OnModuleInit {
         subject: template.subject,
         html: template.html,
         text: template.text,
+        attachments: this.logoAttachment,
       };
 
       await this.transporter.sendMail(mailOptions);
@@ -277,6 +306,7 @@ export class EmailService implements OnModuleInit {
         subject: template.subject,
         html: template.html,
         text: template.text,
+        attachments: this.logoAttachment,
       };
 
       await this.transporter.sendMail(mailOptions);
@@ -329,6 +359,7 @@ export class EmailService implements OnModuleInit {
         subject: template.subject,
         html: template.html,
         text: template.text,
+        attachments: this.logoAttachment,
       };
 
       const info = await this.transporter.sendMail(mailOptions);
@@ -379,6 +410,7 @@ export class EmailService implements OnModuleInit {
       subject: template.subject,
       html: template.html,
       text: template.text,
+      attachments: this.logoAttachment,
     };
     const info = await this.transporter.sendMail(mailOptions);
     this.logger.log(
@@ -419,6 +451,7 @@ export class EmailService implements OnModuleInit {
       subject: template.subject,
       html: template.html,
       text: template.text,
+      attachments: this.logoAttachment,
     };
     const info = await this.transporter.sendMail(mailOptions);
     this.logger.log(
