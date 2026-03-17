@@ -127,7 +127,8 @@ export class StationService {
       for (let i = 0; i < dto.rooms.length; i++) {
         const item = dto.rooms[i];
         const bedsCount = configType === 'BEDS' ? (item.beds ?? dto.default_beds_per_room ?? 0) : 0;
-        const chairsCount = configType === 'CHAIRS' ? (item.chairs ?? dto.default_chairs_per_room ?? 0) : 0;
+        const chairsCount =
+          configType === 'CHAIRS' ? (item.chairs ?? dto.default_chairs_per_room ?? 0) : 0;
         const room = await this.roomRepository.save(
           this.roomRepository.create({
             station_id: saved.id,
@@ -172,18 +173,22 @@ export class StationService {
     if (dto.name !== undefined) station.name = dto.name;
     if (dto.location !== undefined) station.location = dto.location;
     if (dto.code !== undefined) station.code = dto.code;
-    if (dto.required_charge_nurses !== undefined) station.required_charge_nurses = dto.required_charge_nurses;
+    if (dto.required_charge_nurses !== undefined)
+      station.required_charge_nurses = dto.required_charge_nurses;
     if (dto.required_cnas !== undefined) station.required_cnas = dto.required_cnas;
     if (dto.required_sitters !== undefined) station.required_sitters = dto.required_sitters;
-    if (dto.required_treatment_nurses !== undefined) station.required_treatment_nurses = dto.required_treatment_nurses;
+    if (dto.required_treatment_nurses !== undefined)
+      station.required_treatment_nurses = dto.required_treatment_nurses;
     if (dto.required_nps !== undefined) station.required_nps = dto.required_nps;
     if (dto.required_mds !== undefined) station.required_mds = dto.required_mds;
     if (dto.multi_station_am !== undefined) station.multi_station_am = dto.multi_station_am;
     if (dto.multi_station_pm !== undefined) station.multi_station_pm = dto.multi_station_pm;
     if (dto.multi_station_noc !== undefined) station.multi_station_noc = dto.multi_station_noc;
     if (dto.configuration_type !== undefined) station.configuration_type = dto.configuration_type;
-    if (dto.default_beds_per_room !== undefined) station.default_beds_per_room = dto.default_beds_per_room;
-    if (dto.default_chairs_per_room !== undefined) station.default_chairs_per_room = dto.default_chairs_per_room;
+    if (dto.default_beds_per_room !== undefined)
+      station.default_beds_per_room = dto.default_beds_per_room;
+    if (dto.default_chairs_per_room !== undefined)
+      station.default_chairs_per_room = dto.default_chairs_per_room;
     if (dto.custom_shift_times !== undefined) station.custom_shift_times = dto.custom_shift_times;
     if (dto.is_active !== undefined) station.is_active = dto.is_active;
     if (dto.sort_order !== undefined) station.sort_order = dto.sort_order;

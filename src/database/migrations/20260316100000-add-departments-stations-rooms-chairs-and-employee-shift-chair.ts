@@ -7,9 +7,7 @@ import {
   TableForeignKey,
 } from 'typeorm';
 
-export class AddDepartmentsStationsRoomsChairsAndEmployeeShiftChair20260316100000
-  implements MigrationInterface
-{
+export class AddDepartmentsStationsRoomsChairsAndEmployeeShiftChair20260316100000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.addColumn(
       'departments',
@@ -282,10 +280,7 @@ export class AddDepartmentsStationsRoomsChairsAndEmployeeShiftChair2026031610000
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.dropForeignKey(
-      'employee_shifts',
-      'fk_employee_shifts_chair_id',
-    );
+    await queryRunner.dropForeignKey('employee_shifts', 'fk_employee_shifts_chair_id');
     await queryRunner.dropColumn('employee_shifts', 'chair_id');
     await queryRunner.dropTable('chairs', true);
     await queryRunner.dropColumn('rooms', 'chairs_per_room');

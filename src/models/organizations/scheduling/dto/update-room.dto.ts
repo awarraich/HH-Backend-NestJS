@@ -1,11 +1,4 @@
-import {
-  IsString,
-  IsOptional,
-  IsBoolean,
-  IsInt,
-  MaxLength,
-  Min,
-} from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsInt, MaxLength, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class UpdateRoomDto {

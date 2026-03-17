@@ -68,11 +68,7 @@ export class EmployeeShiftService {
     },
   ): Promise<void> {
     const hasLocation =
-      dto.department_id ||
-      dto.station_id ||
-      dto.room_id ||
-      dto.bed_id ||
-      dto.chair_id;
+      dto.department_id || dto.station_id || dto.room_id || dto.bed_id || dto.chair_id;
     if (!hasLocation) return;
 
     if (dto.department_id) {
@@ -113,10 +109,7 @@ export class EmployeeShiftService {
         where: { id: dto.chair_id },
         relations: ['room', 'room.station', 'room.station.department'],
       });
-      if (
-        !chair ||
-        chair.room.station.department.organization_id !== organizationId
-      ) {
+      if (!chair || chair.room.station.department.organization_id !== organizationId) {
         throw new BadRequestException('Invalid chair for this organization');
       }
     }
