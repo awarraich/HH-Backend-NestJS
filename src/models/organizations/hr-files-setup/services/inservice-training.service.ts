@@ -25,6 +25,12 @@ export const INSERVICE_CONTENT_REQUIRED_MESSAGE =
 
 const MAX_PDF_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
 
+export interface PdfFileEntry {
+  file_name: string;
+  file_path: string;
+  file_size_bytes: number;
+}
+
 export interface InserviceTrainingResponse {
   id: string;
   organization_id: string;
@@ -33,10 +39,8 @@ export interface InserviceTrainingResponse {
   description: string | null;
   completion_frequency: string;
   expiry_months: number | null;
-  pdf_file_name: string | null;
-  pdf_file_path: string | null;
-  pdf_file_size_bytes: number | null;
-  video_url: string | null;
+  pdf_files: PdfFileEntry[];
+  video_urls: string[];
   sort_order: number;
   is_active: boolean;
   has_quiz: boolean;
@@ -86,12 +90,12 @@ export class InserviceTrainingService {
       description: inservice.description,
       completion_frequency: inservice.completion_frequency,
       expiry_months: inservice.expiry_months,
-      pdf_file_name: inservice.pdf_file_name,
-      pdf_file_path: inservice.pdf_file_path,
-      pdf_file_size_bytes: inservice.pdf_file_size_bytes
-        ? Number(inservice.pdf_file_size_bytes)
-        : null,
-      video_url: inservice.video_url,
+      pdf_files: (inservice.pdf_files ?? []).map((f) => ({
+        file_name: f.file_name,
+        file_path: f.file_path,
+        file_size_bytes: Number(f.file_size_bytes),
+      })),
+      video_urls: inservice.video_urls ?? [],
       sort_order: inservice.sort_order,
       is_active: inservice.is_active,
       has_quiz: inservice.has_quiz,
@@ -102,7 +106,7 @@ export class InserviceTrainingService {
   }
 
   private hasContent(inservice: InserviceTraining): boolean {
-    return !!(inservice.pdf_file_path || inservice.video_url);
+    return !!(inservice.pdf_files?.length || inservice.video_urls?.length);
   }
 
   async findAll(
@@ -198,18 +202,20 @@ export class InserviceTrainingService {
     organizationId: string,
     dto: CreateInserviceTrainingDto,
     userId: string,
-    file?: { buffer: Buffer; originalFilename: string },
+    files?: Array<{ buffer: Buffer; originalFilename: string }>,
   ): Promise<InserviceTrainingResponse> {
     await this.ensureAccess(organizationId, userId);
 
-    const hasVideo = !!dto.video_url?.trim();
-    const hasPdf = !!file?.buffer?.length;
-    if (!hasVideo && !hasPdf) {
+    const videoUrls = (dto.video_urls ?? []).map((u) => u.trim()).filter(Boolean);
+    const validFiles = (files ?? []).filter((f) => f.buffer?.length);
+    if (!videoUrls.length && !validFiles.length) {
       throw new BadRequestException(INSERVICE_CONTENT_REQUIRED_MESSAGE);
     }
 
-    if (file && file.buffer.length > MAX_PDF_SIZE_BYTES) {
-      throw new BadRequestException('PDF must be 50MB or less');
+    for (const f of validFiles) {
+      if (f.buffer.length > MAX_PDF_SIZE_BYTES) {
+        throw new BadRequestException('Each PDF must be 50MB or less');
+      }
     }
 
     const existing = await this.inserviceTrainingRepository.findOne({
@@ -231,31 +237,30 @@ export class InserviceTrainingService {
       description: dto.description ?? null,
       completion_frequency: dto.completion_frequency,
       expiry_months: expiryMonths,
-      video_url: dto.video_url?.trim() || null,
+      video_urls: videoUrls,
+      pdf_files: validFiles.length
+        ? [{ file_name: 'pending', file_path: 'pending', file_size_bytes: 0 }]
+        : [],
       sort_order: dto.sort_order ?? 0,
       is_active: true,
       has_quiz: dto.has_quiz ?? false,
       passing_score_percent: dto.passing_score_percent != null ? dto.passing_score_percent : null,
     });
 
-    // When we have a PDF we need to save first to get id, then upload. Use placeholder so DB CHECK passes.
-    if (hasPdf) {
-      inservice.pdf_file_path = 'pending';
-      inservice.pdf_file_name = file.originalFilename;
-    }
-
     const saved = await this.inserviceTrainingRepository.save(inservice);
 
-    if (hasPdf && file) {
-      const { file_name, file_path } = await this.storageService.saveInserviceDocument(
-        file.buffer,
-        file.originalFilename,
-        organizationId,
-        saved.id,
-      );
-      saved.pdf_file_name = file_name;
-      saved.pdf_file_path = file_path;
-      saved.pdf_file_size_bytes = file.buffer.length;
+    if (validFiles.length) {
+      const pdfFiles: PdfFileEntry[] = [];
+      for (const f of validFiles) {
+        const { file_name, file_path } = await this.storageService.saveInserviceDocument(
+          f.buffer,
+          f.originalFilename,
+          organizationId,
+          saved.id,
+        );
+        pdfFiles.push({ file_name, file_path, file_size_bytes: f.buffer.length });
+      }
+      saved.pdf_files = pdfFiles;
       await this.inserviceTrainingRepository.save(saved);
     }
 
@@ -267,7 +272,7 @@ export class InserviceTrainingService {
     id: string,
     dto: UpdateInserviceTrainingDto,
     userId: string,
-    file?: { buffer: Buffer; originalFilename: string },
+    files?: Array<{ buffer: Buffer; originalFilename: string }>,
   ): Promise<InserviceTrainingResponse> {
     await this.ensureAccess(organizationId, userId);
 
@@ -278,8 +283,11 @@ export class InserviceTrainingService {
       throw new NotFoundException('Inservice training not found');
     }
 
-    if (file?.buffer?.length && file.buffer.length > MAX_PDF_SIZE_BYTES) {
-      throw new BadRequestException('PDF must be 50MB or less');
+    const validFiles = (files ?? []).filter((f) => f.buffer?.length);
+    for (const f of validFiles) {
+      if (f.buffer.length > MAX_PDF_SIZE_BYTES) {
+        throw new BadRequestException('Each PDF must be 50MB or less');
+      }
     }
 
     if (dto.title !== undefined) inservice.title = dto.title;
@@ -289,9 +297,8 @@ export class InserviceTrainingService {
       const freq = dto.completion_frequency as InserviceCompletionFrequency;
       inservice.expiry_months = COMPLETION_FREQUENCY_EXPIRY_MONTHS[freq] ?? null;
     }
-    if (dto.video_url !== undefined) {
-      inservice.video_url =
-        dto.video_url === '' || dto.video_url === null ? null : dto.video_url.trim();
+    if (dto.video_urls !== undefined) {
+      inservice.video_urls = dto.video_urls.map((u) => u.trim()).filter(Boolean);
     }
     if (dto.sort_order !== undefined) inservice.sort_order = dto.sort_order;
     if (dto.is_active !== undefined) inservice.is_active = dto.is_active;
@@ -301,21 +308,21 @@ export class InserviceTrainingService {
         dto.passing_score_percent == null ? null : dto.passing_score_percent;
     }
 
-    if (file?.buffer?.length) {
-      const { file_name, file_path } = await this.storageService.saveInserviceDocument(
-        file.buffer,
-        file.originalFilename,
-        organizationId,
-        inservice.id,
-      );
-      inservice.pdf_file_name = file_name;
-      inservice.pdf_file_path = file_path;
-      inservice.pdf_file_size_bytes = file.buffer.length;
+    if (validFiles.length) {
+      const newEntries: PdfFileEntry[] = [];
+      for (const f of validFiles) {
+        const { file_name, file_path } = await this.storageService.saveInserviceDocument(
+          f.buffer,
+          f.originalFilename,
+          organizationId,
+          inservice.id,
+        );
+        newEntries.push({ file_name, file_path, file_size_bytes: f.buffer.length });
+      }
+      inservice.pdf_files = [...(inservice.pdf_files ?? []), ...newEntries];
     }
 
-    const hasPdf = !!inservice.pdf_file_path;
-    const hasVideo = !!inservice.video_url?.trim();
-    if (!hasPdf && !hasVideo) {
+    if (!inservice.pdf_files?.length && !inservice.video_urls?.length) {
       throw new BadRequestException(INSERVICE_CONTENT_REQUIRED_MESSAGE);
     }
 
@@ -336,19 +343,17 @@ export class InserviceTrainingService {
     await this.inserviceTrainingRepository.remove(inservice);
   }
 
-  /**
-   * Returns read stream and content type for inservice PDF. Throws if not found or no PDF.
-   */
   async getPdfStream(
     organizationId: string,
     id: string,
     userId: string,
+    fileIndex: number,
   ): Promise<{
     stream: NodeJS.ReadableStream;
     contentType: string;
     file_name: string;
   }> {
-    await this.ensureAccess(organizationId, userId);
+    // await this.ensureAccess(organizationId, userId);
 
     const inservice = await this.inserviceTrainingRepository.findOne({
       where: { id, organization_id: organizationId },
@@ -356,14 +361,20 @@ export class InserviceTrainingService {
     if (!inservice) {
       throw new NotFoundException('Inservice training not found');
     }
-    if (!inservice.pdf_file_path || !inservice.pdf_file_name) {
-      throw new NotFoundException('This inservice has no PDF document');
+
+    const files = inservice.pdf_files ?? [];
+    if (!files.length) {
+      throw new NotFoundException('This inservice has no PDF documents');
+    }
+    if (fileIndex < 0 || fileIndex >= files.length) {
+      throw new NotFoundException(`File index ${fileIndex} is out of range (0-${files.length - 1})`);
     }
 
+    const entry = files[fileIndex];
     const { stream, contentType } = await this.storageService.getFileStream(
-      inservice.pdf_file_path,
-      inservice.pdf_file_name,
+      entry.file_path,
+      entry.file_name,
     );
-    return { stream, contentType, file_name: inservice.pdf_file_name };
+    return { stream, contentType, file_name: entry.file_name };
   }
 }

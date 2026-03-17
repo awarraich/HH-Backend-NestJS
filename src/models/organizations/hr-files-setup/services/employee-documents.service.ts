@@ -2,7 +2,6 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
-  ConflictException,
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -47,7 +46,7 @@ export interface RequiredDocumentItem {
     category: string | null;
     sort_order: number;
   };
-  document: {
+  documents: Array<{
     id: string;
     file_name: string;
     file_path: string;
@@ -55,7 +54,7 @@ export interface RequiredDocumentItem {
     mime_type: string | null;
     extraction_status: string;
     created_at: Date;
-  } | null;
+  }>;
 }
 
 export type ExpirationStatusType = 'expired' | 'expiring_soon' | 'valid' | 'has_no_expiration_date';
@@ -179,32 +178,32 @@ export class EmployeeDocumentsService {
       },
     });
 
-    const docByTypeId = new Map(documents.map((d) => [d.document_type_id, d]));
+    const docsByTypeId = new Map<string, EmployeeDocument[]>();
+    for (const d of documents) {
+      const list = docsByTypeId.get(d.document_type_id) ?? [];
+      list.push(d);
+      docsByTypeId.set(d.document_type_id, list);
+    }
 
-    return docTypes.map((dt) => {
-      const d = docByTypeId.get(dt.id) ?? null;
-      return {
-        document_type: {
-          id: dt.id,
-          code: dt.code,
-          name: dt.name,
-          has_expiration: dt.has_expiration,
-          category: dt.category,
-          sort_order: dt.sort_order,
-        },
-        document: d
-          ? {
-              id: d.id,
-              file_name: d.file_name,
-              file_path: d.file_path,
-              file_size_bytes: d.file_size_bytes,
-              mime_type: d.mime_type,
-              extraction_status: d.extraction_status,
-              created_at: d.created_at,
-            }
-          : null,
-      };
-    });
+    return docTypes.map((dt) => ({
+      document_type: {
+        id: dt.id,
+        code: dt.code,
+        name: dt.name,
+        has_expiration: dt.has_expiration,
+        category: dt.category,
+        sort_order: dt.sort_order,
+      },
+      documents: (docsByTypeId.get(dt.id) ?? []).map((d) => ({
+        id: d.id,
+        file_name: d.file_name,
+        file_path: d.file_path,
+        file_size_bytes: d.file_size_bytes,
+        mime_type: d.mime_type,
+        extraction_status: d.extraction_status,
+        created_at: d.created_at,
+      })),
+    }));
   }
 
   async getDocumentTypesByEmployeeTags(
@@ -244,32 +243,32 @@ export class EmployeeDocumentsService {
         deleted_at: IsNull(),
       },
     });
-    const docByTypeId = new Map(documents.map((d) => [d.document_type_id, d]));
+    const docsByTypeId = new Map<string, EmployeeDocument[]>();
+    for (const d of documents) {
+      const list = docsByTypeId.get(d.document_type_id) ?? [];
+      list.push(d);
+      docsByTypeId.set(d.document_type_id, list);
+    }
 
-    return docTypes.map((dt) => {
-      const d = docByTypeId.get(dt.id) ?? null;
-      return {
-        document_type: {
-          id: dt.id,
-          code: dt.code,
-          name: dt.name,
-          has_expiration: dt.has_expiration,
-          category: dt.category,
-          sort_order: dt.sort_order,
-        },
-        document: d
-          ? {
-              id: d.id,
-              file_name: d.file_name,
-              file_path: d.file_path,
-              file_size_bytes: d.file_size_bytes,
-              mime_type: d.mime_type,
-              extraction_status: d.extraction_status,
-              created_at: d.created_at,
-            }
-          : null,
-      };
-    });
+    return docTypes.map((dt) => ({
+      document_type: {
+        id: dt.id,
+        code: dt.code,
+        name: dt.name,
+        has_expiration: dt.has_expiration,
+        category: dt.category,
+        sort_order: dt.sort_order,
+      },
+      documents: (docsByTypeId.get(dt.id) ?? []).map((d) => ({
+        id: d.id,
+        file_name: d.file_name,
+        file_path: d.file_path,
+        file_size_bytes: d.file_size_bytes,
+        mime_type: d.mime_type,
+        extraction_status: d.extraction_status,
+        created_at: d.created_at,
+      })),
+    }));
   }
 
   async getInserviceTrainingsByEmployeeTags(
@@ -285,10 +284,8 @@ export class EmployeeDocumentsService {
       description: string | null;
       completion_frequency: string;
       expiry_months: number | null;
-      pdf_file_name: string | null;
-      pdf_file_path: string | null;
-      pdf_file_size_bytes: number | null;
-      video_url: string | null;
+      pdf_files: Array<{ file_name: string; file_path: string; file_size_bytes: number }>;
+      video_urls: string[];
       sort_order: number;
       is_active: boolean;
       has_quiz: boolean;
@@ -344,10 +341,12 @@ export class EmployeeDocumentsService {
         description: it.description,
         completion_frequency: it.completion_frequency,
         expiry_months: it.expiry_months,
-        pdf_file_name: it.pdf_file_name,
-        pdf_file_path: it.pdf_file_path,
-        pdf_file_size_bytes: it.pdf_file_size_bytes ? Number(it.pdf_file_size_bytes) : null,
-        video_url: it.video_url,
+        pdf_files: (it.pdf_files ?? []).map((f) => ({
+          file_name: f.file_name,
+          file_path: f.file_path,
+          file_size_bytes: Number(f.file_size_bytes),
+        })),
+        video_urls: it.video_urls ?? [],
         sort_order: it.sort_order,
         is_active: it.is_active,
         has_quiz: it.has_quiz,
@@ -670,6 +669,52 @@ export class EmployeeDocumentsService {
     return this.employeeDocumentRepository.save(doc);
   }
 
+  async replaceFile(
+    organizationId: string,
+    employeeId: string,
+    documentId: string,
+    file: { buffer: Buffer; originalFilename: string; mimeType?: string },
+    userId: string,
+  ): Promise<EmployeeDocument> {
+    await this.ensureDocumentAccess(organizationId, employeeId, userId);
+
+    const doc = await this.employeeDocumentRepository.findOne({
+      where: {
+        id: documentId,
+        organization_id: organizationId,
+        employee_id: employeeId,
+        deleted_at: IsNull(),
+      },
+    });
+    if (!doc) {
+      throw new NotFoundException('Document not found');
+    }
+
+    const { file_name, file_path } = await this.storageService.saveEmployeeDocument(
+      file.buffer,
+      file.originalFilename,
+      organizationId,
+      employeeId,
+    );
+
+    doc.file_name = file_name;
+    doc.file_path = file_path;
+    doc.file_size_bytes = file.buffer.length;
+    doc.mime_type = file.mimeType ?? null;
+    doc.uploaded_by = userId;
+    doc.extracted_text = null;
+    doc.extraction_status = 'pending';
+    doc.extraction_error = null;
+
+    const saved = await this.employeeDocumentRepository.save(doc);
+
+    this.runExtractionAndChunking(saved.id).catch((err) => {
+      this.logger.warn(`Extraction failed for document ${saved.id}`, err);
+    });
+
+    return saved;
+  }
+
   async upload(
     organizationId: string,
     employeeId: string,
@@ -704,19 +749,6 @@ export class EmployeeDocumentsService {
     });
     if (!docType) {
       throw new NotFoundException('Document type not found');
-    }
-
-    const existing = await this.employeeDocumentRepository.findOne({
-      where: {
-        employee_id: employeeId,
-        document_type_id: documentTypeId,
-        deleted_at: IsNull(),
-      },
-    });
-    if (existing) {
-      throw new ConflictException(
-        'A document of this type already exists for this employee. Delete it first to replace.',
-      );
     }
 
     const { file_name, file_path } = await this.storageService.saveEmployeeDocument(

@@ -33,14 +33,13 @@ import { AddDepartmentsStationsRoomsChairsAndEmployeeShiftChair20260316100000 } 
 import { CreateOrganizationCompanyProfilesTable20260317000000 } from './20260317000000-create-organization-company-profiles-table.js';
 import { AddFaxCoverImagesToCompanyProfile20260318000000 } from './20260318000000-add-fax-cover-images-to-company-profile.js';
 import { UniqueCompanyNameCompanyProfile20260319000000 } from './20260319000000-unique-company-name-company-profile.js';
+import { AllowMultipleDocsPerType20260319100000 } from './20260319100000-allow-multiple-docs-per-type.js';
+import { ConvertVideoUrlToVideoUrlsJsonb20260319200000 } from './20260319200000-convert-video-url-to-video-urls-jsonb.js';
+import { ConvertPdfColumnsToPdfFilesJsonb20260319300000 } from './20260319300000-convert-pdf-columns-to-pdf-files-jsonb.js';
+import { SplitAddressIntoStructuredFields20260319400000 } from './20260319400000-split-address-into-structured-fields.js';
 
-/** Type for migration class constructors (TypeORM instantiates these at runtime). */
 type MigrationConstructor = new () => MigrationInterface;
 
-/**
- * All migrations in run order. Used by TypeORM at startup when DB_MIGRATIONS_RUN=true
- * so that migration files are part of the app bundle and always run.
- */
 export const migrations: MigrationConstructor[] = [
   CreateUsersTable20260101000000,
   AddGoogleIdToUsers20260128060000,
@@ -76,4 +75,8 @@ export const migrations: MigrationConstructor[] = [
   CreateOrganizationCompanyProfilesTable20260317000000,
   AddFaxCoverImagesToCompanyProfile20260318000000,
   UniqueCompanyNameCompanyProfile20260319000000,
+  AllowMultipleDocsPerType20260319100000,
+  ConvertVideoUrlToVideoUrlsJsonb20260319200000,
+  ConvertPdfColumnsToPdfFilesJsonb20260319300000,
+  SplitAddressIntoStructuredFields20260319400000,
 ];

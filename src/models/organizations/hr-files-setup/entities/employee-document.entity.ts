@@ -15,10 +15,6 @@ import { HrDocumentType } from './hr-document-type.entity';
 import { User } from '../../../../authentication/entities/user.entity';
 import { DocumentChunk } from './document-chunk.entity';
 
-/**
- * Uniqueness of (employee_id, document_type_id) for non-deleted rows is
- * enforced by a partial unique index in migration 20260227100003.
- */
 @Entity('employee_documents')
 @Index(['organization_id'])
 @Index(['employee_id'])

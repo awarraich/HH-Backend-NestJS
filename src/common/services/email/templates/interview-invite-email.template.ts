@@ -48,8 +48,13 @@ export class InterviewInviteEmailTemplate {
             <td style="height: 4px; background: linear-gradient(90deg, #2563eb 0%, #0ea5e9 100%);"></td>
           </tr>
           <tr>
-            <td style="padding: 32px 40px;">
-              <h1 style="margin: 0 0 8px 0; color: #111827; font-size: 22px; font-weight: 700;">Interview scheduled</h1>
+            <td align="center" style="padding: 32px 40px 0 40px;">
+              <img src="cid:logo@homehealth.ai" alt="HomeHealth.AI" width="64" height="64" style="display: block; width: 64px; height: 64px;" />
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 24px 40px 0 40px;">
+              <h1 style="margin: 0 0 8px 0; color: #111827; font-size: 22px; font-weight: 700; text-align: center;">Interview scheduled</h1>
               <p style="margin: 0 0 24px 0; color: #6b7280; font-size: 15px;">Hello ${escapeHtml(applicantName)},</p>
               <p style="margin: 0 0 16px 0; color: #374151; font-size: 16px; line-height: 1.6;">
                 You have been scheduled for an interview for the position of <strong>${escapeHtml(jobTitle)}</strong>.

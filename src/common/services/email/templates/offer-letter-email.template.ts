@@ -68,8 +68,13 @@ export class OfferLetterEmailTemplate {
             <td style="height: 4px; background: linear-gradient(90deg, #16a34a 0%, #22c55e 100%);"></td>
           </tr>
           <tr>
-            <td style="padding: 32px 40px;">
-              <h1 style="margin: 0 0 8px 0; color: #111827; font-size: 22px; font-weight: 700;">Offer letter</h1>
+            <td align="center" style="padding: 32px 40px 0 40px;">
+              <img src="cid:logo@homehealth.ai" alt="HomeHealth.AI" width="64" height="64" style="display: block; width: 64px; height: 64px;" />
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 24px 40px 0 40px;">
+              <h1 style="margin: 0 0 8px 0; color: #111827; font-size: 22px; font-weight: 700; text-align: center;">Offer letter</h1>
               <p style="margin: 0 0 24px 0; color: #6b7280; font-size: 15px;">Hello ${escapeHtml(applicantName)},</p>
               <p style="margin: 0 0 16px 0; color: #374151; font-size: 16px; line-height: 1.6;">
                 We are pleased to extend an offer for the position of <strong>${escapeHtml(jobTitle)}</strong>.

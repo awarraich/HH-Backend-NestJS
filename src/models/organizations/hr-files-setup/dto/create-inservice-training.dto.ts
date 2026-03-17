@@ -9,6 +9,7 @@ import {
   IsIn,
   IsUrl,
   IsBoolean,
+  IsArray,
 } from 'class-validator';
 
 export const INSERVICE_COMPLETION_FREQUENCIES = ['one_time', 'annual', 'quarterly'] as const;
@@ -44,10 +45,10 @@ export class CreateInserviceTrainingDto {
   completion_frequency: InserviceCompletionFrequency;
 
   @IsOptional()
-  @IsString()
-  @IsUrl()
-  @MaxLength(2048)
-  video_url?: string;
+  @IsArray()
+  @IsUrl({}, { each: true })
+  @MaxLength(2048, { each: true })
+  video_urls?: string[];
 
   @IsOptional()
   @IsInt()

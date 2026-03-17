@@ -22,7 +22,23 @@ export class UpdateEmployeeProfileDto {
 
   @IsOptional()
   @IsString()
-  address?: string;
+  @MaxLength(255)
+  address_line_1?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  address_line_2?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  state?: string;
 
   @IsOptional()
   @IsString()

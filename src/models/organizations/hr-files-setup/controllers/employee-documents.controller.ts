@@ -213,10 +213,15 @@ export class EmployeeDocumentsController {
         documentId,
         user.userId,
       );
-    const safeName = (file_name ?? 'document').replace(/["\\]/g, '_');
+    const rawName = file_name ?? 'document';
+    const safeName = rawName.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_');
+    const encodedName = encodeURIComponent(rawName);
     return reply
       .header('Content-Type', contentType)
-      .header('Content-Disposition', `attachment; filename="${safeName}"`)
+      .header(
+        'Content-Disposition',
+        `attachment; filename="${safeName}"; filename*=UTF-8''${encodedName}`,
+      )
       .send(stream);
   }
 
@@ -247,6 +252,67 @@ export class EmployeeDocumentsController {
   ) {
     await this.employeeDocumentsService.delete(organizationId, employeeId, documentId, user.userId);
     return SuccessHelper.createSuccessResponse(null, 'Document deleted successfully');
+  }
+
+  @Patch(':documentId/file')
+  @HttpCode(HttpStatus.OK)
+  async replaceFile(
+    @Param('organizationId') organizationId: string,
+    @Param('employeeId') employeeId: string,
+    @Param('documentId') documentId: string,
+    @Req() request: FastifyRequest,
+    @LoggedInUser() user: UserWithRolesInterface,
+  ) {
+    const multipartRequest = request as FastifyRequest & {
+      isMultipart?: () => boolean;
+      body?: Record<
+        string,
+        | { value?: string; toBuffer?: () => Promise<Buffer>; filename?: string }
+        | Array<{ toBuffer?: () => Promise<Buffer>; filename?: string }>
+      >;
+    };
+
+    if (multipartRequest.isMultipart?.()) {
+      const body = multipartRequest.body;
+      const filePart = body?.file ?? body?.document;
+      const singleFile = Array.isArray(filePart) ? filePart[0] : filePart;
+
+      if (!singleFile?.toBuffer || !singleFile?.filename) {
+        throw new BadRequestException('No file uploaded. Send a field named "file" or "document".');
+      }
+
+      const buffer = await singleFile.toBuffer();
+      const mimeType = (singleFile as { mimetype?: string }).mimetype;
+      const result = await this.employeeDocumentsService.replaceFile(
+        organizationId,
+        employeeId,
+        documentId,
+        { buffer, originalFilename: singleFile.filename, mimeType },
+        user.userId,
+      );
+      return SuccessHelper.createSuccessResponse(result, 'Document file replaced successfully');
+    }
+
+    const legacyRequest = request as FastifyRequest & {
+      file: () => Promise<
+        { filename: string; toBuffer: () => Promise<Buffer>; mimetype?: string } | undefined
+      >;
+    };
+    const data = await legacyRequest.file?.();
+    if (!data) {
+      throw new BadRequestException(
+        'No file uploaded. Use multipart/form-data with field "file".',
+      );
+    }
+    const buffer = await data.toBuffer();
+    const result = await this.employeeDocumentsService.replaceFile(
+      organizationId,
+      employeeId,
+      documentId,
+      { buffer, originalFilename: data.filename, mimeType: data.mimetype },
+      user.userId,
+    );
+    return SuccessHelper.createSuccessResponse(result, 'Document file replaced successfully');
   }
 
   @Patch(':documentId')

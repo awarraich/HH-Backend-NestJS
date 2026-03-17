@@ -44,21 +44,7 @@ export class GoogleSignInInviteEmailTemplate {
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
                   <td align="center">
-                    <table role="presentation" cellspacing="0" cellpadding="0" border="0">
-                      <tr>
-                        <td style="padding: 0;">
-                          <div style="width: 80px; height: 80px; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); border-radius: 20px; display: inline-block; position: relative; box-shadow: 0 8px 20px rgba(124, 58, 237, 0.3);">
-                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" height="100%">
-                              <tr>
-                                <td align="center" valign="middle" style="color: #ffffff; font-size: 36px; font-weight: 800; letter-spacing: -1px;">
-                                  H+
-                                </td>
-                              </tr>
-                            </table>
-                          </div>
-                        </td>
-                      </tr>
-                    </table>
+                    <img src="cid:logo@homehealth.ai" alt="HomeHealth.AI" width="80" height="80" style="display: block; width: 80px; height: 80px;" />
                     <h1 style="margin: 30px 0 0 0; color: #111827; font-size: 32px; font-weight: 800; line-height: 1.2; letter-spacing: -0.5px;">
                       Welcome to ${organizationName}
                     </h1>
