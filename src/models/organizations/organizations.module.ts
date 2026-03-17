@@ -98,6 +98,15 @@ import { ChairsController } from './scheduling/controllers/chairs.controller';
 import { ShiftsController } from './scheduling/controllers/shifts.controller';
 import { EmployeeShiftsController } from './scheduling/controllers/employee-shifts.controller';
 import { EmployeeShiftsByEmployeeController } from './scheduling/controllers/employee-shifts-by-employee.controller';
+import { OrganizationDocumentCategory } from './compliance-documents/entities/organization-document-category.entity';
+import { OrganizationDocument } from './compliance-documents/entities/organization-document.entity';
+import { OrganizationDocumentChunk } from './compliance-documents/entities/organization-document-chunk.entity';
+import { OrganizationDocumentCategoriesService } from './compliance-documents/services/organization-document-categories.service';
+import { OrganizationDocumentsService } from './compliance-documents/services/organization-documents.service';
+import { OrganizationDocumentStorageService } from './compliance-documents/services/organization-document-storage.service';
+import { OrganizationDocumentsChatService } from './compliance-documents/services/organization-documents-chat.service';
+import { OrganizationDocumentCategoriesController } from './compliance-documents/controllers/organization-document-categories.controller';
+import { OrganizationDocumentsController } from './compliance-documents/controllers/organization-documents.controller';
 
 @Module({
   imports: [
@@ -141,6 +150,9 @@ import { EmployeeShiftsByEmployeeController } from './scheduling/controllers/emp
       ReferralDocument,
       ReferralLastRead,
       Patient,
+      OrganizationDocumentCategory,
+      OrganizationDocument,
+      OrganizationDocumentChunk,
     ]),
     AuthenticationModule,
     EmailModule,
@@ -172,6 +184,8 @@ import { EmployeeShiftsByEmployeeController } from './scheduling/controllers/emp
     ShiftsController,
     EmployeeShiftsController,
     EmployeeShiftsByEmployeeController,
+    OrganizationDocumentCategoriesController,
+    OrganizationDocumentsController,
   ],
   providers: [
     DepartmentService,
@@ -206,6 +220,10 @@ import { EmployeeShiftsByEmployeeController } from './scheduling/controllers/emp
     ReferralRepository,
     OrganizationRoleGuard,
     ReferralMessagesGateway,
+    OrganizationDocumentCategoriesService,
+    OrganizationDocumentsService,
+    OrganizationDocumentStorageService,
+    OrganizationDocumentsChatService,
   ],
   exports: [
     TypeOrmModule,
@@ -217,6 +235,8 @@ import { EmployeeShiftsByEmployeeController } from './scheduling/controllers/emp
     OrganizationRoleGuard,
     EmployeeDocumentsService,
     EmployeeRequirementTagService,
+    OrganizationDocumentsService,
+    OrganizationDocumentsChatService,
   ],
 })
 export class OrganizationsModule {}

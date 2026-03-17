@@ -96,26 +96,46 @@ export class McpHttpHandlerService {
       parsedBody = await readBody(req);
     }
 
-    const body = parsedBody as { organizationId?: string; employeeId?: string } | undefined;
+    const body = parsedBody as {
+      organizationId?: string;
+      employeeId?: string;
+      context?: string;
+    } | undefined;
     const organizationId = body?.organizationId;
     const employeeId = body?.employeeId;
+    const contextType = body?.context;
+
     const useEmployeeContext =
       typeof organizationId === 'string' &&
       typeof employeeId === 'string' &&
       organizationId.length > 0 &&
       employeeId.length > 0;
 
+    const useComplianceContext =
+      contextType === 'compliance' &&
+      typeof organizationId === 'string' &&
+      organizationId.length > 0 &&
+      !useEmployeeContext;
+
     try {
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
       });
-      const server = useEmployeeContext
-        ? this.mcpServerFactory.create(undefined, undefined, {
-            organizationId,
-            employeeId,
-            userId,
-          })
-        : this.mcpServerFactory.create(userId, auditContext);
+      let server;
+      if (useEmployeeContext) {
+        server = this.mcpServerFactory.create(undefined, undefined, {
+          organizationId: organizationId!,
+          employeeId: employeeId!,
+          userId,
+        });
+      } else if (useComplianceContext) {
+        server = this.mcpServerFactory.create(undefined, undefined, undefined, {
+          organizationId: organizationId!,
+          userId,
+        });
+      } else {
+        server = this.mcpServerFactory.create(userId, auditContext);
+      }
       await server.connect(transport);
 
       await transport.handleRequest(req, res, parsedBody);
