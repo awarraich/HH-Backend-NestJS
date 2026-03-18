@@ -326,11 +326,19 @@ export class OrganizationDocumentsService {
     }
 
     const vectorStr = `[${queryEmbedding.join(',')}]`;
+    // Cosine distance (1 - similarity) for double precision[] without pgvector
+    const cosineDistanceSql = `(1 - (
+      (SELECT SUM(a*b) FROM unnest(c.embedding) WITH ORDINALITY AS t1(a,ord), unnest($1::double precision[]) WITH ORDINALITY AS t2(b,ord) WHERE t1.ord = t2.ord)
+      / NULLIF(
+        (SELECT sqrt(SUM(x*x)) FROM unnest(c.embedding) AS x) * (SELECT sqrt(SUM(y*y)) FROM unnest($1::double precision[]) AS y),
+        0
+      )
+    ))`;
 
     let sql = `
       SELECT c.id, c.document_id, c.chunk_text, c.chunk_index,
              d.document_name, cat.name AS category_name,
-             (c.embedding <=> $1::vector) AS distance
+             ${cosineDistanceSql} AS distance
       FROM organization_document_chunks c
       JOIN organization_documents d ON d.id = c.document_id
       JOIN organization_document_categories cat ON cat.id = d.category_id
@@ -350,7 +358,7 @@ export class OrganizationDocumentsService {
       params.push(categoryId);
     }
 
-    sql += ` ORDER BY c.embedding <=> $1::vector LIMIT $${params.length + 1}`;
+    sql += ` ORDER BY ${cosineDistanceSql} LIMIT $${params.length + 1}`;
     params.push(searchLimit);
 
     const rows: Array<{
@@ -528,7 +536,7 @@ export class OrganizationDocumentsService {
         await this.dataSource.query(
           `INSERT INTO organization_document_chunks
            (id, document_id, organization_id, chunk_index, chunk_text, chunk_tokens, metadata, embedding)
-           VALUES (gen_random_uuid(), $1, $2, $3, $4, NULL, $5, $6::vector)`,
+           VALUES (gen_random_uuid(), $1, $2, $3, $4, NULL, $5, $6::double precision[])`,
           [
             documentId,
             doc.organization_id,

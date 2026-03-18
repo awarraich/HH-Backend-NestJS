@@ -126,23 +126,21 @@ export class CreateComplianceDocumentsTables20260317500000 implements MigrationI
       `CREATE INDEX idx_org_docs_required ON organization_documents (organization_id, is_required) WHERE is_required = true`,
     );
 
-    await queryRunner.createTable(
-      new Table({
-        name: 'organization_document_chunks',
-        columns: [
-          { name: 'id', type: 'uuid', isPrimary: true, default: 'gen_random_uuid()' },
-          { name: 'document_id', type: 'uuid', isNullable: false },
-          { name: 'organization_id', type: 'uuid', isNullable: false },
-          { name: 'chunk_index', type: 'integer', isNullable: false },
-          { name: 'chunk_text', type: 'text', isNullable: false },
-          { name: 'chunk_tokens', type: 'integer', isNullable: true },
-          { name: 'metadata', type: 'jsonb', default: "'{}'", isNullable: false },
-          { name: 'embedding', type: 'vector(1536)', isNullable: true },
-          { name: 'created_at', type: 'timestamp with time zone', default: 'NOW()', isNullable: false },
-        ],
-      }),
-      true,
-    );
+    // Use double precision[] for embeddings so the migration runs without pgvector
+    await queryRunner.query(`
+      CREATE TABLE "organization_document_chunks" (
+        "id" uuid NOT NULL DEFAULT gen_random_uuid(),
+        "document_id" uuid NOT NULL,
+        "organization_id" uuid NOT NULL,
+        "chunk_index" integer NOT NULL,
+        "chunk_text" text NOT NULL,
+        "chunk_tokens" integer,
+        "metadata" jsonb NOT NULL DEFAULT '{}',
+        "embedding" double precision[],
+        "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        CONSTRAINT "PK_2086d05c088a06b077ce5b42006" PRIMARY KEY ("id")
+      )
+    `);
 
     await queryRunner.createForeignKey(
       'organization_document_chunks',
@@ -163,14 +161,9 @@ export class CreateComplianceDocumentsTables20260317500000 implements MigrationI
       'organization_document_chunks',
       new TableIndex({ name: 'idx_org_doc_chunks_org', columnNames: ['organization_id'] }),
     );
-
-    await queryRunner.query(
-      `CREATE INDEX idx_org_doc_chunks_embedding ON organization_document_chunks USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64)`,
-    );
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query('DROP INDEX IF EXISTS idx_org_doc_chunks_embedding');
     await queryRunner.dropIndex('organization_document_chunks', 'idx_org_doc_chunks_org');
     await queryRunner.dropIndex('organization_document_chunks', 'idx_org_doc_chunks_doc');
     await queryRunner.dropForeignKey('organization_document_chunks', 'fk_org_doc_chunks_document_id');

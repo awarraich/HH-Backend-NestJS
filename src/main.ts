@@ -213,11 +213,12 @@ async function bootstrap(): Promise<void> {
     credentials: true,
   });
 
-  // Fallback: register job-management list + create directly on Fastify so they always exist
+  // Fallback: register job-management routes only when API_PREFIX is set. When empty, AppController and JobManagementController already serve /job-management/... and /v1/api/job-management/...
   const prefix = apiPrefix.replace(/^\//, '').replace(/\/$/, '');
   const jobMgmtBase = prefix ? `/${prefix}/job-management` : '/job-management';
-  // Same path as blogs so proxies (e.g. /v1/api -> backend) and frontend can use one base URL
   const jobMgmtV1Base = '/v1/api/job-management';
+  const registerJobMgmtFallbacks = !!prefix;
+  if (registerJobMgmtFallbacks) {
   try {
     const jobService = app.get(JobManagementService);
 
@@ -297,7 +298,6 @@ async function bootstrap(): Promise<void> {
     // Public: list all active job postings (careers page) – no auth
     fastifyInstance.get(`${jobMgmtBase}/job-postings`, handleGetPublicJobPostings);
     fastifyInstance.get(`${jobMgmtBase}/job-postings/`, handleGetPublicJobPostings);
-    // Also under /v1/api/job-management/job-postings so it matches blogs (/v1/api/blogs) and works with proxies
     fastifyInstance.get(`${jobMgmtV1Base}/job-postings`, handleGetPublicJobPostings);
     fastifyInstance.get(`${jobMgmtV1Base}/job-postings/`, handleGetPublicJobPostings);
 
@@ -529,11 +529,14 @@ async function bootstrap(): Promise<void> {
   } catch (e) {
     console.warn('Job-management fallback routes not registered:', (e as Error).message); // allowed
   }
+  }
 
-  // Blogs: ensure GET /v1/api/blogs always works (e.g. if API_PREFIX is set and double-prefixed controller path 404s)
-  try {
-    const blogService = app.get(BlogService);
-    const handleGetBlogs = async (request: unknown, reply: unknown) => {
+  // Blogs: only register GET /v1/api/blogs when API_PREFIX is set (otherwise Nest BlogController already serves it and we'd get "Method already declared")
+  const registerV1BlogsRoute = !!prefix;
+  if (registerV1BlogsRoute) {
+    try {
+      const blogService = app.get(BlogService);
+      const handleGetBlogs = async (request: unknown, reply: unknown) => {
       const req = request as {
         query?: {
           page?: string;
@@ -573,17 +576,18 @@ async function bootstrap(): Promise<void> {
         return rep.code(payload.statusCode).send(payload);
       }
     };
-    fastifyInstance.get('/v1/api/blogs', handleGetBlogs);
-    fastifyInstance.get('/v1/api/blogs/', handleGetBlogs);
-    if (process.env.NODE_ENV === 'production') {
-      console.log('Blogs fallback routes registered at GET /v1/api/blogs (production)');
+      fastifyInstance.get('/v1/api/blogs', handleGetBlogs);
+      fastifyInstance.get('/v1/api/blogs/', handleGetBlogs);
+      if (process.env.NODE_ENV === 'production') {
+        console.log('Blogs fallback routes registered at GET /v1/api/blogs (production)');
+      }
+    } catch (e) {
+      const errMsg = (e as Error).message;
+      console.error(
+        'Blogs fallback routes NOT registered. GET /v1/api/blogs will 404 unless API_PREFIX is empty and Nest controller is used. Error:',
+        errMsg,
+      );
     }
-  } catch (e) {
-    const errMsg = (e as Error).message;
-    console.error(
-      'Blogs fallback routes NOT registered. GET /v1/api/blogs will 404 unless API_PREFIX is empty and Nest controller is used. Error:',
-      errMsg,
-    );
   }
 
   const host = process.env.HOST || '0.0.0.0';
