@@ -17,7 +17,7 @@ export default new DataSource({
   username: process.env.DB_USERNAME || 'postgres',
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'home_health_ai',
-  migrations,
+  migrations: ['dist/src/database/migrations/[0-9]*.js'],
   entities: [
     'dist/src/**/*.entity.js',
     'dist/src/authentication/entities/*.entity.js',
