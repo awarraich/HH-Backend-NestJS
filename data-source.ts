@@ -1,5 +1,6 @@
 import { DataSource } from 'typeorm';
 import * as dotenv from 'dotenv';
+import { migrations } from './src/database/migrations/index.js';
 
 dotenv.config({
   path: process.env.NODE_ENV === 'production' 
@@ -16,7 +17,7 @@ export default new DataSource({
   username: process.env.DB_USERNAME || 'postgres',
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'home_health_ai',
-  migrations: ['dist/src/database/migrations/*.js'],
+  migrations,
   entities: [
     'dist/src/**/*.entity.js',
     'dist/src/authentication/entities/*.entity.js',
