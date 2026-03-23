@@ -9,7 +9,7 @@ export default () => ({
     synchronize: process.env.DB_SYNCHRONIZE === 'true',
     logging: process.env.DB_LOGGING === 'true',
     migrationsRun: process.env.DB_MIGRATIONS_RUN === 'true',
-    migrations: ['dist/database/migrations/*.js'],
-    entities: ['dist/**/*.entity.js'],
+    migrations: ['dist/src/database/migrations/*.js'],
+    entities: ['dist/src/**/*.entity.js'],
   },
 });

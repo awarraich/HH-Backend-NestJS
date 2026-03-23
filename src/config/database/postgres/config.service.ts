@@ -43,7 +43,7 @@ export class PostgresConfigService {
 
   get migrations(): string[] {
     return this.configService.get<string[]>('database.migrations', [
-      'dist/database/migrations/*.js',
+      'dist/src/database/migrations/*.js',
     ]);
   }
 }

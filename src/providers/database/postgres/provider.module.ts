@@ -55,9 +55,9 @@ import { migrations } from '../../../database/migrations/index.js';
           migrationsRun: postgresConfigService.migrationsRun,
           migrations,
           entities: [
-            'dist/**/*.entity.js',
-            'dist/authentication/entities/*.entity.js',
-            'dist/models/**/entities/*.entity.js',
+            'dist/src/**/*.entity.js',
+            'dist/src/authentication/entities/*.entity.js',
+            'dist/src/models/**/entities/*.entity.js',
           ],
           ssl: sslConfig,
         };
