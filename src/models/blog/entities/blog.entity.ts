@@ -40,6 +40,10 @@ export class Blog {
   @Column({ type: 'varchar', length: 500, nullable: true })
   featured_image: string;
 
+  /** Main/hero video: API path for uploads or external URL (e.g. YouTube). */
+  @Column({ type: 'varchar', length: 2000, nullable: true })
+  featured_video: string | null;
+
   @Column({ type: 'boolean', default: false })
   is_published: boolean;
 

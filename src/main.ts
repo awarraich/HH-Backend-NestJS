@@ -76,7 +76,7 @@ async function bootstrap(): Promise<void> {
   );
 
   await fastifyInstance.register(require('@fastify/multipart'), {
-    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+    limits: { fileSize: 20 * 1024 * 1024 }, // 10MB
     attachFieldsToBody: true, // so multipart create can read "data" field from body
   });
 

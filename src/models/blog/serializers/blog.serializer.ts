@@ -13,6 +13,8 @@ export interface SerializedBlog {
   category: string;
   category_name: string;
   image: string;
+  /** Main/hero video URL or path (uploaded or external). */
+  featured_video: string;
   likes: number;
   comments: number;
   user_has_liked?: boolean;
@@ -63,6 +65,7 @@ export class BlogSerializer {
       category: blog.category || 'General',
       category_name: blog.category || 'General', // alias for dashboard
       image: blog.featured_image || '',
+      featured_video: blog.featured_video ?? '',
       likes: options?.likeCount ?? 0,
       comments: options?.commentCount ?? 0,
       user_has_liked: options?.userHasLiked,

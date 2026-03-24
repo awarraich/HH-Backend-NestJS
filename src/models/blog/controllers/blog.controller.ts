@@ -80,6 +80,48 @@ export class BlogController {
   }
 
   /**
+   * Upload a main/hero video for a blog (multipart field "file").
+   */
+  @Post('videos/upload')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.CREATED)
+  async uploadVideo(@Req() request: FastifyRequest): Promise<unknown> {
+    const multipartRequest = request as FastifyRequest & {
+      isMultipart?: () => boolean;
+      body?: Record<
+        string,
+        | { value?: string; toBuffer?: () => Promise<Buffer>; filename?: string; _buf?: Buffer }
+        | Array<{ toBuffer?: () => Promise<Buffer>; filename?: string; _buf?: Buffer }>
+      >;
+    };
+
+    if (!multipartRequest.isMultipart?.()) {
+      throw new BadRequestException('Content-Type must be multipart/form-data');
+    }
+
+    const body = multipartRequest.body;
+    const filePart = body?.file;
+    const singleFile = Array.isArray(filePart) ? filePart[0] : filePart;
+
+    if (!singleFile?.filename) {
+      throw new BadRequestException('No file uploaded. Send a field named "file".');
+    }
+
+    const buffer =
+      singleFile._buf != null
+        ? singleFile._buf
+        : typeof singleFile.toBuffer === 'function'
+          ? await singleFile.toBuffer()
+          : null;
+    if (!buffer || !Buffer.isBuffer(buffer)) {
+      throw new BadRequestException('Could not read file data');
+    }
+
+    const result = await this.blogImageStorage.saveBlogVideo(buffer, singleFile.filename);
+    return SuccessHelper.createSuccessResponse(result, 'Video uploaded successfully');
+  }
+
+  /**
    * Serve a blog image by filename
    */
   @Get('images/:filename')
@@ -99,6 +141,34 @@ export class BlogController {
         '.gif': 'image/gif',
         '.webp': 'image/webp',
         '.svg': 'image/svg+xml',
+      }[ext] || 'application/octet-stream';
+    return reply
+      .header('Content-Type', contentType)
+      .header('Content-Disposition', `inline; filename="${filename}"`)
+      .send(fs.createReadStream(filePath));
+  }
+
+  /**
+   * Serve an uploaded blog video by stored filename (local storage only; S3 uses direct object URL).
+   */
+  @Get('videos/:filename')
+  @HttpCode(HttpStatus.OK)
+  async serveVideo(
+    @Param('filename') filename: string,
+    @Res() reply: FastifyReply,
+  ): Promise<unknown> {
+    const filePath = this.blogImageStorage.getLocalVideoFilePath(filename);
+    if (!filePath) throw new NotFoundException('File not found');
+    const ext = path.extname(filename).toLowerCase();
+    const contentType =
+      {
+        '.mp4': 'video/mp4',
+        '.webm': 'video/webm',
+        '.mov': 'video/quicktime',
+        '.mpeg': 'video/mpeg',
+        '.mpg': 'video/mpeg',
+        '.ogv': 'video/ogg',
+        '.m4v': 'video/x-m4v',
       }[ext] || 'application/octet-stream';
     return reply
       .header('Content-Type', contentType)

@@ -38,6 +38,7 @@ import { ConvertVideoUrlToVideoUrlsJsonb20260319200000 } from './20260319200000-
 import { ConvertPdfColumnsToPdfFilesJsonb20260319300000 } from './20260319300000-convert-pdf-columns-to-pdf-files-jsonb.js';
 import { SplitAddressIntoStructuredFields20260319400000 } from './20260319400000-split-address-into-structured-fields.js';
 import { CreateComplianceDocumentsTables20260317500000 } from './20260317500000-create-compliance-documents-tables.js';
+import { AddFeaturedVideoToBlogs20260324100000 } from './20260324100000-add-featured-video-to-blogs.js';
 
 type MigrationConstructor = new () => MigrationInterface;
 
@@ -81,4 +82,5 @@ export const migrations: MigrationConstructor[] = [
   ConvertPdfColumnsToPdfFilesJsonb20260319300000,
   SplitAddressIntoStructuredFields20260319400000,
   CreateComplianceDocumentsTables20260317500000,
+  AddFeaturedVideoToBlogs20260324100000,
 ];

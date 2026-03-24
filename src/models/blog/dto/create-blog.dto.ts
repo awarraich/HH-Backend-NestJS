@@ -24,6 +24,11 @@ export class CreateBlogDto {
   @MaxLength(500)
   featured_image?: string;
 
+  @IsString()
+  @IsOptional()
+  @MaxLength(2000)
+  featured_video?: string;
+
   @IsBoolean()
   @IsOptional()
   is_published?: boolean;
