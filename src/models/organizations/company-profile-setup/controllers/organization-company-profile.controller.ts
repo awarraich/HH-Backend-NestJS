@@ -5,6 +5,7 @@ import {
   Post,
   Body,
   Param,
+  Query,
   Res,
   UseGuards,
   HttpCode,
@@ -84,6 +85,28 @@ export class OrganizationCompanyProfileController {
       return SuccessHelper.createSuccessResponse(data);
     } catch (error) {
       this.handleError(error, 'get');
+    }
+  }
+
+  /** Check if a company name is available (no other org uses the same slug). */
+  @Get('check-name')
+  @UseGuards(JwtAuthGuard, OrganizationRoleGuard)
+  @Roles('OWNER', 'HR', 'MANAGER')
+  @HttpCode(HttpStatus.OK)
+  async checkName(
+    @Param('organizationId') organizationId: string,
+    @Query('name') name: string,
+    @LoggedInUser() user: UserWithRolesInterface,
+  ) {
+    try {
+      this.ensureOrganizationId(organizationId);
+      const userId = user?.userId;
+      if (!userId) throw new UnauthorizedException('User not found');
+      if (!name?.trim()) throw new BadRequestException('name query param is required');
+      const result = await this.companyProfileService.checkNameAvailability(organizationId, name.trim());
+      return SuccessHelper.createSuccessResponse(result);
+    } catch (error) {
+      this.handleError(error, 'checkName');
     }
   }
 
