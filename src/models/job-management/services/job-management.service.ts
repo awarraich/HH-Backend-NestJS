@@ -4,6 +4,7 @@ import { Repository, In } from 'typeorm';
 import { JobPosting } from '../entities/job-posting.entity';
 import { JobApplication } from '../entities/job-application.entity';
 import { Organization } from '../../organizations/entities/organization.entity';
+import { Employee } from '../../employees/entities/employee.entity';
 import { CreateJobPostingDto } from '../dto/create-job-posting.dto';
 import { CreateJobApplicationDto } from '../dto/create-job-application.dto';
 import { UpdateJobApplicationDto } from '../dto/update-job-application.dto';
@@ -22,6 +23,8 @@ export class JobManagementService {
     private jobApplicationRepository: Repository<JobApplication>,
     @InjectRepository(Organization)
     private organizationRepository: Repository<Organization>,
+    @InjectRepository(Employee)
+    private employeeRepository: Repository<Employee>,
     private readonly emailService: EmailService,
   ) {}
 
@@ -322,6 +325,64 @@ export class JobManagementService {
       .where('jp.organization_id = :organizationId', { organizationId })
       .orderBy('ja.created_at', 'DESC')
       .getMany();
+  }
+
+  /**
+   * Employee "My Applications" endpoint helper.
+   *
+   * Your `job_applications` table currently stores `applicant_email` (not a `user_id` foreign key),
+   * so to fetch "my" applications we:
+   * 1) resolve the employee from `employees.user_id` using the provided auth `userId`
+   * 2) filter job applications where `job_applications.applicant_email` matches that user email
+   */
+  async findMyJobApplicationsByUserId(userId: string): Promise<
+    Array<{
+      id: string;
+      job_posting_id: string;
+      status: string;
+      applicant_name: string;
+      created_at: Date;
+      job_posting?: { id: string; title: string };
+      organization?: { id: string; organization_name: string };
+    }>
+  > {
+    if (!userId) return [];
+
+    const employee = await this.employeeRepository.findOne({
+      where: { user_id: userId },
+      relations: ['user'],
+      order: { created_at: 'ASC' },
+    });
+
+    const email = employee?.user?.email;
+    if (!email) return [];
+
+    const applications = await this.jobApplicationRepository
+      .createQueryBuilder('ja')
+      .leftJoinAndSelect('ja.job_posting', 'jp')
+      .leftJoinAndSelect('jp.organization', 'org')
+      .where('ja.applicant_email = :email', { email })
+      .orderBy('ja.created_at', 'DESC')
+      .getMany();
+
+    return applications.map((ja) => ({
+      id: ja.id,
+      job_posting_id: ja.job_posting_id,
+      status: ja.status,
+      applicant_name: ja.applicant_name,
+      created_at: ja.created_at,
+      ...(ja.job_posting
+        ? { job_posting: { id: ja.job_posting.id, title: ja.job_posting.title } }
+        : {}),
+      ...(ja.job_posting?.organization
+        ? {
+            organization: {
+              id: ja.job_posting.organization.id,
+              organization_name: ja.job_posting.organization.organization_name,
+            },
+          }
+        : {}),
+    }));
   }
 
   /**

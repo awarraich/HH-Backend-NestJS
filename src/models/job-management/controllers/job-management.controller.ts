@@ -223,6 +223,15 @@ export class JobManagementController {
     return SuccessHelper.createSuccessResponse(result, 'Application submitted');
   }
 
+  /** Employee: list applications submitted by a given auth user id (frontend: `/users/:userId/job-applications`). */
+  @Get('users/:userId/job-applications')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async findMyJobApplicationsByUserId(@Param('userId') userId: string): Promise<unknown> {
+    const applications = await this.jobManagementService.findMyJobApplicationsByUserId(userId);
+    return SuccessHelper.createSuccessResponse(applications);
+  }
+
   /** List applications for a job posting (organization). */
   @Get('organization/:organizationId/job-postings/:jobId/applications')
   @UseGuards(JwtAuthGuard, OrganizationRoleGuard)
