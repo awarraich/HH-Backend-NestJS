@@ -6,6 +6,7 @@ import {
   IsArray,
   ArrayMinSize,
   IsOptional,
+  IsBoolean,
   MaxLength,
 } from 'class-validator';
 
@@ -43,4 +44,8 @@ export class CreateOrganizationStaffDto {
   @IsString()
   @MaxLength(100)
   position_title?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  is_supervisor?: boolean;
 }
