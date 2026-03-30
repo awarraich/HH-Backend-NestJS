@@ -1,4 +1,4 @@
-import { IsOptional, IsUUID, IsString, IsInt, Min, Max } from 'class-validator';
+import { IsOptional, IsUUID, IsString, IsInt, Min, Max, IsBooleanString } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class QueryOrganizationStaffDto {
@@ -13,6 +13,10 @@ export class QueryOrganizationStaffDto {
   @IsOptional()
   @IsString()
   search?: string;
+
+  @IsOptional()
+  @IsBooleanString()
+  is_supervisor?: string;
 
   @IsOptional()
   @Type(() => Number)

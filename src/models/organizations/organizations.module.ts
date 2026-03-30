@@ -107,6 +107,13 @@ import { OrganizationDocumentStorageService } from './compliance-documents/servi
 import { OrganizationDocumentsChatService } from './compliance-documents/services/organization-documents-chat.service';
 import { OrganizationDocumentCategoriesController } from './compliance-documents/controllers/organization-document-categories.controller';
 import { OrganizationDocumentsController } from './compliance-documents/controllers/organization-documents.controller';
+import { CompetencyTemplate } from './document-workflow/entities/competency-template.entity';
+import { CompetencyAssignment } from './document-workflow/entities/competency-assignment.entity';
+import { TemplatesController } from './document-workflow/controllers/templates.controller';
+import { AssignmentsController } from './document-workflow/controllers/assignments.controller';
+import { TemplatesService } from './document-workflow/services/templates.service';
+import { AssignmentsService } from './document-workflow/services/assignments.service';
+import { PdfStorageService } from './document-workflow/services/pdf-storage.service';
 
 @Module({
   imports: [
@@ -153,6 +160,8 @@ import { OrganizationDocumentsController } from './compliance-documents/controll
       OrganizationDocumentCategory,
       OrganizationDocument,
       OrganizationDocumentChunk,
+      CompetencyTemplate,
+      CompetencyAssignment,
     ]),
     AuthenticationModule,
     EmailModule,
@@ -186,6 +195,8 @@ import { OrganizationDocumentsController } from './compliance-documents/controll
     EmployeeShiftsByEmployeeController,
     OrganizationDocumentCategoriesController,
     OrganizationDocumentsController,
+    TemplatesController,
+    AssignmentsController,
   ],
   providers: [
     DepartmentService,
@@ -224,6 +235,9 @@ import { OrganizationDocumentsController } from './compliance-documents/controll
     OrganizationDocumentsService,
     OrganizationDocumentStorageService,
     OrganizationDocumentsChatService,
+    TemplatesService,
+    AssignmentsService,
+    PdfStorageService,
   ],
   exports: [
     TypeOrmModule,
