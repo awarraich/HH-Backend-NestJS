@@ -14,9 +14,8 @@ export class TemplatesService {
     private readonly pdfStorage: PdfStorageService,
   ) {}
 
-  async findAll(orgId: string, mode?: 'grid' | 'document') {
+  async findAll(orgId: string) {
     const where: any = { organization_id: orgId };
-    if (mode) where.mode = mode;
     const templates = await this.repo.find({ where, order: { updated_at: 'DESC' } });
     return templates.map((t) => {
       if (t.pdf_file_key) {
@@ -55,8 +54,6 @@ export class TemplatesService {
         organization_id: orgId,
         name: dto.name,
         description: dto.description ?? '',
-        mode: dto.mode,
-        layout: dto.layout ?? { rows: 3, cols: 3, cells: [[]] },
         document_fields: dto.documentFields ?? [],
         roles: dto.roles ?? [],
         created_by: userId,
@@ -68,8 +65,6 @@ export class TemplatesService {
     const t = await this.findOne(orgId, id);
     if (dto.name !== undefined) t.name = dto.name;
     if (dto.description !== undefined) t.description = dto.description;
-    if (dto.mode !== undefined) t.mode = dto.mode;
-    if (dto.layout !== undefined) t.layout = dto.layout;
     if (dto.documentFields !== undefined) t.document_fields = dto.documentFields;
     if (dto.roles !== undefined) t.roles = dto.roles;
     return this.repo.save(t);

@@ -1,4 +1,4 @@
-import { IsString, IsIn, IsOptional, IsObject, IsArray } from 'class-validator';
+import { IsString, IsOptional, IsArray } from 'class-validator';
 
 export class UpdateTemplateDto {
   @IsOptional()
@@ -8,14 +8,6 @@ export class UpdateTemplateDto {
   @IsOptional()
   @IsString()
   description?: string;
-
-  @IsOptional()
-  @IsIn(['grid', 'document'])
-  mode?: 'grid' | 'document';
-
-  @IsOptional()
-  @IsObject()
-  layout?: Record<string, any>;
 
   @IsOptional()
   @IsArray()

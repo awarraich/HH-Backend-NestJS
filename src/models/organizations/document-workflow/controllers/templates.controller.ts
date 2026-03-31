@@ -6,7 +6,6 @@ import {
   Delete,
   Body,
   Param,
-  Query,
   Req,
   Res,
   UseGuards,
@@ -45,9 +44,8 @@ export class TemplatesController {
   @HttpCode(HttpStatus.OK)
   async findAll(
     @Param('organizationId') orgId: string,
-    @Query('mode') mode?: 'grid' | 'document',
   ) {
-    const data = await this.service.findAll(orgId, mode);
+    const data = await this.service.findAll(orgId);
     return SuccessHelper.createSuccessResponse(data);
   }
 

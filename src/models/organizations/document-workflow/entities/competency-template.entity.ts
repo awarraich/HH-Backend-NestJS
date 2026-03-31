@@ -9,7 +9,6 @@ import {
 
 @Entity('competency_templates')
 @Index(['organization_id'])
-@Index(['organization_id', 'mode'])
 export class CompetencyTemplate {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -22,12 +21,6 @@ export class CompetencyTemplate {
 
   @Column({ type: 'text', default: '' })
   description: string;
-
-  @Column({ type: 'varchar', length: 20 })
-  mode: 'grid' | 'document';
-
-  @Column({ type: 'jsonb', default: { rows: 1, cols: 1, cells: [[]] } })
-  layout: Record<string, any>;
 
   @Column({ type: 'jsonb', default: [] })
   document_fields: Record<string, any>[];

@@ -15,6 +15,7 @@ import { User } from '../../../authentication/entities/user.entity';
 import { UserRepository } from '../../../authentication/repositories/user.repository';
 import { CreateEmployeeDto } from '../dto/create-employee.dto';
 import { CreateEmployeeByEmailDto } from '../dto/create-employee-by-email.dto';
+import { CreateExternalEmployeeDto } from '../dto/create-external-employee.dto';
 import { UpdateEmployeeDto } from '../dto/update-employee.dto';
 import { QueryEmployeeDto } from '../dto/query-employee.dto';
 import { UpdateEmployeeStatusDto } from '../dto/update-employee-status.dto';
@@ -382,6 +383,130 @@ export class EmployeesService {
           resourceType: 'EMPLOYEE',
           description: 'Failed to create employee by email',
           metadata: { organization_id: organizationId, email: dto.email },
+          ipAddress,
+          userAgent,
+          status: 'error',
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
+      } catch (logError) {
+        this.logger.error('Failed to log audit error', logError);
+      }
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  /**
+   * Create an external employee (no organization link).
+   * Creates user with temporary password, employee record, profile, and sends welcome email.
+   */
+  async createExternal(
+    dto: CreateExternalEmployeeDto,
+    userId: string,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<any> {
+    const existingUser = await this.userRepository.findByEmail(dto.email);
+    if (existingUser) {
+      throw new ConflictException('User with this email already exists.');
+    }
+
+    const result = await this.authService.createUserWithTemporaryPasswordForEmployee({
+      email: dto.email,
+      firstName: dto.firstName,
+      lastName: dto.lastName,
+    });
+    const user = result.user;
+    const temporaryPassword = result.temporaryPassword;
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const employee = this.employeeRepository.create({
+        user_id: user.id,
+        organization_id: null,
+        status: 'ACTIVE',
+        start_date: dto.start_date ? new Date(dto.start_date) : new Date(),
+        end_date: dto.end_date ? new Date(dto.end_date) : null,
+        department: dto.department ?? null,
+        position_title: dto.position_title ?? null,
+        employment_type: dto.employment_type ?? null,
+        notes: dto.notes ?? null,
+      });
+      const savedEmployee = await queryRunner.manager.save(Employee, employee);
+
+      const fullName = [dto.firstName, dto.lastName].filter(Boolean).join(' ').trim() || dto.email;
+      const profile = this.employeeProfileRepository.create({
+        employee_id: savedEmployee.id,
+        name: fullName,
+        phone_number: dto.phone_number ?? null,
+        gender: dto.gender ?? null,
+        date_of_birth: dto.date_of_birth ? new Date(dto.date_of_birth) : null,
+        address_line_1: dto.address_line_1 ?? null,
+        address_line_2: dto.address_line_2 ?? null,
+        city: dto.city ?? null,
+        state: dto.state ?? null,
+        specialization: dto.specialization ?? null,
+        years_of_experience: dto.years_of_experience ?? null,
+        certification: dto.certification ?? null,
+        board_certifications: dto.board_certifications ?? null,
+      });
+      await queryRunner.manager.save(EmployeeProfile, profile);
+
+      await queryRunner.commitTransaction();
+
+      try {
+        await this.auditLogService.log({
+          userId,
+          action: 'CREATE',
+          resourceType: 'EMPLOYEE',
+          resourceId: savedEmployee.id,
+          description: 'External employee created',
+          metadata: {
+            user_id: user.id,
+            email: dto.email,
+          },
+          ipAddress,
+          userAgent,
+          status: 'success',
+        });
+      } catch (e) {
+        this.logger.warn('Audit log failed', e);
+      }
+
+      const loginUrl = this.configService.get<string>('HOME_HEALTH_AI_URL') ?? '';
+      const loginUrlPath = loginUrl ? `${loginUrl.replace(/\/$/, '')}/login` : '/login';
+      try {
+        await this.emailService.sendOrganizationStaffCreatedEmail(
+          dto.email,
+          fullName,
+          dto.email,
+          temporaryPassword,
+          loginUrlPath,
+          TEMPORARY_PASSWORD_EXPIRES_HOURS,
+        );
+      } catch (emailError) {
+        this.logger.error('Failed to send external employee created email', emailError);
+      }
+
+      const employeeWithRelations = await this.employeeRepository.findOne({
+        where: { id: savedEmployee.id },
+        relations: ['user', 'profile'],
+      });
+      return this.employeeSerializer.serialize(employeeWithRelations!);
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      this.logger.error('Failed to create external employee', error);
+      try {
+        await this.auditLogService.log({
+          userId,
+          action: 'CREATE',
+          resourceType: 'EMPLOYEE',
+          description: 'Failed to create external employee',
+          metadata: { email: dto.email },
           ipAddress,
           userAgent,
           status: 'error',

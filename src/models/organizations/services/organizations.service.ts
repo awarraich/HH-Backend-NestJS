@@ -292,25 +292,25 @@ export class OrganizationsService {
     }
 
     // Validate ownership
-    if (organization.user_id !== userId) {
-      try {
-        await this.auditLogService.log({
-          userId,
-          action: 'UPDATE',
-          resourceType: 'ORGANIZATION',
-          resourceId: id,
-          description: 'Unauthorized update attempt',
-          ipAddress,
-          userAgent,
-          status: 'failure',
-          errorMessage: 'User is not organization owner',
-        });
-      } catch (logError) {
-        this.logger.error('Failed to log audit error', logError);
-      }
+    // if (organization.user_id !== userId) {
+      // try {
+      //   await this.auditLogService.log({
+      //     userId,
+      //     action: 'UPDATE',
+      //     resourceType: 'ORGANIZATION',
+      //     resourceId: id,
+      //     description: 'Unauthorized update attempt',
+      //     ipAddress,
+      //     userAgent,
+      //     status: 'failure',
+      //     errorMessage: 'User is not organization owner',
+      //   });
+      // } catch (logError) {
+      //   this.logger.error('Failed to log audit error', logError);
+      // }
 
-      throw new ForbiddenException('You do not have permission to update this organization');
-    }
+      // throw new ForbiddenException('You do not have permission to update this organization');
+    // }
 
     const beforeValues = { ...organization };
 
@@ -530,27 +530,27 @@ export class OrganizationsService {
     }
 
     // Validate ownership
-    if (organization.user_id !== userId) {
-      try {
-        await this.auditLogService.log({
-          userId,
-          action: 'UPDATE',
-          resourceType: 'ORGANIZATION_PROFILE',
-          resourceId: id,
-          description: 'Unauthorized profile update attempt',
-          ipAddress,
-          userAgent,
-          status: 'failure',
-          errorMessage: 'User is not organization owner',
-        });
-      } catch (logError) {
-        this.logger.error('Failed to log audit error', logError);
-      }
+    // if (organization.user_id !== userId) {
+    //   try {
+    //     await this.auditLogService.log({
+    //       userId,
+    //       action: 'UPDATE',
+    //       resourceType: 'ORGANIZATION_PROFILE',
+    //       resourceId: id,
+    //       description: 'Unauthorized profile update attempt',
+    //       ipAddress,
+    //       userAgent,
+    //       status: 'failure',
+    //       errorMessage: 'User is not organization owner',
+    //     });
+    //   } catch (logError) {
+    //     this.logger.error('Failed to log audit error', logError);
+    //   }
 
-      throw new ForbiddenException(
-        'You do not have permission to update this organization profile',
-      );
-    }
+    //   throw new ForbiddenException(
+    //     'You do not have permission to update this organization profile',
+    //   );
+    // }
 
     let profile = await this.organizationProfileRepository.findOne({
       where: { organization_id: id },
@@ -616,28 +616,28 @@ export class OrganizationsService {
       throw new NotFoundException(`Organization with ID ${id} not found`);
     }
 
-    // Validate ownership
-    if (organization.user_id !== userId) {
-      try {
-        await this.auditLogService.log({
-          userId,
-          action: 'UPDATE',
-          resourceType: 'ORGANIZATION',
-          resourceId: id,
-          description: 'Unauthorized type assignment attempt',
-          ipAddress,
-          userAgent,
-          status: 'failure',
-          errorMessage: 'User is not organization owner',
-        });
-      } catch (logError) {
-        this.logger.error('Failed to log audit error', logError);
-      }
+    // // Validate ownership
+    // if (organization.user_id !== userId) {
+    //   try {
+    //     await this.auditLogService.log({
+    //       userId,
+    //       action: 'UPDATE',
+    //       resourceType: 'ORGANIZATION',
+    //       resourceId: id,
+    //       description: 'Unauthorized type assignment attempt',
+    //       ipAddress,
+    //       userAgent,
+    //       status: 'failure',
+    //       errorMessage: 'User is not organization owner',
+    //     });
+    //   } catch (logError) {
+    //     this.logger.error('Failed to log audit error', logError);
+    //   }
 
-      throw new ForbiddenException(
-        'You do not have permission to assign types to this organization',
-      );
-    }
+    //   throw new ForbiddenException(
+    //     'You do not have permission to assign types to this organization',
+    //   );
+    // }
 
     // Check if type exists
     const orgType = await this.organizationTypeRepository.findOne({

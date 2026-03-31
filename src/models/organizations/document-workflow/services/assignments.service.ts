@@ -56,9 +56,7 @@ export class AssignmentsService {
       id: template.id,
       name: template.name,
       description: template.description,
-      mode: template.mode,
       roles: template.roles,
-      layout: template.layout,
       document_fields: template.document_fields,
       pdf_file_key: template.pdf_file_key,
     };
