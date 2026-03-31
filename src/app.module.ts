@@ -16,6 +16,7 @@ import { JobManagementModule } from './models/job-management/job-management.modu
 import { AuditLogModule } from './common/services/audit/audit-log.module';
 import { OnboardingStatusModule } from './common/services/onboarding-status/onboarding-status.module';
 import { AppController } from './app.controller';
+import { ExternalDocumentsModule } from './models/external-documents/external-documents.module';
 import { McpModule } from './mcp/mcp.module';
 
 @Module({
@@ -36,6 +37,7 @@ import { McpModule } from './mcp/mcp.module';
     JobManagementModule,
     AuditLogModule,
     OnboardingStatusModule,
+    ExternalDocumentsModule,
     McpModule,
   ],
   controllers: [AppController],

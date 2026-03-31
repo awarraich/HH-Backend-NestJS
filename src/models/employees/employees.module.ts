@@ -13,6 +13,7 @@ import { EmployeesController } from './controllers/employees.controller';
 import { ProviderRolesService } from './services/provider-roles.service';
 import { ProviderRolesController } from './controllers/provider-roles.controller';
 import { OrganizationRoleGuard } from '../../common/guards/organization-role.guard';
+import { ExternalEmployeesController } from './controllers/external-employees.controller';
 import { EmployeeContextController } from './employee-context/controllers/employee-context.controller';
 import { EmployeeContextService } from './employee-context/services/employee-context.service';
 
@@ -25,7 +26,7 @@ import { EmployeeContextService } from './employee-context/services/employee-con
     AuditLogModule,
     EmailModule,
   ],
-  controllers: [EmployeesController, ProviderRolesController, EmployeeContextController],
+  controllers: [EmployeesController, ProviderRolesController, ExternalEmployeesController, EmployeeContextController],
   providers: [
     EmployeesService,
     ProviderRolesService,
