@@ -14,6 +14,9 @@ export class SubmitExternalFieldsDto {
   @IsUUID()
   userId: string;
 
+  @IsUUID()
+  roleId: string;
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => FieldValueItem)

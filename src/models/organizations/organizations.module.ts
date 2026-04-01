@@ -45,6 +45,7 @@ import { RequirementDocumentType } from './hr-files-setup/entities/requirement-d
 import { RequirementInserviceTraining } from './hr-files-setup/entities/requirement-inservice-training.entity';
 import { InserviceTraining } from './hr-files-setup/entities/inservice-training.entity';
 import { EmployeeRequirementTag } from './hr-files-setup/entities/employee-requirement-tag.entity';
+import { RequirementDocumentTemplate } from './hr-files-setup/entities/requirement-document-template.entity';
 import { RequirementTagService } from './hr-files-setup/services/requirement-tag.service';
 import { EmployeeRequirementTagService } from './hr-files-setup/services/employee-requirement-tag.service';
 import { RequirementTagsController } from './hr-files-setup/controllers/requirement-tags.controller';
@@ -114,6 +115,11 @@ import { AssignmentsController } from './document-workflow/controllers/assignmen
 import { TemplatesService } from './document-workflow/services/templates.service';
 import { AssignmentsService } from './document-workflow/services/assignments.service';
 import { PdfStorageService } from './document-workflow/services/pdf-storage.service';
+import { DocumentWorkflowRole } from './document-workflow/entities/document-workflow-role.entity';
+import { DocumentTemplateUserAssignment } from './document-workflow/entities/document-template-user-assignment.entity';
+import { WorkflowRolesService } from './document-workflow/services/workflow-roles.service';
+import { TemplateAssignmentsService } from './document-workflow/services/template-assignments.service';
+import { WorkflowRolesController } from './document-workflow/controllers/workflow-roles.controller';
 
 @Module({
   imports: [
@@ -146,6 +152,7 @@ import { PdfStorageService } from './document-workflow/services/pdf-storage.serv
       InserviceCompletion,
       InserviceQuizAttempt,
       EmployeeRequirementTag,
+      RequirementDocumentTemplate,
       EmployeeDocument,
       DocumentChunk,
       OrganizationCompanyProfile,
@@ -162,6 +169,8 @@ import { PdfStorageService } from './document-workflow/services/pdf-storage.serv
       OrganizationDocumentChunk,
       CompetencyTemplate,
       CompetencyAssignment,
+      DocumentWorkflowRole,
+      DocumentTemplateUserAssignment,
     ]),
     AuthenticationModule,
     EmailModule,
@@ -197,6 +206,7 @@ import { PdfStorageService } from './document-workflow/services/pdf-storage.serv
     OrganizationDocumentsController,
     TemplatesController,
     AssignmentsController,
+    WorkflowRolesController,
   ],
   providers: [
     DepartmentService,
@@ -238,6 +248,8 @@ import { PdfStorageService } from './document-workflow/services/pdf-storage.serv
     TemplatesService,
     AssignmentsService,
     PdfStorageService,
+    WorkflowRolesService,
+    TemplateAssignmentsService,
   ],
   exports: [
     TypeOrmModule,
