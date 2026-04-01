@@ -21,8 +21,10 @@ import { OrganizationRoleGuard } from '../../../../common/guards/organization-ro
 import { Roles } from '../../../../common/decorators/roles.decorator';
 import { SuccessHelper } from '../../../../common/helpers/responses/success.helper';
 import { TemplatesService } from '../services/templates.service';
+import { TemplateAssignmentsService } from '../services/template-assignments.service';
 import { CreateTemplateDto } from '../dto/create-template.dto';
 import { UpdateTemplateDto } from '../dto/update-template.dto';
+import { AssignTemplateUsersDto } from '../dto/assign-template-user.dto';
 
 type RequestWithUser = FastifyRequest & {
   user?: { userId?: string; sub?: string };
@@ -38,7 +40,10 @@ type RequestWithUser = FastifyRequest & {
 @UseGuards(JwtAuthGuard, OrganizationRoleGuard)
 @Roles('OWNER', 'HR', 'MANAGER')
 export class TemplatesController {
-  constructor(private readonly service: TemplatesService) {}
+  constructor(
+    private readonly service: TemplatesService,
+    private readonly assignmentsService: TemplateAssignmentsService,
+  ) {}
 
   @Get()
   @HttpCode(HttpStatus.OK)
@@ -93,7 +98,43 @@ export class TemplatesController {
     return SuccessHelper.createSuccessResponse(null, 'Template deleted.');
   }
 
+  @Get(':id/assignments')
+  @HttpCode(HttpStatus.OK)
+  async getAssignments(
+    @Param('organizationId') orgId: string,
+    @Param('id') id: string,
+  ) {
+    const data = await this.assignmentsService.findAllForTemplate(orgId, id);
+    return SuccessHelper.createSuccessResponse(data);
+  }
+
+  @Post(':id/assign')
+  @HttpCode(HttpStatus.CREATED)
+  async assignUsers(
+    @Param('organizationId') orgId: string,
+    @Param('id') id: string,
+    @Body() dto: AssignTemplateUsersDto,
+    @Req() req: RequestWithUser,
+  ) {
+    const userId = req.user?.userId ?? req.user?.sub;
+    if (!userId) throw new UnauthorizedException('User ID not found');
+    const data = await this.assignmentsService.assign(orgId, id, dto, userId);
+    return SuccessHelper.createSuccessResponse(data, 'Users assigned to template.');
+  }
+
+  @Delete(':id/assign/:assignmentId')
+  @HttpCode(HttpStatus.OK)
+  async unassignUser(
+    @Param('organizationId') orgId: string,
+    @Param('id') id: string,
+    @Param('assignmentId') assignmentId: string,
+  ) {
+    await this.assignmentsService.unassign(orgId, id, assignmentId);
+    return SuccessHelper.createSuccessResponse(null, 'User unassigned from template.');
+  }
+
   @Get(':id/pdf/view')
+  @Roles()
   async viewPdf(
     @Param('organizationId') orgId: string,
     @Param('id') id: string,

@@ -7,7 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CompetencyTemplate } from '../../organizations/document-workflow/entities/competency-template.entity';
-import { Employee } from '../../employees/entities/employee.entity';
+import { DocumentTemplateUserAssignment } from '../../organizations/document-workflow/entities/document-template-user-assignment.entity';
 import { User } from '../../../authentication/entities/user.entity';
 import { DocumentFieldValue } from '../entities/document-field-value.entity';
 import { SubmitExternalFieldsDto } from '../dto/submit-external-fields.dto';
@@ -17,44 +17,32 @@ export class ExternalDocumentService {
   constructor(
     @InjectRepository(CompetencyTemplate)
     private readonly templateRepo: Repository<CompetencyTemplate>,
-    @InjectRepository(Employee)
-    private readonly employeeRepo: Repository<Employee>,
+    @InjectRepository(DocumentTemplateUserAssignment)
+    private readonly userAssignmentRepo: Repository<DocumentTemplateUserAssignment>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
     @InjectRepository(DocumentFieldValue)
     private readonly fieldValueRepo: Repository<DocumentFieldValue>,
   ) {}
 
-  /**
-   * Validate that the user exists and is an external employee (no organization).
-   */
-  private async validateExternalUser(userId: string): Promise<User> {
+  private async validateUser(userId: string): Promise<User> {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) {
       throw new NotFoundException('User not found');
     }
-
-    const employee = await this.employeeRepo.findOne({ where: { user_id: userId } });
-    if (!employee) {
-      throw new NotFoundException('No employee record found for this user');
-    }
-    if (employee.organization_id !== null) {
-      throw new ForbiddenException('This endpoint is only for external employees');
-    }
-
     return user;
   }
 
   /**
-   * Get the set of field IDs assigned to a given user within a template's document_fields.
+   * Get the set of field IDs assigned to a given role within a template's document_fields.
    */
-  private getAssignedFieldIds(
+  private getFieldIdsByRole(
     documentFields: Record<string, any>[],
-    userId: string,
+    roleId: string,
   ): Set<string> {
     const ids = new Set<string>();
     for (const field of documentFields) {
-      if (field.assignedEmployeeId === userId) {
+      if (field.assignedRoleId === roleId) {
         ids.add(field.id);
       }
     }
@@ -62,56 +50,73 @@ export class ExternalDocumentService {
   }
 
   /**
-   * GET /v1/api/documents/external/:userId
+   * GET /v1/api/documents/my-assignments?userId=xxx
    *
-   * Find all templates where at least one document_field has assignedEmployeeId matching this user.
-   * Return full template fields with isEditable flag + any previously saved values.
+   * Find all templates assigned to this user via document_template_user_assignments.
+   * For each template, mark fields as editable based on the role the user was assigned.
+   * Load ALL filled values from all users so everyone sees each other's data.
    */
-  async getTemplatesForUser(userId: string) {
-    await this.validateExternalUser(userId);
+  async getMyAssignments(userId: string) {
+    await this.validateUser(userId);
 
-    // Query templates where document_fields JSONB array contains an element
-    // with assignedEmployeeId matching the user ID
-    const templates = await this.templateRepo
-      .createQueryBuilder('t')
-      .where(
-        `t.document_fields @> :pattern::jsonb`,
-        { pattern: JSON.stringify([{ assignedEmployeeId: userId }]) },
-      )
-      .orderBy('t.updated_at', 'DESC')
-      .getMany();
+    // Find all assignments for this user (with role info)
+    const assignments = await this.userAssignmentRepo.find({
+      where: { user_id: userId },
+      relations: ['role'],
+    });
 
-    if (!templates.length) {
+    if (!assignments.length) {
       return [];
     }
 
-    // Load existing field values for this user across all matched templates
-    const templateIds = templates.map((t) => t.id);
-    const existingValues = await this.fieldValueRepo
-      .createQueryBuilder('fv')
-      .where('fv.template_id IN (:...templateIds)', { templateIds })
-      .andWhere('fv.user_id = :userId', { userId })
+    // Group assignments by template_id → role_ids[]
+    const templateRoleMap = new Map<string, string[]>();
+    for (const a of assignments) {
+      const roles = templateRoleMap.get(a.template_id) ?? [];
+      roles.push(a.role_id);
+      templateRoleMap.set(a.template_id, roles);
+    }
+
+    const templateIds = [...templateRoleMap.keys()];
+
+    // Load templates
+    const templates = await this.templateRepo
+      .createQueryBuilder('t')
+      .whereInIds(templateIds)
+      .orderBy('t.updated_at', 'DESC')
       .getMany();
 
-    // Index saved values by template_id + field_id
-    const valueMap = new Map<string, any>();
-    for (const fv of existingValues) {
-      valueMap.set(`${fv.template_id}:${fv.field_id}`, fv.value);
+    // Load ALL field values for matched templates (from all users)
+    const allValues = await this.fieldValueRepo
+      .createQueryBuilder('fv')
+      .where('fv.template_id IN (:...templateIds)', { templateIds })
+      .getMany();
+
+    const valueMap = new Map<string, { value: any; user_id: string }>();
+    for (const fv of allValues) {
+      valueMap.set(`${fv.template_id}:${fv.field_id}`, {
+        value: fv.value,
+        user_id: fv.user_id,
+      });
     }
 
     return templates.map((template) => {
-      const assignedFieldIds = this.getAssignedFieldIds(
-        template.document_fields,
-        userId,
-      );
+      const userRoleIds = templateRoleMap.get(template.id) ?? [];
+
+      // Combine editable field IDs from all roles assigned to this user
+      const editableFieldIds = new Set<string>();
+      for (const roleId of userRoleIds) {
+        const ids = this.getFieldIdsByRole(template.document_fields, roleId);
+        ids.forEach((id) => editableFieldIds.add(id));
+      }
 
       const fields = template.document_fields.map((field: Record<string, any>) => {
-        const isEditable = assignedFieldIds.has(field.id);
-        const savedValue = valueMap.get(`${template.id}:${field.id}`);
+        const isEditable = editableFieldIds.has(field.id);
+        const saved = valueMap.get(`${template.id}:${field.id}`);
         return {
           ...field,
           isEditable,
-          ...(savedValue !== undefined ? { savedValue } : {}),
+          ...(saved ? { filledValue: saved.value, filledBy: saved.user_id } : {}),
         };
       });
 
@@ -119,6 +124,7 @@ export class ExternalDocumentService {
         template_id: template.id,
         name: template.name,
         description: template.description,
+        assignedRoles: userRoleIds,
         pdfUrl: template.pdf_file_key
           ? `/v1/api/organizations/${template.organization_id}/document-workflow/templates/${template.id}/pdf/view`
           : null,
@@ -128,31 +134,41 @@ export class ExternalDocumentService {
   }
 
   /**
-   * POST /v1/api/documents/:templateId/external-submit
+   * POST /v1/api/documents/:templateId/submit
    *
-   * Submit field values for an external employee (by user ID).
-   * Only fields with assignedEmployeeId matching the user are accepted.
-   * Values are stored in document_field_values (template is never mutated).
+   * Submit field values for a user.
+   * Validates user is assigned to this template with the given role.
+   * Only fields with assignedRoleId matching the given roleId are accepted.
    */
   async submitFields(templateId: string, dto: SubmitExternalFieldsDto) {
-    await this.validateExternalUser(dto.userId);
+    await this.validateUser(dto.userId);
+
+    // Verify user is assigned to this template with this role
+    const assignment = await this.userAssignmentRepo.findOne({
+      where: {
+        template_id: templateId,
+        user_id: dto.userId,
+        role_id: dto.roleId,
+      },
+    });
+    if (!assignment) {
+      throw new ForbiddenException('You are not assigned to this template with this role');
+    }
 
     const template = await this.templateRepo.findOne({ where: { id: templateId } });
     if (!template) {
       throw new NotFoundException('Template not found');
     }
 
-    // Determine which field IDs this user is allowed to fill
-    const assignedFieldIds = this.getAssignedFieldIds(
+    const assignedFieldIds = this.getFieldIdsByRole(
       template.document_fields,
-      dto.userId,
+      dto.roleId,
     );
 
     if (assignedFieldIds.size === 0) {
-      throw new ForbiddenException('No fields are assigned to this user on this template');
+      throw new ForbiddenException('No fields are assigned to this role on this template');
     }
 
-    // Validate all submitted fields are allowed
     const rejectedFields: string[] = [];
     for (const item of dto.fields) {
       if (!assignedFieldIds.has(item.fieldId)) {
@@ -165,7 +181,6 @@ export class ExternalDocumentService {
       );
     }
 
-    // Upsert each field value
     const saved: DocumentFieldValue[] = [];
     for (const item of dto.fields) {
       const existing = await this.fieldValueRepo.findOne({

@@ -4,6 +4,7 @@ import {
   Post,
   Body,
   Param,
+  Query,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -18,14 +19,20 @@ import { SubmitExternalFieldsDto } from '../dto/submit-external-fields.dto';
 export class ExternalDocumentController {
   constructor(private readonly service: ExternalDocumentService) {}
 
-  @Get('external/:userId')
+  /**
+   * GET /v1/api/documents/my-assignments?userId=xxx
+   *
+   * Returns all templates assigned to this user with their role-based editable fields
+   * and all filled values from all users.
+   */
+  @Get('my-assignments')
   @HttpCode(HttpStatus.OK)
-  async getTemplatesForUser(@Param('userId') userId: string) {
-    const data = await this.service.getTemplatesForUser(userId);
+  async getMyAssignments(@Query('userId') userId: string) {
+    const data = await this.service.getMyAssignments(userId);
     return SuccessHelper.createSuccessResponse(data);
   }
 
-  @Post(':templateId/external-submit')
+  @Post(':templateId/submit')
   @HttpCode(HttpStatus.OK)
   async submitFields(
     @Param('templateId') templateId: string,
