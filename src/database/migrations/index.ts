@@ -22,8 +22,6 @@ import { AddStaffSystemRole20260219100000 } from './20260219100000-add-staff-sys
 import { SeedOrganizationTypesTable20260219100001 } from './20260219100001-seed-organization-types-table.js';
 import { CreateOrganizationFeaturesTable20260219110000 } from './20260219110000-create-organization-features-table.js';
 import { LinkStaffRolePermissionsToOrganizationFeatures20260219110001 } from './20260219110001-link-staff-role-permissions-to-organization-features.js';
-import { CreateEmployeesTable20260219200000 } from './20260219200000-create-employees-table.js';
-import { CreateBlogsTableV220260220000001 } from './20260220000001-create-blogs-table-v2.js';
 import { AddMedicationEmbedding20260223100000 } from './20260223100000-add-medication-embedding.js';
 import { CreateProviderRolesTable20260224100000 } from './20260224100000-create-provider-roles-table.js';
 import { AlterEmployeesAndProfiles20260224100001 } from './20260224100001-alter-employees-and-profiles.js';
@@ -98,8 +96,6 @@ export const migrations: MigrationConstructor[] = [
   SeedOrganizationTypesTable20260219100001,
   CreateOrganizationFeaturesTable20260219110000,
   LinkStaffRolePermissionsToOrganizationFeatures20260219110001,
-  CreateEmployeesTable20260219200000,
-  CreateBlogsTableV220260220000001,
   AddMedicationEmbedding20260223100000,
   CreateProviderRolesTable20260224100000,
   AlterEmployeesAndProfiles20260224100001,
