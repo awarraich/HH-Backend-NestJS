@@ -535,7 +535,7 @@ export class EmployeesService {
       throw new NotFoundException(`Organization with ID ${organizationId} not found`);
     }
 
-    const { search, provider_role_id, status, page = 1, limit = 20 } = queryDto;
+    const { search, provider_role_id, status, include_orphan_employees = false, page = 1, limit = 20 } = queryDto;
     const skip = (page - 1) * limit;
     const searchTerm = search ? `%${search}%` : null;
 
@@ -545,8 +545,16 @@ export class EmployeesService {
       .leftJoinAndSelect('employee.organization', 'organization')
       .leftJoinAndSelect('employee.profile', 'profile')
       .leftJoinAndSelect('employee.providerRole', 'providerRole')
-      .leftJoinAndSelect('employee.employeeRequirementTags', 'employeeRequirementTags')
-      .where('employee.organization_id = :organizationId', { organizationId });
+      .leftJoinAndSelect('employee.employeeRequirementTags', 'employeeRequirementTags');
+
+    if (include_orphan_employees) {
+      queryBuilder.where(
+        '(employee.organization_id = :organizationId OR employee.organization_id IS NULL)',
+        { organizationId },
+      );
+    } else {
+      queryBuilder.where('employee.organization_id = :organizationId', { organizationId });
+    }
 
     if (searchTerm) {
       queryBuilder.andWhere(

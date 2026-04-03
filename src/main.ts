@@ -38,7 +38,7 @@ import { McpHttpHandlerService } from './mcp/mcp-http-handler.service';
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter({ logger: true }),
+    new FastifyAdapter(),
   );
 
   const _httpPort = parseInt(process.env.PORT || '3000', 10);
@@ -76,7 +76,7 @@ async function bootstrap(): Promise<void> {
   );
 
   await fastifyInstance.register(require('@fastify/multipart'), {
-    limits: { fileSize: 20 * 1024 * 1024 }, // 10MB
+    limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
     attachFieldsToBody: true, // so multipart create can read "data" field from body
   });
 

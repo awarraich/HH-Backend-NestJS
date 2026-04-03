@@ -67,4 +67,10 @@ export class CreateReferralDto {
   @ValidateNested({ each: true })
   @Type(() => ReferralDocumentItemDto)
   documents?: ReferralDocumentItemDto[];
+
+  /** Filled document template IDs (CompetencyAssignment UUIDs) to attach to this referral. */
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  document_template_ids?: string[];
 }

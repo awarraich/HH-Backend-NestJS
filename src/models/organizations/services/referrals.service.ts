@@ -22,6 +22,7 @@ import { AssignReferralDto } from '../dto/assign-referral.dto';
 import { PatientsService } from '../../patients/patients.service';
 import { AuditLogService } from '../../../common/services/audit/audit-log.service';
 import type { ReferralListFilters } from '../repositories/referral.repository';
+import { TemplatesService } from '../document-workflow/services/templates.service';
 
 @Injectable()
 export class ReferralsService {
@@ -29,6 +30,7 @@ export class ReferralsService {
 
   constructor(
     private referralRepository: ReferralRepository,
+    private templatesService: TemplatesService,
     @InjectRepository(ReferralOrganization)
     private referralOrganizationRepository: Repository<ReferralOrganization>,
     @InjectRepository(ReferralMessage)
@@ -118,6 +120,7 @@ export class ReferralsService {
         estimated_cost: dto.estimated_cost ?? null,
         notes: dto.notes,
         level_of_care: dto.level_of_care ?? null,
+        document_template_ids: dto.document_template_ids?.length ? dto.document_template_ids : null,
       });
       const savedReferral = await queryRunner.manager.save(Referral, referral);
 
@@ -222,7 +225,14 @@ export class ReferralsService {
     if (!isSender && !isReceiver) {
       throw new ForbiddenException('You do not have access to this referral');
     }
-    return this.serializer.serialize(referral);
+
+    const serialized = this.serializer.serialize(referral);
+
+    serialized.document_templates = referral.document_template_ids?.length
+      ? await this.templatesService.findByIdsWithValues(referral.document_template_ids)
+      : [];
+
+    return serialized;
   }
 
   async updateResponse(

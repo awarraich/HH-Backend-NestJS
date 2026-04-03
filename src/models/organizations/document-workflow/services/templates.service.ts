@@ -1,7 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { CompetencyTemplate } from '../entities/competency-template.entity';
+import { DocumentFieldValue } from '../../../external-documents/entities/document-field-value.entity';
 import { CreateTemplateDto } from '../dto/create-template.dto';
 import { UpdateTemplateDto } from '../dto/update-template.dto';
 import { PdfStorageService } from './pdf-storage.service';
@@ -11,6 +12,8 @@ export class TemplatesService {
   constructor(
     @InjectRepository(CompetencyTemplate)
     private readonly repo: Repository<CompetencyTemplate>,
+    @InjectRepository(DocumentFieldValue)
+    private readonly fieldValueRepo: Repository<DocumentFieldValue>,
     private readonly pdfStorage: PdfStorageService,
   ) {}
 
@@ -46,6 +49,89 @@ export class TemplatesService {
 
   buildPdfUrl(orgId: string, templateId: string): string {
     return `/v1/api/organizations/${orgId}/document-workflow/templates/${templateId}/pdf/view`;
+  }
+
+  private buildFieldsWithValues(
+    documentFields: any[],
+    valueMap: Map<string, any>,
+  ): any[] {
+    return (documentFields ?? []).map((field: any) => ({
+      ...field,
+      filledValue: valueMap.get(field.id) ?? null,
+    }));
+  }
+
+  private async loadFieldValueMap(templateIds: string[]): Promise<Map<string, Map<string, any>>> {
+    if (!templateIds.length) return new Map();
+    const fieldValues = await this.fieldValueRepo.find({
+      where: { template_id: In(templateIds) },
+    });
+    const byTemplate = new Map<string, Map<string, any>>();
+    for (const fv of fieldValues) {
+      if (!byTemplate.has(fv.template_id)) byTemplate.set(fv.template_id, new Map());
+      byTemplate.get(fv.template_id)!.set(fv.field_id, fv.value);
+    }
+    return byTemplate;
+  }
+
+  async findFilledTemplates(
+    orgId: string,
+    page: number = 1,
+    limit: number = 20,
+  ): Promise<{ data: any[]; total: number; page: number; limit: number }> {
+    const [templates, total] = await this.repo.findAndCount({
+      where: { organization_id: orgId },
+      order: { updated_at: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    if (!templates.length) return { data: [], total: 0, page, limit };
+
+    const templateIds = templates.map((t) => t.id);
+    const byTemplate = await this.loadFieldValueMap(templateIds);
+
+    const data = templates.map((t) => {
+      const valueMap = byTemplate.get(t.id) ?? new Map();
+      return {
+        id: t.id,
+        organization_id: t.organization_id,
+        name: t.name,
+        description: t.description,
+        roles: t.roles,
+        document_fields: this.buildFieldsWithValues(t.document_fields, valueMap),
+        pdf_file_key: t.pdf_file_key ?? null,
+        pdfUrl: t.pdf_file_key ? this.buildPdfUrl(t.organization_id, t.id) : null,
+        created_by: t.created_by,
+        created_at: t.created_at,
+        updated_at: t.updated_at,
+      };
+    });
+
+    return { data, total, page, limit };
+  }
+
+  async findByIdsWithValues(templateIds: string[]): Promise<any[]> {
+    if (!templateIds.length) return [];
+    const templates = await this.repo.find({ where: { id: In(templateIds) } });
+    const byTemplate = await this.loadFieldValueMap(templateIds);
+
+    return templates.map((t) => {
+      const valueMap = byTemplate.get(t.id) ?? new Map();
+      return {
+        id: t.id,
+        organization_id: t.organization_id,
+        name: t.name,
+        description: t.description,
+        roles: t.roles,
+        document_fields: this.buildFieldsWithValues(t.document_fields, valueMap),
+        pdf_file_key: t.pdf_file_key ?? null,
+        pdfUrl: t.pdf_file_key ? this.buildPdfUrl(t.organization_id, t.id) : null,
+        created_by: t.created_by,
+        created_at: t.created_at,
+        updated_at: t.updated_at,
+      };
+    });
   }
 
   async create(orgId: string, dto: CreateTemplateDto, userId: string) {

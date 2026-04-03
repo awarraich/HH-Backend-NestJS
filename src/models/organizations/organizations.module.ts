@@ -110,6 +110,7 @@ import { OrganizationDocumentCategoriesController } from './compliance-documents
 import { OrganizationDocumentsController } from './compliance-documents/controllers/organization-documents.controller';
 import { CompetencyTemplate } from './document-workflow/entities/competency-template.entity';
 import { CompetencyAssignment } from './document-workflow/entities/competency-assignment.entity';
+import { DocumentFieldValue } from '../external-documents/entities/document-field-value.entity';
 import { TemplatesController } from './document-workflow/controllers/templates.controller';
 import { AssignmentsController } from './document-workflow/controllers/assignments.controller';
 import { TemplatesService } from './document-workflow/services/templates.service';
@@ -120,6 +121,7 @@ import { DocumentTemplateUserAssignment } from './document-workflow/entities/doc
 import { WorkflowRolesService } from './document-workflow/services/workflow-roles.service';
 import { TemplateAssignmentsService } from './document-workflow/services/template-assignments.service';
 import { WorkflowRolesController } from './document-workflow/controllers/workflow-roles.controller';
+import { FilledDocumentTemplatesController } from './document-workflow/controllers/filled-document-templates.controller';
 
 @Module({
   imports: [
@@ -169,6 +171,7 @@ import { WorkflowRolesController } from './document-workflow/controllers/workflo
       OrganizationDocumentChunk,
       CompetencyTemplate,
       CompetencyAssignment,
+      DocumentFieldValue,
       DocumentWorkflowRole,
       DocumentTemplateUserAssignment,
     ]),
@@ -207,6 +210,7 @@ import { WorkflowRolesController } from './document-workflow/controllers/workflo
     TemplatesController,
     AssignmentsController,
     WorkflowRolesController,
+    FilledDocumentTemplatesController,
   ],
   providers: [
     DepartmentService,

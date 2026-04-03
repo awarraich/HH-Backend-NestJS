@@ -57,6 +57,9 @@ export class Referral {
   @Column({ type: 'uuid', nullable: true })
   selected_organization_id: string | null;
 
+  @Column({ type: 'uuid', array: true, nullable: true, default: null })
+  document_template_ids: string[] | null;
+
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
 

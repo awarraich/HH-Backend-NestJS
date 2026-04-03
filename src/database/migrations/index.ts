@@ -16,11 +16,34 @@ import { CreatePatientMedicationsTables20260218000001 } from './20260218000001-c
 import { AddRecordedByToMedicationAdministrations20260218000002 } from './20260218000002-add-recorded-by-to-medication-administrations.js';
 import { AddDeletedAtPatientMedications20260218000003 } from './20260218000003-add-deleted-at-patient-medications.js';
 import { BackfillUsersEmailNotNull20260219000001 } from './20260219000001-backfill-users-email-not-null.js';
+import { CreateStaffManagementTables20260219000001 } from './20260219000001-create-staff-management-tables.js';
 import { SeedRolesTable20260219100000 } from './20260219100000-seed-roles-table.js';
+import { AddStaffSystemRole20260219100000 } from './20260219100000-add-staff-system-role.js';
 import { SeedOrganizationTypesTable20260219100001 } from './20260219100001-seed-organization-types-table.js';
-import { CreateBlogsTable1708000000000 } from './20260220000000-create-blogs-table.js';
+import { CreateOrganizationFeaturesTable20260219110000 } from './20260219110000-create-organization-features-table.js';
+import { LinkStaffRolePermissionsToOrganizationFeatures20260219110001 } from './20260219110001-link-staff-role-permissions-to-organization-features.js';
+import { CreateEmployeesTable20260219200000 } from './20260219200000-create-employees-table.js';
+import { CreateBlogsTableV220260220000001 } from './20260220000001-create-blogs-table-v2.js';
+import { AddMedicationEmbedding20260223100000 } from './20260223100000-add-medication-embedding.js';
+import { CreateProviderRolesTable20260224100000 } from './20260224100000-create-provider-roles-table.js';
+import { AlterEmployeesAndProfiles20260224100001 } from './20260224100001-alter-employees-and-profiles.js';
+import { DropEmployeeRoleAndOnboardingStatus20260224100003 } from './20260224100003-drop-employee-role-and-onboarding-status.js';
+import { CreateHrDocumentTypesTable20260226100000 } from './20260226100000-create-hr-document-types-table.js';
+import { CreateEmployeeDocumentsTable20260227100000 } from './20260227100000-create-employee-documents-table.js';
+import { CreateDocumentChunksAndVector20260227100001 } from './20260227100001-create-document-chunks-and-vector.js';
+import { AddDeletedAtEmployeeDocuments20260227100002 } from './20260227100002-add-deleted-at-employee-documents.js';
+import { PartialUniqueEmployeeDocuments20260227100003 } from './20260227100003-partial-unique-employee-documents.js';
 import { CreatePatientChatTables20260302000000 } from './20260302000000-create-patient-chat-tables.js';
+import { CreateRequirementTagsTables20260303110000 } from './20260303110000-create-requirement-tags-tables.js';
+import { CreateEmployeeRequirementTagsTable20260303110001 } from './20260303110001-create-employee-requirement-tags-table.js';
 import { CreateJobPostingsTable20260304000000 } from './20260304000000-create-job-postings-table.js';
+import { AddEmployeeIdToHrDocumentTypes20260304100000 } from './20260304100000-add-employee-id-to-hr-document-types.js';
+import { EmployeeDocumentTypesNoOrg20260305100000 } from './20260305100000-employee-document-types-no-org.js';
+import { CreateInserviceTrainingsTable20260305120000 } from './20260305120000-create-inservice-trainings-table.js';
+import { CreateRequirementInserviceTrainingsTable20260305120001 } from './20260305120001-create-requirement-inservice-trainings-table.js';
+import { SeedGlobalHrDocumentTypes20260306100000 } from './20260306100000-seed-global-hr-document-types.js';
+import { AddHasQuizAndPassingScoreToInserviceTrainings20260306120000 } from './20260306120000-add-has-quiz-and-passing-score-to-inservice-trainings.js';
+import { CreateInserviceQuizQuestionsTable20260306120001 } from './20260306120001-create-inservice-quiz-questions-table.js';
 import { CreateJobApplicationsTable20260307000000 } from './20260307000000-create-job-applications-table.js';
 import { CreateInserviceCompletionsAndQuizAttempts20260311100000 } from './20260311100000-create-inservice-completions-and-quiz-attempts.js';
 import { AddDisplayNameToUsers20260312000000 } from './20260312000000-add-display-name-to-users.js';
@@ -39,9 +62,15 @@ import { ConvertPdfColumnsToPdfFilesJsonb20260319300000 } from './20260319300000
 import { SplitAddressIntoStructuredFields20260319400000 } from './20260319400000-split-address-into-structured-fields.js';
 import { CreateComplianceDocumentsTables20260317500000 } from './20260317500000-create-compliance-documents-tables.js';
 import { AddFeaturedVideoToBlogs20260324100000 } from './20260324100000-add-featured-video-to-blogs.js';
-import { AddIsSupervisorFieldToStaffTable20260327100000} from './20260327100000-add-is_supervisor_field_to_staff_table.js';
+import { AddIsSupervisorFieldToStaffTable20260327100000 } from './20260327100000-add-is_supervisor_field_to_staff_table.js';
 import { CreateDocumentWorkflowTables20260329100000 } from './20260329100000-create-document-workflow-tables.js';
 import { DropSupervisorNameEmailFromAssignments20260330100000 } from './20260330100000-drop-supervisor-name-email-from-assignments.js';
+import { RemoveGridTemplateColumns20260331100000 } from './20260331100000-remove-grid-template-columns.js';
+import { CreateDocumentFieldValues20260331110000 } from './20260331110000-create-document-field-values.js';
+import { CreateDocumentWorkflowRoles20260401100000 } from './20260401100000-create-document-workflow-roles.js';
+import { CreateRequirementDocumentTemplates20260401100001 } from './20260401100001-create-requirement-document-templates.js';
+import { CreateDocumentTemplateUserAssignments20260401100002 } from './20260401100002-create-document-template-user-assignments.js';
+import { AddDocumentTemplateIdsToReferrals20260403000001 } from './20260403000001-add-document-template-ids-to-referrals.js';
 
 type MigrationConstructor = new () => MigrationInterface;
 
@@ -63,11 +92,34 @@ export const migrations: MigrationConstructor[] = [
   AddRecordedByToMedicationAdministrations20260218000002,
   AddDeletedAtPatientMedications20260218000003,
   BackfillUsersEmailNotNull20260219000001,
+  CreateStaffManagementTables20260219000001,
   SeedRolesTable20260219100000,
+  AddStaffSystemRole20260219100000,
   SeedOrganizationTypesTable20260219100001,
-  CreateBlogsTable1708000000000,
+  CreateOrganizationFeaturesTable20260219110000,
+  LinkStaffRolePermissionsToOrganizationFeatures20260219110001,
+  CreateEmployeesTable20260219200000,
+  CreateBlogsTableV220260220000001,
+  AddMedicationEmbedding20260223100000,
+  CreateProviderRolesTable20260224100000,
+  AlterEmployeesAndProfiles20260224100001,
+  DropEmployeeRoleAndOnboardingStatus20260224100003,
+  CreateHrDocumentTypesTable20260226100000,
+  CreateEmployeeDocumentsTable20260227100000,
+  CreateDocumentChunksAndVector20260227100001,
+  AddDeletedAtEmployeeDocuments20260227100002,
+  PartialUniqueEmployeeDocuments20260227100003,
   CreatePatientChatTables20260302000000,
+  CreateRequirementTagsTables20260303110000,
+  CreateEmployeeRequirementTagsTable20260303110001,
   CreateJobPostingsTable20260304000000,
+  AddEmployeeIdToHrDocumentTypes20260304100000,
+  EmployeeDocumentTypesNoOrg20260305100000,
+  CreateInserviceTrainingsTable20260305120000,
+  CreateRequirementInserviceTrainingsTable20260305120001,
+  SeedGlobalHrDocumentTypes20260306100000,
+  AddHasQuizAndPassingScoreToInserviceTrainings20260306120000,
+  CreateInserviceQuizQuestionsTable20260306120001,
   CreateJobApplicationsTable20260307000000,
   CreateInserviceCompletionsAndQuizAttempts20260311100000,
   AddDisplayNameToUsers20260312000000,
@@ -89,4 +141,10 @@ export const migrations: MigrationConstructor[] = [
   AddIsSupervisorFieldToStaffTable20260327100000,
   CreateDocumentWorkflowTables20260329100000,
   DropSupervisorNameEmailFromAssignments20260330100000,
+  RemoveGridTemplateColumns20260331100000,
+  CreateDocumentFieldValues20260331110000,
+  CreateDocumentWorkflowRoles20260401100000,
+  CreateRequirementDocumentTemplates20260401100001,
+  CreateDocumentTemplateUserAssignments20260401100002,
+  AddDocumentTemplateIdsToReferrals20260403000001,
 ];

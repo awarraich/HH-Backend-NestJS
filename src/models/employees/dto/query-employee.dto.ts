@@ -1,5 +1,5 @@
-import { IsOptional, IsString, IsInt, Min, Max, IsIn, IsUUID } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsOptional, IsString, IsInt, Min, Max, IsIn, IsUUID, IsBoolean } from 'class-validator';
+import { Type, Transform } from 'class-transformer';
 
 export class QueryEmployeeDto {
   @IsOptional()
@@ -14,6 +14,11 @@ export class QueryEmployeeDto {
   @IsString()
   @IsIn(['ACTIVE', 'INVITED', 'INACTIVE', 'TERMINATED'])
   status?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => value === 'true' || value === true)
+  include_orphan_employees?: boolean = false;
 
   @IsOptional()
   @IsInt()
