@@ -48,6 +48,48 @@ export class ReferralsService {
     private auditLogService: AuditLogService,
   ) {}
 
+  /**
+   * Batch-load template PDFs for referrals that have document_template_ids
+   * and append them to each serialized referral's documents array.
+   */
+  private async appendTemplateDocs(
+    serializedList: any[],
+    rawReferrals: Referral[],
+  ): Promise<void> {
+    const allIds = new Set<string>();
+    for (const r of rawReferrals) {
+      if (r.document_template_ids?.length) {
+        r.document_template_ids.forEach((id) => allIds.add(id));
+      }
+    }
+    if (allIds.size === 0) return;
+
+    const templates = await this.templatesService.findByIdsWithValues([...allIds]);
+    const templateMap = new Map(templates.map((t: any) => [t.id, t]));
+
+    for (let i = 0; i < rawReferrals.length; i++) {
+      const ids = rawReferrals[i].document_template_ids;
+      if (!ids?.length) continue;
+
+      const templateDocs = ids
+        .map((id) => templateMap.get(id))
+        .filter(Boolean)
+        .map((t: any) => ({
+          id: t.id,
+          file_name: t.name,
+          file_url: t.pdfUrl,
+          created_at: t.created_at,
+          type: 'template',
+          document_fields: t.document_fields,
+        }));
+
+      serializedList[i].documents = [
+        ...(serializedList[i].documents || []),
+        ...templateDocs,
+      ];
+    }
+  }
+
   async create(
     organizationId: string,
     userId: string,
@@ -173,7 +215,9 @@ export class ReferralsService {
         // ignore
       }
       const loaded = await this.referralRepository.findByIdWithRelations(savedReferral.id);
-      return this.serializer.serialize(loaded!);
+      const serialized = this.serializer.serialize(loaded!);
+      await this.appendTemplateDocs([serialized], [loaded!]);
+      return serialized;
     } catch (e) {
       await queryRunner.rollbackTransaction();
       throw e;
@@ -201,8 +245,12 @@ export class ReferralsService {
       queryDto.scope === 'sent'
         ? await this.referralRepository.findBySent(organizationId, filters)
         : await this.referralRepository.findByReceived(organizationId, filters);
+
+    const serialized = this.serializer.serializeMany(data);
+    await this.appendTemplateDocs(serialized, data);
+
     return {
-      data: this.serializer.serializeMany(data),
+      data: serialized,
       total,
       page: filters.page ?? 1,
       limit: filters.limit ?? 20,
@@ -227,11 +275,7 @@ export class ReferralsService {
     }
 
     const serialized = this.serializer.serialize(referral);
-
-    serialized.document_templates = referral.document_template_ids?.length
-      ? await this.templatesService.findByIdsWithValues(referral.document_template_ids)
-      : [];
-
+    await this.appendTemplateDocs([serialized], [referral]);
     return serialized;
   }
 

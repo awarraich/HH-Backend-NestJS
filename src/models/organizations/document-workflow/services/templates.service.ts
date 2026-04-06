@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { CompetencyTemplate } from '../entities/competency-template.entity';
 import { DocumentFieldValue } from '../../../external-documents/entities/document-field-value.entity';
+import { DocumentWorkflowRole } from '../entities/document-workflow-role.entity';
 import { CreateTemplateDto } from '../dto/create-template.dto';
 import { UpdateTemplateDto } from '../dto/update-template.dto';
 import { PdfStorageService } from './pdf-storage.service';
@@ -14,6 +15,8 @@ export class TemplatesService {
     private readonly repo: Repository<CompetencyTemplate>,
     @InjectRepository(DocumentFieldValue)
     private readonly fieldValueRepo: Repository<DocumentFieldValue>,
+    @InjectRepository(DocumentWorkflowRole)
+    private readonly roleRepo: Repository<DocumentWorkflowRole>,
     private readonly pdfStorage: PdfStorageService,
   ) {}
 
@@ -53,25 +56,50 @@ export class TemplatesService {
 
   private buildFieldsWithValues(
     documentFields: any[],
-    valueMap: Map<string, any>,
+    valueMap: Map<string, { value: any; user_id: string }>,
+    roleNameMap: Map<string, string>,
   ): any[] {
-    return (documentFields ?? []).map((field: any) => ({
-      ...field,
-      filledValue: valueMap.get(field.id) ?? null,
-    }));
+    return (documentFields ?? []).map((field: any) => {
+      const saved = valueMap.get(field.id);
+      return {
+        ...field,
+        assignedRoleName: field.assignedRoleId
+          ? roleNameMap.get(field.assignedRoleId) ?? null
+          : null,
+        filledValue: saved?.value ?? null,
+        filledBy: saved?.user_id ?? null,
+      };
+    });
   }
 
-  private async loadFieldValueMap(templateIds: string[]): Promise<Map<string, Map<string, any>>> {
+  private async loadFieldValueMap(
+    templateIds: string[],
+  ): Promise<Map<string, Map<string, { value: any; user_id: string }>>> {
     if (!templateIds.length) return new Map();
     const fieldValues = await this.fieldValueRepo.find({
       where: { template_id: In(templateIds) },
     });
-    const byTemplate = new Map<string, Map<string, any>>();
+    const byTemplate = new Map<string, Map<string, { value: any; user_id: string }>>();
     for (const fv of fieldValues) {
       if (!byTemplate.has(fv.template_id)) byTemplate.set(fv.template_id, new Map());
-      byTemplate.get(fv.template_id)!.set(fv.field_id, fv.value);
+      byTemplate.get(fv.template_id)!.set(fv.field_id, {
+        value: fv.value,
+        user_id: fv.user_id,
+      });
     }
     return byTemplate;
+  }
+
+  private async loadRoleNameMap(templates: CompetencyTemplate[]): Promise<Map<string, string>> {
+    const roleIds = new Set<string>();
+    for (const t of templates) {
+      for (const field of t.document_fields ?? []) {
+        if (field.assignedRoleId) roleIds.add(field.assignedRoleId);
+      }
+    }
+    if (roleIds.size === 0) return new Map();
+    const roles = await this.roleRepo.find({ where: { id: In([...roleIds]) } });
+    return new Map(roles.map((r) => [r.id, r.name]));
   }
 
   async findFilledTemplates(
@@ -89,7 +117,10 @@ export class TemplatesService {
     if (!templates.length) return { data: [], total: 0, page, limit };
 
     const templateIds = templates.map((t) => t.id);
-    const byTemplate = await this.loadFieldValueMap(templateIds);
+    const [byTemplate, roleNameMap] = await Promise.all([
+      this.loadFieldValueMap(templateIds),
+      this.loadRoleNameMap(templates),
+    ]);
 
     const data = templates.map((t) => {
       const valueMap = byTemplate.get(t.id) ?? new Map();
@@ -99,7 +130,7 @@ export class TemplatesService {
         name: t.name,
         description: t.description,
         roles: t.roles,
-        document_fields: this.buildFieldsWithValues(t.document_fields, valueMap),
+        document_fields: this.buildFieldsWithValues(t.document_fields, valueMap, roleNameMap),
         pdf_file_key: t.pdf_file_key ?? null,
         pdfUrl: t.pdf_file_key ? this.buildPdfUrl(t.organization_id, t.id) : null,
         created_by: t.created_by,
@@ -114,7 +145,10 @@ export class TemplatesService {
   async findByIdsWithValues(templateIds: string[]): Promise<any[]> {
     if (!templateIds.length) return [];
     const templates = await this.repo.find({ where: { id: In(templateIds) } });
-    const byTemplate = await this.loadFieldValueMap(templateIds);
+    const [byTemplate, roleNameMap] = await Promise.all([
+      this.loadFieldValueMap(templateIds),
+      this.loadRoleNameMap(templates),
+    ]);
 
     return templates.map((t) => {
       const valueMap = byTemplate.get(t.id) ?? new Map();
@@ -124,7 +158,7 @@ export class TemplatesService {
         name: t.name,
         description: t.description,
         roles: t.roles,
-        document_fields: this.buildFieldsWithValues(t.document_fields, valueMap),
+        document_fields: this.buildFieldsWithValues(t.document_fields, valueMap, roleNameMap),
         pdf_file_key: t.pdf_file_key ?? null,
         pdfUrl: t.pdf_file_key ? this.buildPdfUrl(t.organization_id, t.id) : null,
         created_by: t.created_by,
