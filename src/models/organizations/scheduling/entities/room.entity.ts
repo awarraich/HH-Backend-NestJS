@@ -32,6 +32,9 @@ export class Room {
   @Column({ type: 'varchar', length: 50, nullable: true })
   floor: string | null;
 
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  room_type: string | null;
+
   @Column({ type: 'varchar', length: 20, nullable: true })
   configuration_type: string | null;
 

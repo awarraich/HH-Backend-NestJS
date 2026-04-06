@@ -22,6 +22,11 @@ export class UpdateDepartmentDto {
   department_type?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  layout_type?: string;
+
+  @IsOptional()
   @Type(() => Boolean)
   @IsBoolean()
   is_active?: boolean;

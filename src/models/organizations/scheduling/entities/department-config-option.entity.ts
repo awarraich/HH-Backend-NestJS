@@ -3,39 +3,41 @@ import {
   PrimaryGeneratedColumn,
   Column,
   ManyToOne,
-  OneToMany,
   JoinColumn,
   CreateDateColumn,
   UpdateDateColumn,
   Index,
 } from 'typeorm';
 import { Organization } from '../../entities/organization.entity';
-import { Station } from './station.entity';
 
-@Entity('departments')
+@Entity('department_config_options')
 @Index(['organization_id'])
-@Index(['organization_id', 'is_active'])
-export class Department {
+@Index(['organization_id', 'category'])
+@Index(['organization_id', 'category', 'is_active'])
+export class DepartmentConfigOption {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
   @Column({ type: 'uuid' })
   organization_id: string;
 
-  @Column({ type: 'varchar', length: 255 })
-  name: string;
+  @Column({ type: 'varchar', length: 30 })
+  category: string;
 
-  @Column({ type: 'varchar', length: 50, nullable: true })
-  code: string | null;
+  @Column({ type: 'varchar', length: 50 })
+  value: string;
+
+  @Column({ type: 'varchar', length: 100 })
+  label: string;
 
   @Column({ type: 'text', nullable: true })
   description: string | null;
 
   @Column({ type: 'varchar', length: 50, nullable: true })
-  department_type: string | null;
+  icon: string | null;
 
-  @Column({ type: 'varchar', length: 30, nullable: true })
-  layout_type: string | null;
+  @Column({ type: 'boolean', default: false })
+  is_default: boolean;
 
   @Column({ type: 'boolean', default: true })
   is_active: boolean;
@@ -52,9 +54,4 @@ export class Department {
   @ManyToOne(() => Organization, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'organization_id' })
   organization: Organization;
-
-  @OneToMany(() => Station, (station) => station.department)
-  stations: Station[];
-
-  stationCount?: number;
 }
