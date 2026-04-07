@@ -4,6 +4,7 @@ import { ConfigModule } from '@nestjs/config';
 import { Employee } from './entities/employee.entity';
 import { EmployeeProfile } from './entities/employee-profile.entity';
 import { ProviderRole } from './entities/provider-role.entity';
+import { EmployeeShift } from '../organizations/scheduling/entities/employee-shift.entity';
 import { AuthenticationModule } from '../../authentication/auth.module';
 import { OrganizationsModule } from '../organizations/organizations.module';
 import { AuditLogModule } from '../../common/services/audit/audit-log.module';
@@ -19,7 +20,7 @@ import { EmployeeContextService } from './employee-context/services/employee-con
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Employee, EmployeeProfile, ProviderRole]),
+    TypeOrmModule.forFeature([Employee, EmployeeProfile, ProviderRole, EmployeeShift]),
     ConfigModule,
     AuthenticationModule,
     OrganizationsModule,

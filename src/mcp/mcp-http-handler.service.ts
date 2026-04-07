@@ -117,6 +117,12 @@ export class McpHttpHandlerService {
       organizationId.length > 0 &&
       !useEmployeeContext;
 
+    const useSchedulingContext =
+      contextType === 'scheduling' &&
+      typeof organizationId === 'string' &&
+      organizationId.length > 0 &&
+      !useEmployeeContext;
+
     try {
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
@@ -133,6 +139,17 @@ export class McpHttpHandlerService {
           organizationId: organizationId!,
           userId,
         });
+      } else if (useSchedulingContext) {
+        server = this.mcpServerFactory.create(
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          {
+            organizationId: organizationId!,
+            userId,
+          },
+        );
       } else {
         server = this.mcpServerFactory.create(userId, auditContext);
       }

@@ -42,20 +42,36 @@ export class ShiftService {
       .createQueryBuilder('s')
       .where('s.organization_id = :organizationId', { organizationId });
 
-    if (from_date) {
-      qb.andWhere('s.start_at >= :from_date', { from_date: new Date(from_date) });
+    // Date-range overlap test. Inputs may be either a date-only ('YYYY-MM-DD')
+    // or a full timestamp. For date-only, expand to start-of-day / end-of-day
+    // and do not rely on `new Date(...)` (which interprets bare dates as UTC
+    // midnight and clashes with our `timestamp` (no tz) column).
+    const isDateOnly = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v);
+    const fromBound = from_date
+      ? isDateOnly(from_date)
+        ? `${from_date} 00:00:00`
+        : from_date
+      : null;
+    const toBound = to_date
+      ? isDateOnly(to_date)
+        ? `${to_date} 23:59:59`
+        : to_date
+      : null;
+
+    if (fromBound) {
+      qb.andWhere('s.end_at > :fromBound', { fromBound });
     }
-    if (to_date) {
-      qb.andWhere('s.end_at <= :to_date', { to_date: new Date(to_date) });
+    if (toBound) {
+      qb.andWhere('s.start_at < :toBound', { toBound });
     }
     if (shift_type) {
-      qb.andWhere('s.shift_type = :shift_type', { shift_type });
+      qb.andWhere('UPPER(s.shift_type) = UPPER(:shift_type)', { shift_type });
     }
     if (status) {
-      qb.andWhere('s.status = :status', { status });
+      qb.andWhere('UPPER(s.status) = UPPER(:status)', { status });
     }
     if (recurrence_type) {
-      qb.andWhere('s.recurrence_type = :recurrence_type', { recurrence_type });
+      qb.andWhere('UPPER(s.recurrence_type) = UPPER(:recurrence_type)', { recurrence_type });
     }
     qb.orderBy('s.start_at', 'ASC').skip(skip).take(limit);
 
@@ -120,5 +136,30 @@ export class ShiftService {
     await this.ensureAccess(organizationId, userId);
     const shift = await this.findOne(organizationId, shiftId, userId);
     await this.shiftRepository.remove(shift);
+  }
+
+  /**
+   * Free-text search across shift name and shift_type. Used by MCP tools
+   * for autocomplete-style lookups; intentionally lighter than findAll.
+   */
+  async searchByText(
+    organizationId: string,
+    query: string,
+    userId: string,
+    limit = 25,
+  ): Promise<Shift[]> {
+    await this.ensureAccess(organizationId, userId);
+    const trimmed = query.trim();
+    if (!trimmed) return [];
+
+    return this.shiftRepository
+      .createQueryBuilder('s')
+      .where('s.organization_id = :organizationId', { organizationId })
+      .andWhere('(LOWER(s.name) LIKE :q OR LOWER(s.shift_type) LIKE :q)', {
+        q: `%${trimmed.toLowerCase()}%`,
+      })
+      .orderBy('s.start_at', 'ASC')
+      .take(limit)
+      .getMany();
   }
 }

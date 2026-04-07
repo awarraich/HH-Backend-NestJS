@@ -260,6 +260,32 @@ export class EmployeeShiftService {
     await this.employeeShiftRepository.remove(es);
   }
 
+  /**
+   * List all employee-shift assignments in an organization, optionally
+   * filtered by shift_id or employee_id. Used by the MCP `list_roles` tool
+   * when no shift- or employee-specific scope is provided.
+   */
+  async findAllInOrg(
+    organizationId: string,
+    filters: { shift_id?: string; employee_id?: string; status?: string; limit?: number },
+    userId: string,
+  ): Promise<EmployeeShift[]> {
+    await this.ensureAccess(organizationId, userId);
+    const qb = this.employeeShiftRepository
+      .createQueryBuilder('es')
+      .innerJoinAndSelect('es.shift', 'shift')
+      .leftJoinAndSelect('es.employee', 'employee')
+      .leftJoinAndSelect('employee.user', 'user')
+      .where('shift.organization_id = :organizationId', { organizationId });
+
+    if (filters.shift_id) qb.andWhere('es.shift_id = :shift_id', { shift_id: filters.shift_id });
+    if (filters.employee_id) qb.andWhere('es.employee_id = :employee_id', { employee_id: filters.employee_id });
+    if (filters.status) qb.andWhere('es.status = :status', { status: filters.status });
+
+    qb.orderBy('shift.start_at', 'ASC').take(filters.limit ?? 50);
+    return qb.getMany();
+  }
+
   async findByEmployee(
     organizationId: string,
     employeeId: string,

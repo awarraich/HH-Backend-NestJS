@@ -92,6 +92,7 @@ import { BedService } from './scheduling/services/bed.service';
 import { ChairService } from './scheduling/services/chair.service';
 import { ShiftService } from './scheduling/services/shift.service';
 import { EmployeeShiftService } from './scheduling/services/employee-shift.service';
+import { EmployeeAvailabilityService } from './scheduling/services/employee-availability.service';
 import { DepartmentConfigOptionService } from './scheduling/services/department-config-option.service';
 import { DepartmentsController } from './scheduling/controllers/departments.controller';
 import { StationsController } from './scheduling/controllers/stations.controller';
@@ -226,6 +227,7 @@ import { FilledDocumentTemplatesController } from './document-workflow/controlle
     ChairService,
     ShiftService,
     EmployeeShiftService,
+    EmployeeAvailabilityService,
     OrganizationsService,
     OrganizationRoleService,
     OrganizationPermissionService,
@@ -273,6 +275,9 @@ import { FilledDocumentTemplatesController } from './document-workflow/controlle
     EmployeeRequirementTagService,
     OrganizationDocumentsService,
     OrganizationDocumentsChatService,
+    ShiftService,
+    EmployeeShiftService,
+    EmployeeAvailabilityService,
   ],
 })
 export class OrganizationsModule {}

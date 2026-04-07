@@ -15,6 +15,23 @@ export const TOOL_NAMES = {
   GET_EXPIRING_DOCUMENTS_ALERT: 'get_expiring_documents_alert',
   ANALYZE_COMPLIANCE_DOCUMENT: 'analyze_compliance_document',
   COMPARE_COMPLIANCE_DOCUMENTS: 'compare_compliance_documents',
+  // Scheduling — shifts
+  LIST_SHIFTS: 'list_shifts',
+  GET_SHIFT_DETAILS: 'get_shift_details',
+  SEARCH_SHIFTS: 'search_shifts',
+  GET_EMPLOYEE_SHIFTS: 'get_employee_shifts',
+  // Scheduling — roles (modeled on EmployeeShift assignments)
+  LIST_ROLES: 'list_roles',
+  GET_ROLE_DETAILS: 'get_role_details',
+  SEARCH_ROLES: 'search_roles',
+  GET_EMPLOYEE_ROLES: 'get_employee_roles',
+  GET_SHIFT_ROLES: 'get_shift_roles',
+  // Scheduling — availability (fixture-backed)
+  GET_EMPLOYEE_AVAILABILITY: 'get_employee_availability',
+  SEARCH_AVAILABLE_EMPLOYEES: 'search_available_employees',
+  GET_EMPLOYEE_AVAILABILITY_SCHEDULE: 'get_employee_availability_schedule',
+  // Scheduling — write
+  ASSIGN_EMPLOYEE_TO_SHIFT: 'assign_employee_to_shift',
 } as const;
 
 export const MCP_ERROR_MESSAGES = {
