@@ -8,6 +8,7 @@ import {
   SchedulingToolDescriptor,
   SchedulingToolResult,
 } from './types';
+import { enrichShiftWithLocalTime } from './format-shift-times';
 
 const listShiftsSchema = {
   shift_type: z.string().optional().describe('Filter by shift type, e.g. "morning", "night"'),
@@ -47,6 +48,9 @@ export function buildShiftTools(
   employeeShiftService: EmployeeShiftService,
   ctx: SchedulingToolContext,
 ): SchedulingToolDescriptor[] {
+  const enrichShift = <T extends { start_at: Date | string; end_at: Date | string }>(s: T) =>
+    enrichShiftWithLocalTime(s, ctx.timezone);
+
   const listShifts = async (args: ListShiftsArgs): SchedulingToolResult => {
     const { data, total } = await shiftService.findAll(
       ctx.organizationId,
@@ -60,12 +64,12 @@ export function buildShiftTools(
       },
       ctx.userId,
     );
-    return jsonResult({ total, shifts: data });
+    return jsonResult({ total, timezone: ctx.timezone, shifts: data.map(enrichShift) });
   };
 
   const getShiftDetails = async (args: { shift_id: string }): SchedulingToolResult => {
     const shift = await shiftService.findOne(ctx.organizationId, args.shift_id, ctx.userId);
-    return jsonResult(shift);
+    return jsonResult(enrichShift(shift));
   };
 
   const searchShifts = async (args: { query: string; limit?: number }): SchedulingToolResult => {
@@ -75,7 +79,11 @@ export function buildShiftTools(
       ctx.userId,
       args.limit,
     );
-    return jsonResult({ count: shifts.length, shifts });
+    return jsonResult({
+      count: shifts.length,
+      timezone: ctx.timezone,
+      shifts: shifts.map(enrichShift),
+    });
   };
 
   const getEmployeeShifts = async (args: {
@@ -97,7 +105,13 @@ export function buildShiftTools(
       },
       ctx.userId,
     );
-    return jsonResult(result);
+    // Each row carries a nested `shift`; enrich that nested object so the LLM
+    // sees local times alongside the raw UTC timestamps.
+    const enrichedRows = result.data.map((row) => ({
+      ...row,
+      shift: row.shift ? enrichShift(row.shift) : row.shift,
+    }));
+    return jsonResult({ ...result, timezone: ctx.timezone, data: enrichedRows });
   };
 
   return [

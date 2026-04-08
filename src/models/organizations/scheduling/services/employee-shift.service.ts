@@ -304,6 +304,8 @@ export class EmployeeShiftService {
     const qb = this.employeeShiftRepository
       .createQueryBuilder('es')
       .innerJoinAndSelect('es.shift', 'shift')
+      .leftJoinAndSelect('es.employee', 'employee')
+      .leftJoinAndSelect('employee.user', 'user')
       .leftJoinAndSelect('es.department', 'department')
       .leftJoinAndSelect('es.station', 'station')
       .where('es.employee_id = :employeeId', { employeeId })

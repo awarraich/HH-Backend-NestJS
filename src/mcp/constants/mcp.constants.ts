@@ -30,6 +30,11 @@ export const TOOL_NAMES = {
   GET_EMPLOYEE_AVAILABILITY: 'get_employee_availability',
   SEARCH_AVAILABLE_EMPLOYEES: 'search_available_employees',
   GET_EMPLOYEE_AVAILABILITY_SCHEDULE: 'get_employee_availability_schedule',
+  // Scheduling — employee directory (autonomous agent name → id resolution)
+  LIST_EMPLOYEES: 'list_employees',
+  SEARCH_EMPLOYEES: 'search_employees',
+  LIST_EMPLOYEES_BY_ROLE: 'list_employees_by_role',
+  LIST_EMPLOYEES_BY_ROLE_NAME: 'list_employees_by_role_name',
   // Scheduling — write
   ASSIGN_EMPLOYEE_TO_SHIFT: 'assign_employee_to_shift',
 } as const;

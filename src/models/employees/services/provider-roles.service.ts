@@ -58,6 +58,29 @@ export class ProviderRolesService {
     return role;
   }
 
+  
+  async resolveByCodeOrName(query: string): Promise<ProviderRole[]> {
+    const trimmed = query.trim();
+    if (!trimmed) return [];
+
+    // 1. Exact code (case-insensitive)
+    const byCode = await this.providerRoleRepository
+      .createQueryBuilder('r')
+      .where('LOWER(r.code) = :q', { q: trimmed.toLowerCase() })
+      .getMany();
+    if (byCode.length > 0) return byCode;
+
+    // 2. Exact name (case-insensitive)
+    const byName = await this.providerRoleRepository
+      .createQueryBuilder('r')
+      .where('LOWER(r.name) = :q', { q: trimmed.toLowerCase() })
+      .getMany();
+    if (byName.length > 0) return byName;
+
+    // 3. Fuzzy fallback
+    return this.searchByText(trimmed, 10);
+  }
+
   /**
    * Free-text search across role code, name, and description.
    */

@@ -11,11 +11,13 @@ import { ShiftService } from '../../models/organizations/scheduling/services/shi
 import { EmployeeShiftService } from '../../models/organizations/scheduling/services/employee-shift.service';
 import { EmployeeAvailabilityService } from '../../models/organizations/scheduling/services/employee-availability.service';
 import { ProviderRolesService } from '../../models/employees/services/provider-roles.service';
+import { EmployeesService } from '../../models/employees/services/employees.service';
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '../constants/mcp.constants';
 import { registerDigitalNurseHandlers } from '../tools/digital-nurse';
 import { registerEmployeeDocumentHandlers } from '../tools/employee-documents';
 import { registerComplianceDocumentHandlers } from '../tools/compliance-documents';
 import { registerSchedulingHandlers, SchedulingToolDescriptor } from '../tools/scheduling';
+import { resolveTimezone } from '../tools/scheduling/timezone';
 
 export interface EmployeeContext {
   organizationId: string;
@@ -31,6 +33,12 @@ export interface ComplianceContext {
 export interface SchedulingContext {
   organizationId: string;
   userId: string;
+  /**
+   * IANA timezone supplied by the client (browser sends
+   * `Intl.DateTimeFormat().resolvedOptions().timeZone`). Optional — falls
+   * back to 'UTC' if missing or invalid.
+   */
+  timezone?: string | null;
 }
 
 @Injectable()
@@ -44,6 +52,7 @@ export class McpServerFactory {
     private readonly employeeShiftService: EmployeeShiftService,
     private readonly employeeAvailabilityService: EmployeeAvailabilityService,
     private readonly providerRolesService: ProviderRolesService,
+    private readonly employeesService: EmployeesService,
   ) {}
 
   create(
@@ -126,9 +135,11 @@ export class McpServerFactory {
         this.employeeShiftService,
         this.employeeAvailabilityService,
         this.providerRolesService,
+        this.employeesService,
         {
           organizationId: schedulingContext.organizationId,
           userId: schedulingContext.userId,
+          timezone: resolveTimezone(schedulingContext.timezone),
         },
       );
       for (const tool of tools) {
@@ -192,9 +203,11 @@ export class McpServerFactory {
       this.employeeShiftService,
       this.employeeAvailabilityService,
       this.providerRolesService,
+      this.employeesService,
       {
         organizationId: ctx.organizationId,
         userId: ctx.userId,
+        timezone: resolveTimezone(ctx.timezone),
       },
     );
   }

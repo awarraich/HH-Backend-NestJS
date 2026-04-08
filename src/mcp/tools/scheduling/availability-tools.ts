@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { EmployeeAvailabilityService } from '../../../models/organizations/scheduling/services/employee-availability.service';
+import type { EmployeesService } from '../../../models/employees/services/employees.service';
 import { TOOL_NAMES } from '../../constants/mcp.constants';
 import {
   jsonResult,
@@ -7,6 +8,7 @@ import {
   SchedulingToolDescriptor,
   SchedulingToolResult,
 } from './types';
+import { enrichRecordsWithEmployeeNames } from './enrich-employees';
 
 const dateString = z
   .string()
@@ -41,6 +43,7 @@ const scheduleSchema = {
 
 export function buildAvailabilityTools(
   availabilityService: EmployeeAvailabilityService,
+  employeesService: EmployeesService,
   ctx: SchedulingToolContext,
 ): SchedulingToolDescriptor[] {
   const getEmployeeAvailability = async (args: {
@@ -58,7 +61,12 @@ export function buildAvailabilityTools(
       endTime: args.end_time,
       status: args.status ?? 'available',
     });
-    return jsonResult({ count: records.length, availability: records });
+    const enriched = await enrichRecordsWithEmployeeNames(
+      records,
+      employeesService,
+      ctx.organizationId,
+    );
+    return jsonResult({ count: enriched.length, availability: enriched });
   };
 
   const searchAvailableEmployees = async (args: {
@@ -74,7 +82,12 @@ export function buildAvailabilityTools(
       organizationId: ctx.organizationId,
       maxResults: args.max_results,
     });
-    return jsonResult({ count: records.length, candidates: records });
+    const enriched = await enrichRecordsWithEmployeeNames(
+      records,
+      employeesService,
+      ctx.organizationId,
+    );
+    return jsonResult({ count: enriched.length, candidates: enriched });
   };
 
   const getEmployeeAvailabilitySchedule = async (args: {
@@ -87,7 +100,12 @@ export function buildAvailabilityTools(
       startDate: args.start_date,
       endDate: args.end_date,
     });
-    return jsonResult({ count: records.length, schedule: records });
+    const enriched = await enrichRecordsWithEmployeeNames(
+      records,
+      employeesService,
+      ctx.organizationId,
+    );
+    return jsonResult({ count: enriched.length, schedule: enriched });
   };
 
   return [

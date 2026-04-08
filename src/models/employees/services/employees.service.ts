@@ -557,8 +557,18 @@ export class EmployeesService {
     }
 
     if (searchTerm) {
+      // Matches single tokens (firstName/lastName/email/department/position_title)
+      // AND multi-token full-name queries via CONCAT_WS, so a search like
+      // "Ahmad Khan" finds users whose firstName='Ahmad' and lastName='Khan'.
       queryBuilder.andWhere(
-        '(employee.department ILIKE :search OR employee.position_title ILIKE :search OR user.firstName ILIKE :search OR user.lastName ILIKE :search OR user.email ILIKE :search)',
+        `(
+          employee.department ILIKE :search
+          OR employee.position_title ILIKE :search
+          OR user.firstName ILIKE :search
+          OR user.lastName ILIKE :search
+          OR user.email ILIKE :search
+          OR CONCAT_WS(' ', user.firstName, user.lastName) ILIKE :search
+        )`,
         { search: searchTerm },
       );
     }
@@ -581,6 +591,82 @@ export class EmployeesService {
       page,
       limit,
     };
+  }
+
+  /**
+   * Find employees in an organization whose provider role matches a
+   * keyword (e.g. "OT", "RN", "Nurse"). Joins employees → provider_roles in
+   * a single SQL query and filters in one pass — no two-step "find role id
+   * then find employees by id" chain that can break on FK staleness or
+   * lookup mismatches.
+   *
+   * Matching is exact-first (case-insensitive code or name), then fuzzy
+   * (substring on code or name). The first tier that finds rows wins.
+   *
+   * No status filter is applied — the MCP layer chose to surface all
+   * employees in a role regardless of status, so case mismatches between
+   * the LLM ("ACTIVE") and the DB ("active") cannot silently zero out
+   * the result.
+   */
+  async findByProviderRoleKeyword(
+    organizationId: string,
+    keyword: string,
+    limit = 50,
+  ): Promise<Employee[]> {
+    const trimmed = keyword.trim();
+    if (!trimmed) return [];
+    const lower = trimmed.toLowerCase();
+
+    const baseQuery = () =>
+      this.employeeRepository
+        .createQueryBuilder('employee')
+        .leftJoinAndSelect('employee.user', 'user')
+        .leftJoinAndSelect('employee.providerRole', 'providerRole')
+        .where('employee.organization_id = :organizationId', { organizationId })
+        .take(limit);
+
+    // Tier 1: exact code/name match (case-insensitive).
+    const exact = await baseQuery()
+      .andWhere('(LOWER(providerRole.code) = :exact OR LOWER(providerRole.name) = :exact)', {
+        exact: lower,
+      })
+      .getMany();
+    if (exact.length > 0) return exact;
+
+    // Tier 2: fuzzy substring on code or name.
+    return baseQuery()
+      .andWhere('(LOWER(providerRole.code) LIKE :fuzzy OR LOWER(providerRole.name) LIKE :fuzzy)', {
+        fuzzy: `%${lower}%`,
+      })
+      .getMany();
+  }
+
+  /**
+   * Bulk lookup of display info for a set of employees in an organization.
+   * Returns a Map<employeeId, { id, name, email }> for fast enrichment of
+   * tool responses that only carry raw employee_ids.
+   */
+  async findDisplayInfoByIds(
+    organizationId: string,
+    ids: string[],
+  ): Promise<Map<string, { id: string; name: string; email: string | null }>> {
+    const map = new Map<string, { id: string; name: string; email: string | null }>();
+    if (ids.length === 0) return map;
+
+    const employees = await this.employeeRepository
+      .createQueryBuilder('employee')
+      .leftJoinAndSelect('employee.user', 'user')
+      .where('employee.organization_id = :organizationId', { organizationId })
+      .andWhere('employee.id IN (:...ids)', { ids })
+      .getMany();
+
+    for (const e of employees) {
+      const first = e.user?.firstName ?? '';
+      const last = e.user?.lastName ?? '';
+      const name = `${first} ${last}`.trim() || e.user?.email || 'Unknown';
+      map.set(e.id, { id: e.id, name, email: e.user?.email ?? null });
+    }
+    return map;
   }
 
   async findOne(organizationId: string, employeeId: string): Promise<any> {

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { EmployeeShiftService } from '../../../models/organizations/scheduling/services/employee-shift.service';
+import type { EmployeesService } from '../../../models/employees/services/employees.service';
 import { TOOL_NAMES } from '../../constants/mcp.constants';
 import {
   jsonResult,
@@ -7,6 +8,7 @@ import {
   SchedulingToolDescriptor,
   SchedulingToolResult,
 } from './types';
+import { enrichShiftWithLocalTime } from './format-shift-times';
 
 const assignSchema = {
   shift_id: z
@@ -29,6 +31,7 @@ const assignSchema = {
 
 export function buildAssignmentTools(
   employeeShiftService: EmployeeShiftService,
+  employeesService: EmployeesService,
   ctx: SchedulingToolContext,
 ): SchedulingToolDescriptor[] {
   const assignEmployeeToShift = async (args: {
@@ -43,7 +46,7 @@ export function buildAssignmentTools(
     notes?: string;
   }): SchedulingToolResult => {
     try {
-      const result = await employeeShiftService.create(
+      const created = await employeeShiftService.create(
         ctx.organizationId,
         args.shift_id,
         {
@@ -58,7 +61,33 @@ export function buildAssignmentTools(
         },
         ctx.userId,
       );
-      return jsonResult({ success: true, employee_shift: result });
+
+      // Re-load with relations so the response carries the full shift +
+      // employee context (used for the success card and LLM confirmation).
+      const hydrated = await employeeShiftService.findOne(
+        ctx.organizationId,
+        created.id,
+        ctx.userId,
+      );
+
+      const displayMap = await employeesService.findDisplayInfoByIds(
+        ctx.organizationId,
+        [args.employee_id],
+      );
+      const display = displayMap.get(args.employee_id);
+
+      const enrichedShift = hydrated.shift
+        ? enrichShiftWithLocalTime(hydrated.shift, ctx.timezone)
+        : hydrated.shift;
+
+      return jsonResult({
+        success: true,
+        message: `Assigned ${display?.name ?? 'employee'} to ${hydrated.shift?.name ?? 'shift'}`,
+        timezone: ctx.timezone,
+        employee_shift: { ...hydrated, shift: enrichedShift },
+        employee_name: display?.name ?? 'Unknown employee',
+        employee_email: display?.email ?? null,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return jsonResult({ success: false, error: message });

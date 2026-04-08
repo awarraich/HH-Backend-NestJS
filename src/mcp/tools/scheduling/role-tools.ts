@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { ProviderRolesService } from '../../../models/employees/services/provider-roles.service';
+import type { EmployeesService } from '../../../models/employees/services/employees.service';
 import { TOOL_NAMES } from '../../constants/mcp.constants';
 import {
   jsonResult,
@@ -45,6 +46,7 @@ const getShiftRolesSchema = {
 
 export function buildRoleTools(
   providerRolesService: ProviderRolesService,
+  employeesService: EmployeesService,
   ctx: SchedulingToolContext,
 ): SchedulingToolDescriptor[] {
   const listRoles = async (args: {
@@ -72,11 +74,17 @@ export function buildRoleTools(
   const getEmployeeRoles = async (args: {
     employee_id: string;
   }): SchedulingToolResult => {
-    const roles = await providerRolesService.findRolesForEmployee(
-      args.employee_id,
-      ctx.organizationId,
-    );
-    return jsonResult({ count: roles.length, roles });
+    const [roles, displayMap] = await Promise.all([
+      providerRolesService.findRolesForEmployee(args.employee_id, ctx.organizationId),
+      employeesService.findDisplayInfoByIds(ctx.organizationId, [args.employee_id]),
+    ]);
+    const display = displayMap.get(args.employee_id);
+    return jsonResult({
+      count: roles.length,
+      employee_name: display?.name ?? 'Unknown employee',
+      employee_email: display?.email ?? null,
+      roles,
+    });
   };
 
   const getShiftRoles = async (args: { shift_id: string }): SchedulingToolResult => {

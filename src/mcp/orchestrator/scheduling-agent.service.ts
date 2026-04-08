@@ -51,7 +51,78 @@ Rules:
 - Never invent results. If a tool returns nothing, say so honestly.
 - If the user's request is ambiguous (missing date, employee, or shift name), ask a short clarifying question instead of inventing arguments.
 - Use concise plain English in the final answer. Bullet lists for multiple items.
-- Never expose raw UUIDs in the final answer unless the user explicitly asks for them.`;
+- Never expose raw UUIDs in the final answer. Always refer to people and shifts by NAME using the \`employee_name\` or shift \`name\` field from tool results. The phrase "Employee 1", "Employee 2", or "Employee bb41…" must NEVER appear in your reply — if a tool result lacks a name, call search_employees to resolve it before answering.
+
+Conversation memory and back-references:
+- You receive prior conversation turns in the messages array. Read them. The user's current message often refers to entities mentioned in earlier turns ("this shift", "that employee", "the one we just assigned", "the NOC shift from before").
+- When the user uses a demonstrative ("this", "that", "the", "it") without naming the entity, look back through the conversation history and pick the most recently discussed shift / employee / role. DO NOT ask "which shift?" if the answer is obvious from the previous turn.
+- After a successful assignment (assign_employee_to_shift returned success: true), remember it. If the user asks "is anyone assigned to this shift?" in a later turn, the answer must include the assignment you just made — even if you have to call get_shift_details again to confirm.
+- If a tool result you got 30 seconds ago is still fresh (same conversation, same entity), prefer answering from memory over re-calling the tool. Re-call only when the user asks for fresh data ("refresh", "check again") or when state may have changed because of a write you made.
+
+Role-based queries (CRITICAL — pick the right tool):
+
+Routing examples — match these EXACTLY:
+
+  USER: "give me employees with roles"
+  CORRECT: call list_employees (no args). The response includes each
+  employee's provider_role via JOIN. List them by name with their role.
+  WRONG: calling list_employees_by_role_name with role_name="role" or
+  role_name="with roles" — that tool will REJECT generic words.
+
+  USER: "give me employees and their roles"
+  CORRECT: call list_employees.
+
+  USER: "show me all staff"
+  CORRECT: call list_employees.
+
+  USER: "who works here?"
+  CORRECT: call list_employees.
+
+  USER: "list employees"
+  CORRECT: call list_employees.
+
+  USER: "what employees are RNs?"
+  CORRECT: call list_employees_by_role_name with role_name="RN".
+
+  USER: "list all OT employees"
+  CORRECT: call list_employees_by_role_name with role_name="OT".
+
+  USER: "who has the Sitter role?"
+  CORRECT: call list_employees_by_role_name with role_name="Sitter".
+
+Decision rule:
+  - Does the user's message contain a specific role keyword (RN, OT, CNA,
+    Sitter, Nurse, Therapist, etc.)? → list_employees_by_role_name
+  - Otherwise → list_employees (it includes provider_role on every row).
+
+Forbidden behaviors:
+- NEVER call list_employees_by_role_name with a generic word like "role",
+  "roles", "any", "all", or with the user's literal phrase "with roles".
+  Those are not role names. If you do not have a specific role keyword,
+  use list_employees instead.
+- NEVER answer "no employees in role X" when list_employees_by_role_name
+  returned a non-empty 'employees' array. Read the count and the
+  employees[] array before composing your reply.
+- NEVER contradict a fact you established one or two turns ago. If the
+  conversation history shows "Ahmad Khan — OT", do not respond "no
+  employees in OT" without first re-running list_employees_by_role_name
+  AND reading its 'employees' array carefully.
+
+list_employees_by_role_name details:
+- Single SQL join under the hood (employees ⨝ provider_roles). Whatever
+  role the employee actually points to in the database is what gets
+  matched — there is no two-step lookup that can drift.
+- Uses exact-first matching: "OT" matches the OT row, not COTA. "RN"
+  matches RN. Falls back to fuzzy substring only if exact match returns
+  nothing.
+- Returns: count, matched_roles, employees[]. If count > 0, you MUST
+  list those employees in your reply by their full name.
+
+Cross-checking with prior turns:
+- If a prior turn established an employee/role pairing and the current
+  tool result contradicts it, re-read the current result carefully before
+  answering. If the contradiction is real, tell the user there is a data
+  inconsistency rather than confidently denying yourself.`;
 
 const MAX_STEPS = 5;
 const MODEL = 'gpt-4o-mini';
@@ -126,11 +197,35 @@ export interface SchedulingAgentContext {
   [key: string]: string | undefined;
 }
 
+/**
+ * One turn of prior conversation, sent by the client on every request so
+ * the agent has multi-turn memory. Keep it lean: text-only, no tool traces.
+ * The frontend should cap history at the last ~20 turns to bound payload size.
+ */
+export interface SchedulingAgentHistoryMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export interface SchedulingAgentRequest {
   userId: string;
   organizationId: string;
   query: string;
   context?: SchedulingAgentContext;
+  /**
+   * Prior conversation turns in chronological order (oldest first), excluding
+   * the current `query`. The service inserts these between the system prompt
+   * and the current user message so the LLM can resolve back-references like
+   * "this shift", "that employee", "the one we just assigned".
+   */
+  history?: SchedulingAgentHistoryMessage[];
+  /**
+   * Client-supplied IANA timezone, e.g. "Asia/Karachi".
+   * The browser provides this for free via
+   * `Intl.DateTimeFormat().resolvedOptions().timeZone`. Optional — falls
+   * back to UTC at the factory boundary if missing or invalid.
+   */
+  timezone?: string;
 }
 
 export interface SchedulingAgentToolCall {
@@ -157,6 +252,7 @@ export class SchedulingAgentService {
     const tools = this.mcpFactory.buildSchedulingTools({
       organizationId: req.organizationId,
       userId: req.userId,
+      timezone: req.timezone,
     });
     const openAiTools = toOpenAiTools(tools);
     const toolByName = new Map(tools.map((t) => [t.name, t]));
@@ -164,8 +260,16 @@ export class SchedulingAgentService {
     const contextBlock = buildContextBlock(req.context);
     const systemContent = contextBlock ? `${SYSTEM_PROMPT}\n\n${contextBlock}` : SYSTEM_PROMPT;
 
+    // Build the conversation: [system, ...history, current user query]
+    // History gives the LLM multi-turn memory so it can resolve references
+    // like "this shift" or "the one we just assigned".
+    const historyMessages: ChatCompletionMessageParam[] = (req.history ?? [])
+      .filter((m) => m && typeof m.content === 'string' && m.content.trim().length > 0)
+      .map((m) => ({ role: m.role, content: m.content }));
+
     const messages: ChatCompletionMessageParam[] = [
       { role: 'system', content: systemContent },
+      ...historyMessages,
       { role: 'user', content: req.query },
     ];
     const trace: SchedulingAgentToolCall[] = [];

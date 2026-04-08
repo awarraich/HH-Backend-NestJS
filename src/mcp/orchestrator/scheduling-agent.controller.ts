@@ -10,19 +10,38 @@ import {
 } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 import {
+  ArrayMaxSize,
+  IsArray,
+  IsIn,
   IsNotEmpty,
   IsObject,
   IsOptional,
   IsString,
   IsUUID,
   MaxLength,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { OrganizationRoleGuard } from '../../common/guards/organization-role.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { SuccessHelper } from '../../common/helpers/responses/success.helper';
 import { SchedulingAgentService } from './scheduling-agent.service';
-import type { SchedulingAgentContext } from './scheduling-agent.service';
+import type {
+  SchedulingAgentContext,
+  SchedulingAgentHistoryMessage,
+} from './scheduling-agent.service';
+
+class SchedulingAgentHistoryMessageDto implements SchedulingAgentHistoryMessage {
+  @IsString()
+  @IsIn(['user', 'assistant'])
+  role: 'user' | 'assistant';
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(8000)
+  content: string;
+}
 
 class SchedulingAgentDto {
   @IsString()
@@ -32,6 +51,29 @@ class SchedulingAgentDto {
 
   @IsUUID()
   organizationId: string;
+
+  /**
+   * Client-supplied IANA timezone (e.g. "Asia/Karachi"). The frontend
+   * should derive this from `Intl.DateTimeFormat().resolvedOptions().timeZone`
+   * and send it on every request so shift times render in the user's local
+   * time. Falls back to UTC if missing or invalid.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  timezone?: string;
+
+  /**
+   * Prior conversation turns (oldest first), excluding the current `query`.
+   * The frontend should keep this in component state / localStorage and send
+   * the last ~20 turns on every request to bound payload size.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(40)
+  @ValidateNested({ each: true })
+  @Type(() => SchedulingAgentHistoryMessageDto)
+  history?: SchedulingAgentHistoryMessageDto[];
 
   /**
    * Optional UI context — whatever the user is currently looking at on the
@@ -67,6 +109,8 @@ export class SchedulingAgentController {
       organizationId: dto.organizationId,
       query: dto.query,
       context: dto.context,
+      timezone: dto.timezone,
+      history: dto.history,
     });
 
     return SuccessHelper.createSuccessResponse(result);

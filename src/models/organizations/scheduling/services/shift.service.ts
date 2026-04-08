@@ -83,7 +83,7 @@ export class ShiftService {
     await this.ensureAccess(organizationId, userId);
     const shift = await this.shiftRepository.findOne({
       where: { id: shiftId, organization_id: organizationId },
-      relations: ['employeeShifts'],
+      relations: ['employeeShifts', 'employeeShifts.employee', 'employeeShifts.employee.user'],
     });
     if (!shift) throw new NotFoundException('Shift not found');
     return shift;

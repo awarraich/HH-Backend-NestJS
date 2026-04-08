@@ -36,6 +36,13 @@ const EMPLOYEE_4      = '795aa994-9676-456a-9fc9-eacc3b6a37a8';
 const EMPLOYEE_5      = 'f657bf38-99b0-4adf-a4bb-9c06782b2769';
 const EMPLOYEE_6      = '04ba7310-e99d-46fc-9f25-0c46ca162522';
 
+// Local-only employees (organization 29053b9b-b788-40e3-be51-8d4b87df3f05).
+// Used during local development; safe to leave in alongside the production IDs
+// because every fixture row is keyed by employee_id.
+const LOCAL_ORGANIZATION_ID = '29053b9b-b788-40e3-be51-8d4b87df3f05';
+const LOCAL_EMPLOYEE_1 = 'bb41ca3f-6fc3-4024-8c2a-c01e3d1cad4e';
+const LOCAL_EMPLOYEE_2 = 'f50de0ae-37a3-4de2-abeb-d0fe5b76591b';
+
 export const DEMO_AVAILABILITY_FIXTURE: EmployeeAvailabilityRecord[] = [
   // ----- Aniq Javed: full weekday coverage, AM + PM windows -----
   {
@@ -159,6 +166,61 @@ export const DEMO_AVAILABILITY_FIXTURE: EmployeeAvailabilityRecord[] = [
     max_bookings: 1,
     current_bookings: 0,
     notes: 'Employee 6 — one-time coverage on 2026-04-07 (covers AM SHIFT)',
+  },
+
+  // ===== LOCAL DEV employees (organization 29053b9b-b788-40e3-be51-8d4b87df3f05) =====
+  // Local employee 1 — wide weekday coverage so it can fill any AM/day shift.
+  {
+    id: 'fix-local-emp1-weekday',
+    employee_id: LOCAL_EMPLOYEE_1,
+    organization_id: LOCAL_ORGANIZATION_ID,
+    availability_type: 'recurring',
+    date: null,
+    recurring_start_date: '2026-01-01',
+    recurring_end_date: '2026-12-31',
+    days_of_week: ['MON', 'TUE', 'WED', 'THU', 'FRI'],
+    start_time: '00:00',
+    end_time: '18:00',
+    status: 'available',
+    max_bookings: 1,
+    current_bookings: 0,
+    notes: 'Local employee 1 — full weekday coverage (covers AM and day shifts)',
+  },
+
+  // Local employee 2 — one-time coverage on 2026-04-07 for end-to-end test bookings.
+  {
+    id: 'fix-local-emp2-specific',
+    employee_id: LOCAL_EMPLOYEE_2,
+    organization_id: LOCAL_ORGANIZATION_ID,
+    availability_type: 'specific',
+    date: '2026-04-07',
+    recurring_start_date: null,
+    recurring_end_date: null,
+    days_of_week: null,
+    start_time: '00:00',
+    end_time: '16:00',
+    status: 'available',
+    max_bookings: 1,
+    current_bookings: 0,
+    notes: 'Local employee 2 — specific date 2026-04-07 (covers AM SHIFT)',
+  },
+
+  // Local employee 2 — also available on weekday afternoons for PM shift testing.
+  {
+    id: 'fix-local-emp2-pm',
+    employee_id: LOCAL_EMPLOYEE_2,
+    organization_id: LOCAL_ORGANIZATION_ID,
+    availability_type: 'recurring',
+    date: null,
+    recurring_start_date: '2026-01-01',
+    recurring_end_date: '2026-12-31',
+    days_of_week: ['MON', 'TUE', 'WED', 'THU', 'FRI'],
+    start_time: '12:00',
+    end_time: '22:00',
+    status: 'available',
+    max_bookings: 1,
+    current_bookings: 0,
+    notes: 'Local employee 2 — weekday afternoon to evening (covers PM shift)',
   },
 ];
 
