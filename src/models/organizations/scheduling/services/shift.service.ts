@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Organization } from '../../entities/organization.entity';
 import { Shift } from '../entities/shift.entity';
+import { ShiftRole } from '../entities/shift-role.entity';
+import { ProviderRole } from '../../../employees/entities/provider-role.entity';
 import { OrganizationRoleService } from '../../services/organization-role.service';
 import { CreateShiftDto } from '../dto/create-shift.dto';
 import { UpdateShiftDto } from '../dto/update-shift.dto';
@@ -13,6 +15,10 @@ export class ShiftService {
   constructor(
     @InjectRepository(Shift)
     private readonly shiftRepository: Repository<Shift>,
+    @InjectRepository(ShiftRole)
+    private readonly shiftRoleRepository: Repository<ShiftRole>,
+    @InjectRepository(ProviderRole)
+    private readonly providerRoleRepository: Repository<ProviderRole>,
     @InjectRepository(Organization)
     private readonly organizationRepository: Repository<Organization>,
     private readonly organizationRoleService: OrganizationRoleService,
@@ -83,7 +89,10 @@ export class ShiftService {
     await this.ensureAccess(organizationId, userId);
     const shift = await this.shiftRepository.findOne({
       where: { id: shiftId, organization_id: organizationId },
-      relations: ['employeeShifts', 'employeeShifts.employee', 'employeeShifts.employee.user'],
+      relations: [
+        'employeeShifts', 'employeeShifts.employee', 'employeeShifts.employee.user',
+        'shiftRoles', 'shiftRoles.providerRole',
+      ],
     });
     if (!shift) throw new NotFoundException('Shift not found');
     return shift;
@@ -103,7 +112,11 @@ export class ShiftService {
       recurrence_start_date: dto.recurrence_start_date ? new Date(dto.recurrence_start_date) : null,
       recurrence_end_date: dto.recurrence_end_date ? new Date(dto.recurrence_end_date) : null,
     });
-    return this.shiftRepository.save(shift);
+    const saved = await this.shiftRepository.save(shift);
+    if (dto.assigned_roles?.length) {
+      await this.syncShiftRoles(saved.id, dto.assigned_roles);
+    }
+    return saved;
   }
 
   async update(
@@ -129,7 +142,11 @@ export class ShiftService {
     if (dto.recurrence_days !== undefined) {
       shift.recurrence_days = dto.recurrence_days?.length ? dto.recurrence_days.join(',') : null;
     }
-    return this.shiftRepository.save(shift);
+    const saved = await this.shiftRepository.save(shift);
+    if (dto.assigned_roles !== undefined) {
+      await this.syncShiftRoles(saved.id, dto.assigned_roles ?? []);
+    }
+    return saved;
   }
 
   async remove(organizationId: string, shiftId: string, userId: string): Promise<void> {
@@ -161,5 +178,19 @@ export class ShiftService {
       .orderBy('s.start_at', 'ASC')
       .take(limit)
       .getMany();
+  }
+
+  /** Sync the shift_roles junction for a given shift. */
+  private async syncShiftRoles(shiftId: string, roleCodes: string[]): Promise<void> {
+    await this.shiftRoleRepository.delete({ shift_id: shiftId });
+    if (!roleCodes.length) return;
+    for (const code of roleCodes) {
+      const role = await this.providerRoleRepository.findOne({ where: { code } });
+      if (role) {
+        await this.shiftRoleRepository.save(
+          this.shiftRoleRepository.create({ shift_id: shiftId, provider_role_id: role.id }),
+        );
+      }
+    }
   }
 }

@@ -85,6 +85,18 @@ import { Chair } from './scheduling/entities/chair.entity';
 import { Shift } from './scheduling/entities/shift.entity';
 import { EmployeeShift } from './scheduling/entities/employee-shift.entity';
 import { DepartmentConfigOption } from './scheduling/entities/department-config-option.entity';
+import { Zone } from './scheduling/entities/zone.entity';
+import { FleetVehicle } from './scheduling/entities/fleet-vehicle.entity';
+import { LabWorkstation } from './scheduling/entities/lab-workstation.entity';
+import { DepartmentShift } from './scheduling/entities/department-shift.entity';
+import { ShiftRole } from './scheduling/entities/shift-role.entity';
+import { DepartmentStaff } from './scheduling/entities/department-staff.entity';
+import { StationShiftAssignment } from './scheduling/entities/station-shift-assignment.entity';
+import { RoomShiftAssignment } from './scheduling/entities/room-shift-assignment.entity';
+import { ZoneShiftAssignment } from './scheduling/entities/zone-shift-assignment.entity';
+import { VehicleShiftAssignment } from './scheduling/entities/vehicle-shift-assignment.entity';
+import { WorkstationShiftAssignment } from './scheduling/entities/workstation-shift-assignment.entity';
+import { ProviderRole } from '../employees/entities/provider-role.entity';
 import { DepartmentService } from './scheduling/services/department.service';
 import { StationService } from './scheduling/services/station.service';
 import { RoomService } from './scheduling/services/room.service';
@@ -94,6 +106,10 @@ import { ShiftService } from './scheduling/services/shift.service';
 import { EmployeeShiftService } from './scheduling/services/employee-shift.service';
 import { EmployeeAvailabilityService } from './scheduling/services/employee-availability.service';
 import { DepartmentConfigOptionService } from './scheduling/services/department-config-option.service';
+import { ZoneService } from './scheduling/services/zone.service';
+import { FleetVehicleService } from './scheduling/services/fleet-vehicle.service';
+import { LabWorkstationService } from './scheduling/services/lab-workstation.service';
+import { DepartmentStaffService } from './scheduling/services/department-staff.service';
 import { DepartmentsController } from './scheduling/controllers/departments.controller';
 import { StationsController } from './scheduling/controllers/stations.controller';
 import { RoomsController } from './scheduling/controllers/rooms.controller';
@@ -103,6 +119,10 @@ import { ShiftsController } from './scheduling/controllers/shifts.controller';
 import { EmployeeShiftsController } from './scheduling/controllers/employee-shifts.controller';
 import { DepartmentConfigOptionsController } from './scheduling/controllers/department-config-options.controller';
 import { EmployeeShiftsByEmployeeController } from './scheduling/controllers/employee-shifts-by-employee.controller';
+import { ZonesController } from './scheduling/controllers/zones.controller';
+import { FleetVehiclesController } from './scheduling/controllers/fleet-vehicles.controller';
+import { LabWorkstationsController } from './scheduling/controllers/lab-workstations.controller';
+import { DepartmentStaffController } from './scheduling/controllers/department-staff.controller';
 import { OrganizationDocumentCategory } from './compliance-documents/entities/organization-document-category.entity';
 import { OrganizationDocument } from './compliance-documents/entities/organization-document.entity';
 import { OrganizationDocumentChunk } from './compliance-documents/entities/organization-document-chunk.entity';
@@ -140,6 +160,18 @@ import { FilledDocumentTemplatesController } from './document-workflow/controlle
       Shift,
       EmployeeShift,
       DepartmentConfigOption,
+      Zone,
+      FleetVehicle,
+      LabWorkstation,
+      DepartmentShift,
+      ShiftRole,
+      DepartmentStaff,
+      StationShiftAssignment,
+      RoomShiftAssignment,
+      ZoneShiftAssignment,
+      VehicleShiftAssignment,
+      WorkstationShiftAssignment,
+      ProviderRole,
       Organization,
       OrganizationType,
       OrganizationTypeAssignment,
@@ -211,6 +243,10 @@ import { FilledDocumentTemplatesController } from './document-workflow/controlle
     ShiftsController,
     EmployeeShiftsController,
     EmployeeShiftsByEmployeeController,
+    ZonesController,
+    FleetVehiclesController,
+    LabWorkstationsController,
+    DepartmentStaffController,
     OrganizationDocumentCategoriesController,
     OrganizationDocumentsController,
     TemplatesController,
@@ -228,6 +264,10 @@ import { FilledDocumentTemplatesController } from './document-workflow/controlle
     ShiftService,
     EmployeeShiftService,
     EmployeeAvailabilityService,
+    ZoneService,
+    FleetVehicleService,
+    LabWorkstationService,
+    DepartmentStaffService,
     OrganizationsService,
     OrganizationRoleService,
     OrganizationPermissionService,

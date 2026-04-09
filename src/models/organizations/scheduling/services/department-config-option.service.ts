@@ -25,8 +25,11 @@ const DEFAULT_OPTIONS: Array<{
 
   // Layout types
   { category: 'LAYOUT_TYPE', value: 'stations', label: 'Stations & Rooms', description: 'Nursing stations with rooms and beds', icon: '🏥', sort_order: 1 },
-  { category: 'LAYOUT_TYPE', value: 'rooms', label: 'Rooms Only', description: 'Patient rooms with beds/chairs (no stations)', icon: '🛏️', sort_order: 2 },
-  { category: 'LAYOUT_TYPE', value: 'staff-only', label: 'Staff Only', description: 'Just staff, no rooms or stations', icon: '👥', sort_order: 3 },
+  { category: 'LAYOUT_TYPE', value: 'rooms', label: 'Rooms & Beds', description: 'Patient rooms with beds and chairs', icon: '🛏️', sort_order: 2 },
+  { category: 'LAYOUT_TYPE', value: 'staff-only', label: 'Staff Only', description: 'Just staff, no physical layout', icon: '👥', sort_order: 3 },
+  { category: 'LAYOUT_TYPE', value: 'field', label: 'Field / Visits', description: 'Home visits and field assignments', icon: '📍', sort_order: 4 },
+  { category: 'LAYOUT_TYPE', value: 'fleet', label: 'Fleet / Routes', description: 'Vehicles and transportation routes', icon: '🚐', sort_order: 5 },
+  { category: 'LAYOUT_TYPE', value: 'lab', label: 'Lab / Workstations', description: 'Lab workstations and instruments', icon: '🔬', sort_order: 6 },
 
   // Room types
   { category: 'ROOM_TYPE', value: 'standard', label: 'Standard Patient Room', icon: '🛏️', sort_order: 1 },
@@ -43,6 +46,21 @@ const DEFAULT_OPTIONS: Array<{
   // Configuration types (beds vs chairs)
   { category: 'CONFIGURATION_TYPE', value: 'BEDS', label: 'Patient Beds', icon: '🛏️', sort_order: 1 },
   { category: 'CONFIGURATION_TYPE', value: 'CHAIRS', label: 'Treatment Chairs', icon: '🪑', sort_order: 2 },
+
+  // Vehicle types (fleet layout)
+  { category: 'VEHICLE_TYPE', value: 'wheelchair_van', label: 'Wheelchair Van', icon: '🚐', sort_order: 1 },
+  { category: 'VEHICLE_TYPE', value: 'sedan', label: 'Sedan', icon: '🚗', sort_order: 2 },
+  { category: 'VEHICLE_TYPE', value: 'ambulance', label: 'Ambulance', icon: '🚑', sort_order: 3 },
+  { category: 'VEHICLE_TYPE', value: 'mini_bus', label: 'Mini-Bus', icon: '🚌', sort_order: 4 },
+  { category: 'VEHICLE_TYPE', value: 'suv', label: 'SUV', icon: '🚙', sort_order: 5 },
+
+  // Workstation types (lab layout)
+  { category: 'WORKSTATION_TYPE', value: 'dispensing', label: 'Dispensing', icon: '💊', sort_order: 1 },
+  { category: 'WORKSTATION_TYPE', value: 'compounding', label: 'Compounding', icon: '🧪', sort_order: 2 },
+  { category: 'WORKSTATION_TYPE', value: 'verification', label: 'Verification', icon: '✅', sort_order: 3 },
+  { category: 'WORKSTATION_TYPE', value: 'lab_testing', label: 'Lab Testing', icon: '🔬', sort_order: 4 },
+  { category: 'WORKSTATION_TYPE', value: 'microscope', label: 'Microscope', icon: '🔍', sort_order: 5 },
+  { category: 'WORKSTATION_TYPE', value: 'quality_control', label: 'Quality Control', icon: '📋', sort_order: 6 },
 ];
 
 @Injectable()

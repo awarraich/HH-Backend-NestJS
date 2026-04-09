@@ -15,6 +15,8 @@ export const CONFIG_CATEGORIES = [
   'ROOM_TYPE',
   'LAYOUT_TYPE',
   'CONFIGURATION_TYPE',
+  'VEHICLE_TYPE',
+  'WORKSTATION_TYPE',
 ] as const;
 
 export type ConfigCategory = (typeof CONFIG_CATEGORIES)[number];

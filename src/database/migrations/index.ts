@@ -69,6 +69,8 @@ import { CreateDocumentWorkflowRoles20260401100000 } from './20260401100000-crea
 import { CreateRequirementDocumentTemplates20260401100001 } from './20260401100001-create-requirement-document-templates.js';
 import { CreateDocumentTemplateUserAssignments20260401100002 } from './20260401100002-create-document-template-user-assignments.js';
 import { AddDocumentTemplateIdsToReferrals20260403000001 } from './20260403000001-add-document-template-ids-to-referrals.js';
+import { AddDepartmentConfigOptionsAndLayoutType20260406100000 } from './20260406100000-add-department-config-options-and-layout-type.js';
+import { AddDynamicDepartmentEntities20260409100000 } from './20260409100000-add-dynamic-department-entities.js';
 
 type MigrationConstructor = new () => MigrationInterface;
 
@@ -143,4 +145,6 @@ export const migrations: MigrationConstructor[] = [
   CreateRequirementDocumentTemplates20260401100001,
   CreateDocumentTemplateUserAssignments20260401100002,
   AddDocumentTemplateIdsToReferrals20260403000001,
+  AddDepartmentConfigOptionsAndLayoutType20260406100000,
+  AddDynamicDepartmentEntities20260409100000,
 ];

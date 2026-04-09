@@ -11,6 +11,8 @@ import {
 } from 'typeorm';
 import { Organization } from '../../entities/organization.entity';
 import { EmployeeShift } from './employee-shift.entity';
+import { ShiftRole } from './shift-role.entity';
+import { DepartmentShift } from './department-shift.entity';
 
 @Entity('shifts')
 @Index(['organization_id'])
@@ -62,4 +64,10 @@ export class Shift {
 
   @OneToMany(() => EmployeeShift, (es) => es.shift)
   employeeShifts: EmployeeShift[];
+
+  @OneToMany(() => ShiftRole, (sr) => sr.shift)
+  shiftRoles: ShiftRole[];
+
+  @OneToMany(() => DepartmentShift, (ds) => ds.shift)
+  departmentShifts: DepartmentShift[];
 }

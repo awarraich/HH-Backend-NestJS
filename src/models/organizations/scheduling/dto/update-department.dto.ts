@@ -27,6 +27,16 @@ export class UpdateDepartmentDto {
   layout_type?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  department_head?: string;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  allow_multi_station_coverage?: boolean;
+
+  @IsOptional()
   @Type(() => Boolean)
   @IsBoolean()
   is_active?: boolean;

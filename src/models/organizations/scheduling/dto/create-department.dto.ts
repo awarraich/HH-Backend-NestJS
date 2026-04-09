@@ -5,6 +5,7 @@ import {
   IsBoolean,
   IsInt,
   IsArray,
+  IsObject,
   ValidateNested,
   MaxLength,
   Min,
@@ -83,6 +84,11 @@ export class InlineStationDto {
   @ValidateNested({ each: true })
   @Type(() => InlineStationRoomDto)
   rooms?: InlineStationRoomDto[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  shift_ids?: string[];
 }
 
 /** Room item for inline creation directly under a department (rooms-only layout). */
@@ -98,6 +104,16 @@ export class InlineDepartmentRoomDto {
   room_type?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  floor?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  wing?: string;
+
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(0)
@@ -108,6 +124,174 @@ export class InlineDepartmentRoomDto {
   @IsInt()
   @Min(0)
   chairs?: number;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  shift_ids?: string[];
+}
+
+/** Shift for inline creation within a department. */
+export class InlineShiftDto {
+  @IsNotEmpty()
+  @IsString()
+  temp_id: string;
+
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(255)
+  name: string;
+
+  @IsNotEmpty()
+  @IsString()
+  start_time: string;
+
+  @IsNotEmpty()
+  @IsString()
+  end_time: string;
+
+  @IsOptional()
+  @IsString()
+  recurrence?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  custom_days?: string[];
+
+  @IsOptional()
+  @IsString()
+  duration?: string;
+
+  @IsOptional()
+  @IsString()
+  duration_start_date?: string;
+
+  @IsOptional()
+  @IsString()
+  duration_end_date?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  assigned_roles?: string[];
+}
+
+/** Staff configuration for inline creation within a department. */
+export class InlineStaffDto {
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(50)
+  type: string;
+
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(100)
+  name: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  quantity?: number;
+
+  @IsOptional()
+  @IsObject()
+  staff_by_shift?: Record<string, number>;
+
+  @IsOptional()
+  @IsObject()
+  staff_min_max_by_shift?: Record<string, { min?: number; max?: number }>;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  assignment_level?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  assignment_type?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  shift_ids?: string[];
+}
+
+/** Zone for inline creation within a department (field layout). */
+export class InlineZoneDto {
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(255)
+  name: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  area?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  patient_count?: number;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  shift_ids?: string[];
+}
+
+/** Fleet vehicle for inline creation within a department (fleet layout). */
+export class InlineFleetVehicleDto {
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(255)
+  name: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  vehicle_id?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  vehicle_type?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  capacity?: number;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  shift_ids?: string[];
+}
+
+/** Lab workstation for inline creation within a department (lab layout). */
+export class InlineLabWorkstationDto {
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(255)
+  name: string;
+
+  @IsOptional()
+  @IsString()
+  equipment?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  workstation_type?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  shift_ids?: string[];
 }
 
 export class CreateDepartmentDto {
@@ -136,6 +320,16 @@ export class CreateDepartmentDto {
   layout_type?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  department_head?: string;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  allow_multi_station_coverage?: boolean;
+
+  @IsOptional()
   @Type(() => Boolean)
   @IsBoolean()
   is_active?: boolean;
@@ -159,4 +353,39 @@ export class CreateDepartmentDto {
   @ValidateNested({ each: true })
   @Type(() => InlineDepartmentRoomDto)
   rooms?: InlineDepartmentRoomDto[];
+
+  /** Department shift library. */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InlineShiftDto)
+  available_shifts?: InlineShiftDto[];
+
+  /** Staff configuration. */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InlineStaffDto)
+  staff?: InlineStaffDto[];
+
+  /** Field zones (layout_type='field'). */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InlineZoneDto)
+  field_zones?: InlineZoneDto[];
+
+  /** Fleet vehicles (layout_type='fleet'). */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InlineFleetVehicleDto)
+  fleet_vehicles?: InlineFleetVehicleDto[];
+
+  /** Lab workstations (layout_type='lab'). */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InlineLabWorkstationDto)
+  lab_workstations?: InlineLabWorkstationDto[];
 }
