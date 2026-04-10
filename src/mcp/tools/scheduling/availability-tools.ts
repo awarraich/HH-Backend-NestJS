@@ -47,19 +47,23 @@ export function buildAvailabilityTools(
   ctx: SchedulingToolContext,
 ): SchedulingToolDescriptor[] {
   const getEmployeeAvailability = async (args: {
-    employee_id?: string;
-    date?: string;
-    start_time?: string;
-    end_time?: string;
-    status?: string;
+    employee_id?: string | null;
+    date?: string | null;
+    start_time?: string | null;
+    end_time?: string | null;
+    status?: string | null;
   }): SchedulingToolResult => {
-    const records = availabilityService.findAvailability({
-      employeeId: args.employee_id,
+    const employeeId = args.employee_id ?? undefined;
+    // When querying org-wide (no employee_id), ignore date/time filters
+    // so we return ALL recurring availability rules, not just today's.
+    const isOrgWide = !employeeId;
+    const records = await availabilityService.findAvailability({
+      employeeId,
       organizationId: ctx.organizationId,
-      date: args.date,
-      startTime: args.start_time,
-      endTime: args.end_time,
-      status: args.status ?? 'available',
+      date: isOrgWide ? undefined : (args.date ?? undefined),
+      startTime: isOrgWide ? undefined : (args.start_time ?? undefined),
+      endTime: isOrgWide ? undefined : (args.end_time ?? undefined),
+      status: args.status ?? undefined,
     });
     const enriched = await enrichRecordsWithEmployeeNames(
       records,
@@ -95,7 +99,7 @@ export function buildAvailabilityTools(
     start_date?: string;
     end_date?: string;
   }): SchedulingToolResult => {
-    const records = availabilityService.getEmployeeSchedule({
+    const records = await availabilityService.getEmployeeSchedule({
       employeeId: args.employee_id,
       startDate: args.start_date,
       endDate: args.end_date,
@@ -112,7 +116,13 @@ export function buildAvailabilityTools(
     {
       name: TOOL_NAMES.GET_EMPLOYEE_AVAILABILITY,
       description:
-        "Query the availability calendar. Filter by employee, date, time window, or status. Recurring slots match regardless of date; time filters use containment (slot must fully cover the requested window).",
+        "Query the availability calendar from the database. " +
+        "When called WITHOUT employee_id, returns availability for ALL employees in the organization — use this for 'what are the availabilities for my employees?' or 'show all availability'. " +
+        "When called WITH employee_id, returns that specific employee's availability. " +
+        "IMPORTANT: Do NOT pass a date parameter unless the user explicitly asks about a specific date. " +
+        "When the user asks 'what are the availabilities?' without mentioning a date, omit the date parameter to get ALL recurring availability rules. " +
+        "Passing today's date will filter to only rules matching today's day-of-week, which hides rules for other days. " +
+        "All parameters are optional. Data comes from the availability_rules table.",
       inputSchema: getAvailabilitySchema,
       handler: getEmployeeAvailability as (args: unknown) => SchedulingToolResult,
     },
@@ -126,7 +136,9 @@ export function buildAvailabilityTools(
     {
       name: TOOL_NAMES.GET_EMPLOYEE_AVAILABILITY_SCHEDULE,
       description:
-        "Return one employee's availability calendar over a date range. Recurring slots are returned as rules (not expanded into per-day rows).",
+        "Return ONE specific employee's availability calendar over a date range. " +
+        "REQUIRES a valid employee_id UUID — resolve names to UUIDs via search_employees first. " +
+        "NEVER invent or guess employee_id values. If you don't have a real UUID, call get_employee_availability without employee_id instead.",
       inputSchema: scheduleSchema,
       handler: getEmployeeAvailabilitySchedule as (args: unknown) => SchedulingToolResult,
     },

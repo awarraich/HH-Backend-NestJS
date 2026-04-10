@@ -26,7 +26,7 @@ export const TOOL_NAMES = {
   SEARCH_ROLES: 'search_roles',
   GET_EMPLOYEE_ROLES: 'get_employee_roles',
   GET_SHIFT_ROLES: 'get_shift_roles',
-  // Scheduling — availability (fixture-backed)
+  // Scheduling — availability (from availability_rules table)
   GET_EMPLOYEE_AVAILABILITY: 'get_employee_availability',
   SEARCH_AVAILABLE_EMPLOYEES: 'search_available_employees',
   GET_EMPLOYEE_AVAILABILITY_SCHEDULE: 'get_employee_availability_schedule',

@@ -538,10 +538,15 @@ export class DepartmentService {
       recurrence_end_date: recurrenceEndDate,
     }));
 
-    // Create shift role assignments
+    // Create shift role assignments — accepts provider_role IDs (UUIDs)
+    // with fallback to code-based lookup for backward compatibility
     if (s.assigned_roles?.length) {
-      for (const roleCode of s.assigned_roles) {
-        const role = await this.providerRoleRepository.findOne({ where: { code: roleCode } });
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      for (const identifier of s.assigned_roles) {
+        const isUuid = uuidRegex.test(identifier);
+        const role = isUuid
+          ? await this.providerRoleRepository.findOne({ where: { id: identifier } })
+          : await this.providerRoleRepository.findOne({ where: { code: identifier } });
         if (role) {
           await manager.save(ShiftRole, manager.create(ShiftRole, {
             shift_id: shift.id,

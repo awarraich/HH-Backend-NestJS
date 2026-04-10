@@ -46,12 +46,14 @@ export class ShiftService {
 
     const qb = this.shiftRepository
       .createQueryBuilder('s')
+      .leftJoinAndSelect('s.shiftRoles', 'sr')
+      .leftJoinAndSelect('sr.providerRole', 'pr')
       .where('s.organization_id = :organizationId', { organizationId });
 
-    // Date-range overlap test. Inputs may be either a date-only ('YYYY-MM-DD')
-    // or a full timestamp. For date-only, expand to start-of-day / end-of-day
-    // and do not rely on `new Date(...)` (which interprets bare dates as UTC
-    // midnight and clashes with our `timestamp` (no tz) column).
+    // Date filtering: two cases to handle:
+    // 1. ONE_TIME shifts — match by timestamp overlap (start_at/end_at in the requested range)
+    // 2. Recurring shifts (FULL_WEEK, WEEKDAYS, WEEKENDS, CUSTOM) — stored with base dates
+    //    like 1970-01-01; match by recurrence pattern + optional recurrence date bounds
     const isDateOnly = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v);
     const fromBound = from_date
       ? isDateOnly(from_date)
@@ -64,11 +66,30 @@ export class ShiftService {
         : to_date
       : null;
 
-    if (fromBound) {
-      qb.andWhere('s.end_at > :fromBound', { fromBound });
-    }
-    if (toBound) {
-      qb.andWhere('s.start_at < :toBound', { toBound });
+    if (fromBound || toBound) {
+      // Build a compound condition: (one-time overlap) OR (recurring that applies)
+      const conditions: string[] = [];
+      const params: Record<string, unknown> = {};
+
+      // ONE_TIME: standard timestamp overlap
+      const oneTimeParts: string[] = ["s.recurrence_type = 'ONE_TIME'"];
+      if (fromBound) { oneTimeParts.push('s.end_at > :fromBound'); params.fromBound = fromBound; }
+      if (toBound) { oneTimeParts.push('s.start_at < :toBound'); params.toBound = toBound; }
+      conditions.push(`(${oneTimeParts.join(' AND ')})`);
+
+      // Recurring: always include, but respect recurrence date bounds if set
+      const recurParts: string[] = ["s.recurrence_type != 'ONE_TIME'"];
+      if (fromBound) {
+        recurParts.push('(s.recurrence_end_date IS NULL OR s.recurrence_end_date >= :fromDate)');
+        params.fromDate = from_date;
+      }
+      if (toBound) {
+        recurParts.push('(s.recurrence_start_date IS NULL OR s.recurrence_start_date <= :toDate)');
+        params.toDate = to_date;
+      }
+      conditions.push(`(${recurParts.join(' AND ')})`);
+
+      qb.andWhere(`(${conditions.join(' OR ')})`, params);
     }
     if (shift_type) {
       qb.andWhere('UPPER(s.shift_type) = UPPER(:shift_type)', { shift_type });
@@ -171,6 +192,8 @@ export class ShiftService {
 
     return this.shiftRepository
       .createQueryBuilder('s')
+      .leftJoinAndSelect('s.shiftRoles', 'sr')
+      .leftJoinAndSelect('sr.providerRole', 'pr')
       .where('s.organization_id = :organizationId', { organizationId })
       .andWhere('(LOWER(s.name) LIKE :q OR LOWER(s.shift_type) LIKE :q)', {
         q: `%${trimmed.toLowerCase()}%`,
@@ -180,12 +203,20 @@ export class ShiftService {
       .getMany();
   }
 
-  /** Sync the shift_roles junction for a given shift. */
-  private async syncShiftRoles(shiftId: string, roleCodes: string[]): Promise<void> {
+  /**
+   * Sync the shift_roles junction for a given shift.
+   * Accepts provider_role IDs (UUIDs). Falls back to code-based lookup
+   * for non-UUID values to maintain backward compatibility.
+   */
+  private async syncShiftRoles(shiftId: string, roleIdentifiers: string[]): Promise<void> {
     await this.shiftRoleRepository.delete({ shift_id: shiftId });
-    if (!roleCodes.length) return;
-    for (const code of roleCodes) {
-      const role = await this.providerRoleRepository.findOne({ where: { code } });
+    if (!roleIdentifiers.length) return;
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    for (const identifier of roleIdentifiers) {
+      const isUuid = uuidRegex.test(identifier);
+      const role = isUuid
+        ? await this.providerRoleRepository.findOne({ where: { id: identifier } })
+        : await this.providerRoleRepository.findOne({ where: { code: identifier } });
       if (role) {
         await this.shiftRoleRepository.save(
           this.shiftRoleRepository.create({ shift_id: shiftId, provider_role_id: role.id }),

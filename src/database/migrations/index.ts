@@ -71,6 +71,7 @@ import { CreateDocumentTemplateUserAssignments20260401100002 } from './202604011
 import { AddDocumentTemplateIdsToReferrals20260403000001 } from './20260403000001-add-document-template-ids-to-referrals.js';
 import { AddDepartmentConfigOptionsAndLayoutType20260406100000 } from './20260406100000-add-department-config-options-and-layout-type.js';
 import { AddDynamicDepartmentEntities20260409100000 } from './20260409100000-add-dynamic-department-entities.js';
+import { CreateEmployeeCalendarTables20260410100000 } from './20260410100000-create-employee-calendar-tables.js';
 
 type MigrationConstructor = new () => MigrationInterface;
 
@@ -147,4 +148,5 @@ export const migrations: MigrationConstructor[] = [
   AddDocumentTemplateIdsToReferrals20260403000001,
   AddDepartmentConfigOptionsAndLayoutType20260406100000,
   AddDynamicDepartmentEntities20260409100000,
+  CreateEmployeeCalendarTables20260410100000,
 ];

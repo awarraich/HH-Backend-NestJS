@@ -56,7 +56,7 @@ export function buildShiftTools(
       ctx.organizationId,
       {
         page: 1,
-        limit: args.limit ?? 25,
+        limit: args.limit ?? 50,
         shift_type: args.shift_type,
         status: args.status ?? 'ACTIVE',
         from_date: args.from_date,
@@ -64,7 +64,21 @@ export function buildShiftTools(
       },
       ctx.userId,
     );
-    return jsonResult({ total, timezone: ctx.timezone, shifts: data.map(enrichShift) });
+    // Enrich each shift with local time and annotate recurring shifts
+    const enriched = data.map((s) => {
+      const base = enrichShift(s);
+      const rt = (s.recurrence_type ?? 'ONE_TIME').toUpperCase();
+      if (rt !== 'ONE_TIME') {
+        return {
+          ...base,
+          is_recurring: true,
+          recurrence_type: rt,
+          recurrence_note: `This is a recurring ${rt.replace(/_/g, ' ').toLowerCase()} shift template. The start/end times represent the daily time window, not a specific date.`,
+        };
+      }
+      return { ...base, is_recurring: false };
+    });
+    return jsonResult({ total, timezone: ctx.timezone, shifts: enriched });
   };
 
   const getShiftDetails = async (args: { shift_id: string }): SchedulingToolResult => {
