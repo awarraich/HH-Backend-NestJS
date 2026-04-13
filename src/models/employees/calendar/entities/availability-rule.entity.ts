@@ -25,8 +25,11 @@ export class AvailabilityRule {
   @Column({ type: 'uuid', nullable: true })
   organization_id: string | null;
 
-  @Column({ type: 'smallint' })
-  day_of_week: number;
+  @Column({ type: 'date', nullable: true })
+  date: string | null;
+
+  @Column({ type: 'smallint', nullable: true })
+  day_of_week: number | null;
 
   @Column({ type: 'time' })
   start_time: string;

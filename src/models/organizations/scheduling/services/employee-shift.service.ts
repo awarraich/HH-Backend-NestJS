@@ -141,6 +141,7 @@ export class EmployeeShiftService {
       .createQueryBuilder('es')
       .leftJoinAndSelect('es.employee', 'employee')
       .leftJoinAndSelect('employee.user', 'user')
+      .leftJoinAndSelect('employee.providerRole', 'providerRole')
       .leftJoinAndSelect('es.department', 'department')
       .leftJoinAndSelect('es.station', 'station')
       .leftJoinAndSelect('es.room', 'room')
@@ -276,6 +277,7 @@ export class EmployeeShiftService {
       .innerJoinAndSelect('es.shift', 'shift')
       .leftJoinAndSelect('es.employee', 'employee')
       .leftJoinAndSelect('employee.user', 'user')
+      .leftJoinAndSelect('employee.providerRole', 'providerRole')
       .where('shift.organization_id = :organizationId', { organizationId });
 
     if (filters.shift_id) qb.andWhere('es.shift_id = :shift_id', { shift_id: filters.shift_id });
@@ -306,6 +308,7 @@ export class EmployeeShiftService {
       .innerJoinAndSelect('es.shift', 'shift')
       .leftJoinAndSelect('es.employee', 'employee')
       .leftJoinAndSelect('employee.user', 'user')
+      .leftJoinAndSelect('employee.providerRole', 'providerRole')
       .leftJoinAndSelect('es.department', 'department')
       .leftJoinAndSelect('es.station', 'station')
       .where('es.employee_id = :employeeId', { employeeId })

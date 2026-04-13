@@ -9,6 +9,7 @@ import { OrganizationRoleService } from '../../services/organization-role.servic
 import { CreateShiftDto } from '../dto/create-shift.dto';
 import { UpdateShiftDto } from '../dto/update-shift.dto';
 import { QueryShiftDto } from '../dto/query-shift.dto';
+import { localToUtc } from '../../../../mcp/tools/scheduling/timezone';
 
 @Injectable()
 export class ShiftService {
@@ -121,10 +122,12 @@ export class ShiftService {
 
   async create(organizationId: string, dto: CreateShiftDto, userId: string): Promise<Shift> {
     await this.ensureAccess(organizationId, userId);
+    const tz = dto.timezone;
+    const toDate = (v: string) => (tz ? localToUtc(v, tz) : new Date(v));
     const shift = this.shiftRepository.create({
       organization_id: organizationId,
-      start_at: new Date(dto.start_at),
-      end_at: new Date(dto.end_at),
+      start_at: toDate(dto.start_at),
+      end_at: toDate(dto.end_at),
       shift_type: dto.shift_type ?? null,
       name: dto.name ?? null,
       status: 'ACTIVE',
@@ -148,8 +151,10 @@ export class ShiftService {
   ): Promise<Shift> {
     await this.ensureAccess(organizationId, userId);
     const shift = await this.findOne(organizationId, shiftId, userId);
-    if (dto.start_at !== undefined) shift.start_at = new Date(dto.start_at);
-    if (dto.end_at !== undefined) shift.end_at = new Date(dto.end_at);
+    const tz = dto.timezone;
+    const toDate = (v: string) => (tz ? localToUtc(v, tz) : new Date(v));
+    if (dto.start_at !== undefined) shift.start_at = toDate(dto.start_at);
+    if (dto.end_at !== undefined) shift.end_at = toDate(dto.end_at);
     if (dto.shift_type !== undefined) shift.shift_type = dto.shift_type;
     if (dto.name !== undefined) shift.name = dto.name;
     if (dto.status !== undefined) shift.status = dto.status;
