@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Employee } from '../../../employees/entities/employee.entity';
-import { AvailabilityRule } from '../../../employees/calendar/entities/availability-rule.entity';
+import { AvailabilityRule } from '../../../employees/availability/entities/availability-rule.entity';
 // ── Types (previously in fixture file, now defined inline) ───────────────
 
 export type AvailabilityType = 'specific' | 'recurring';

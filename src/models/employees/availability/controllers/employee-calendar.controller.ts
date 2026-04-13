@@ -19,6 +19,7 @@ import { CalendarEventService } from '../services/calendar-event.service';
 import { AvailabilityRuleService } from '../services/availability-rule.service';
 import { TimeOffRequestService } from '../services/time-off-request.service';
 import { WorkPreferenceService } from '../services/work-preference.service';
+import { SchedulePresetService } from '../services/schedule-preset.service';
 import { CreateCalendarEventDto } from '../dto/create-calendar-event.dto';
 import { UpdateCalendarEventDto } from '../dto/update-calendar-event.dto';
 import { QueryCalendarEventDto } from '../dto/query-calendar-event.dto';
@@ -26,6 +27,8 @@ import { BulkUpsertAvailabilityDto } from '../dto/bulk-upsert-availability.dto';
 import { CreateTimeOffRequestDto } from '../dto/create-time-off-request.dto';
 import { QueryTimeOffRequestDto } from '../dto/query-time-off-request.dto';
 import { UpdateWorkPreferenceDto } from '../dto/update-work-preference.dto';
+import { CreateSchedulePresetDto } from '../dto/create-schedule-preset.dto';
+import { UpdateSchedulePresetDto } from '../dto/update-schedule-preset.dto';
 
 @Controller('v1/api/employee/calendar')
 @UseGuards(JwtAuthGuard)
@@ -35,6 +38,7 @@ export class EmployeeCalendarController {
     private readonly availabilityRuleService: AvailabilityRuleService,
     private readonly timeOffRequestService: TimeOffRequestService,
     private readonly workPreferenceService: WorkPreferenceService,
+    private readonly schedulePresetService: SchedulePresetService,
   ) {}
 
   // ── Calendar Events ────────────────────────────────────────────────
@@ -130,6 +134,36 @@ export class EmployeeCalendarController {
     return SuccessHelper.createSuccessResponse(null, 'Availability rule deleted');
   }
 
+  @Put('availability/date/:date')
+  @HttpCode(HttpStatus.OK)
+  async upsertDateOverride(
+    @Param('date') date: string,
+    @Body() dto: BulkUpsertAvailabilityDto,
+    @LoggedInUser() user: UserWithRolesInterface,
+  ) {
+    const result = await this.availabilityRuleService.upsertDateOverride(
+      user.userId,
+      date,
+      dto,
+    );
+    return SuccessHelper.createSuccessResponse(result, 'Date override saved');
+  }
+
+  @Delete('availability/date/:date')
+  @HttpCode(HttpStatus.OK)
+  async removeDateOverride(
+    @Param('date') date: string,
+    @Query('organization_id') organizationId: string | undefined,
+    @LoggedInUser() user: UserWithRolesInterface,
+  ) {
+    await this.availabilityRuleService.removeDateOverride(
+      user.userId,
+      date,
+      organizationId ?? null,
+    );
+    return SuccessHelper.createSuccessResponse(null, 'Date override removed');
+  }
+
   // ── Time-Off Requests ──────────────────────────────────────────────
 
   @Post('time-off')
@@ -186,5 +220,47 @@ export class EmployeeCalendarController {
   ) {
     const result = await this.workPreferenceService.update(user.userId, dto);
     return SuccessHelper.createSuccessResponse(result, 'Preferences saved successfully');
+  }
+
+  // ── Schedule Presets ──────────────────────────────────────────────
+
+  @Get('presets')
+  @HttpCode(HttpStatus.OK)
+  async findAllPresets(
+    @LoggedInUser() user: UserWithRolesInterface,
+  ) {
+    const result = await this.schedulePresetService.findByUser(user.userId);
+    return SuccessHelper.createSuccessResponse(result);
+  }
+
+  @Post('presets')
+  @HttpCode(HttpStatus.CREATED)
+  async createPreset(
+    @Body() dto: CreateSchedulePresetDto,
+    @LoggedInUser() user: UserWithRolesInterface,
+  ) {
+    const result = await this.schedulePresetService.create(user.userId, dto);
+    return SuccessHelper.createSuccessResponse(result, 'Preset created successfully');
+  }
+
+  @Put('presets/:id')
+  @HttpCode(HttpStatus.OK)
+  async updatePreset(
+    @Param('id') id: string,
+    @Body() dto: UpdateSchedulePresetDto,
+    @LoggedInUser() user: UserWithRolesInterface,
+  ) {
+    const result = await this.schedulePresetService.update(user.userId, id, dto);
+    return SuccessHelper.createSuccessResponse(result, 'Preset updated successfully');
+  }
+
+  @Delete('presets/:id')
+  @HttpCode(HttpStatus.OK)
+  async removePreset(
+    @Param('id') id: string,
+    @LoggedInUser() user: UserWithRolesInterface,
+  ) {
+    await this.schedulePresetService.remove(user.userId, id);
+    return SuccessHelper.createSuccessResponse(null, 'Preset deleted successfully');
   }
 }

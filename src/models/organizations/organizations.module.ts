@@ -17,7 +17,7 @@ import { StaffRole } from './staff-management/entities/staff-role.entity';
 import { OrganizationStaff } from './staff-management/entities/organization-staff.entity';
 import { OrganizationStaffRolePermission } from './staff-management/entities/organization-staff-role-permission.entity';
 import { Employee } from '../employees/entities/employee.entity';
-import { AvailabilityRule } from '../employees/calendar/entities/availability-rule.entity';
+import { AvailabilityRule } from '../employees/availability/entities/availability-rule.entity';
 import { User } from '../../authentication/entities/user.entity';
 import { Patient } from '../patients/entities/patient.entity';
 import { AuthenticationModule } from '../../authentication/auth.module';

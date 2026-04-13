@@ -28,12 +28,20 @@ export class WorkPreferenceService {
   ): Promise<WorkPreference> {
     let pref = await this.findOrCreate(userId);
 
-    Object.assign(pref, {
-      ...(dto.max_hours_per_week !== undefined && { max_hours_per_week: dto.max_hours_per_week }),
-      ...(dto.preferred_shift_type !== undefined && { preferred_shift_type: dto.preferred_shift_type }),
-      ...(dto.available_for_overtime !== undefined && { available_for_overtime: dto.available_for_overtime }),
-      ...(dto.available_for_on_call !== undefined && { available_for_on_call: dto.available_for_on_call }),
-    });
+    const fields: (keyof UpdateWorkPreferenceDto)[] = [
+      'max_hours_per_week', 'preferred_shift_type',
+      'available_for_overtime', 'available_for_on_call',
+      'min_rest_hours', 'max_consecutive_days', 'max_hours_per_day',
+      'double_shift_preference', 'double_shift_conditions',
+      'work_type', 'travel_radius', 'has_own_vehicle', 'use_company_vehicle',
+      'preferred_areas', 'facilities', 'weekly_notes',
+    ];
+
+    const updates: Record<string, unknown> = {};
+    for (const field of fields) {
+      if (dto[field] !== undefined) updates[field] = dto[field];
+    }
+    Object.assign(pref, updates);
 
     return this.workPreferenceRepository.save(pref);
   }

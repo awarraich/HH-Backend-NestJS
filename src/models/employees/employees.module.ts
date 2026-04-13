@@ -17,16 +17,18 @@ import { OrganizationRoleGuard } from '../../common/guards/organization-role.gua
 import { ExternalEmployeesController } from './controllers/external-employees.controller';
 import { EmployeeContextController } from './employee-context/controllers/employee-context.controller';
 import { EmployeeContextService } from './employee-context/services/employee-context.service';
-import { CalendarEvent } from './calendar/entities/calendar-event.entity';
-import { AvailabilityRule } from './calendar/entities/availability-rule.entity';
-import { TimeOffRequest } from './calendar/entities/time-off-request.entity';
-import { WorkPreference } from './calendar/entities/work-preference.entity';
-import { CalendarEventService } from './calendar/services/calendar-event.service';
-import { AvailabilityRuleService } from './calendar/services/availability-rule.service';
-import { TimeOffRequestService } from './calendar/services/time-off-request.service';
-import { WorkPreferenceService } from './calendar/services/work-preference.service';
-import { EmployeeCalendarController } from './calendar/controllers/employee-calendar.controller';
-import { MyScheduleController } from './calendar/controllers/my-schedule.controller';
+import { CalendarEvent } from './availability/entities/calendar-event.entity';
+import { AvailabilityRule } from './availability/entities/availability-rule.entity';
+import { TimeOffRequest } from './availability/entities/time-off-request.entity';
+import { WorkPreference } from './availability/entities/work-preference.entity';
+import { SchedulePreset } from './availability/entities/schedule-preset.entity';
+import { CalendarEventService } from './availability/services/calendar-event.service';
+import { AvailabilityRuleService } from './availability/services/availability-rule.service';
+import { TimeOffRequestService } from './availability/services/time-off-request.service';
+import { WorkPreferenceService } from './availability/services/work-preference.service';
+import { SchedulePresetService } from './availability/services/schedule-preset.service';
+import { EmployeeCalendarController } from './availability/controllers/employee-calendar.controller';
+import { MyScheduleController } from './availability/controllers/my-schedule.controller';
 
 @Module({
   imports: [
@@ -39,6 +41,7 @@ import { MyScheduleController } from './calendar/controllers/my-schedule.control
       AvailabilityRule,
       TimeOffRequest,
       WorkPreference,
+      SchedulePreset,
     ]),
     ConfigModule,
     AuthenticationModule,
@@ -63,6 +66,7 @@ import { MyScheduleController } from './calendar/controllers/my-schedule.control
     AvailabilityRuleService,
     TimeOffRequestService,
     WorkPreferenceService,
+    SchedulePresetService,
   ],
   exports: [TypeOrmModule, EmployeesService, ProviderRolesService],
 })
