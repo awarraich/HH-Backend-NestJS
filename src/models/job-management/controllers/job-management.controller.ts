@@ -195,6 +195,7 @@ export class JobManagementController {
   @HttpCode(HttpStatus.OK)
   async serveApplicationDocument(
     @Param('filename') filename: string,
+    @Query('disposition') disposition: string | undefined,
     @Res() reply: FastifyReply,
   ): Promise<unknown> {
     const filePath = this.jobApplicationDocumentStorage.getLocalFilePath(filename);
@@ -209,9 +210,10 @@ export class JobManagementController {
       '.png': 'image/png',
       '.txt': 'text/plain',
     };
+    const dispositionType = disposition === 'inline' ? 'inline' : 'attachment';
     return reply
       .header('Content-Type', contentType[ext] ?? 'application/octet-stream')
-      .header('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`)
+      .header('Content-Disposition', `${dispositionType}; filename="${encodeURIComponent(filename)}"`)
       .send(fs.createReadStream(filePath));
   }
 
