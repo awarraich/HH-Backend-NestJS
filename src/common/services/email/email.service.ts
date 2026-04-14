@@ -385,11 +385,10 @@ export class EmailService implements OnModuleInit {
    */
   async sendInterviewInviteEmail(
     toEmail: string,
-    applicantName: string,
-    jobTitle: string,
-    interviewDate: string,
-    interviewTime: string,
-    message?: string,
+    options: Omit<
+      Parameters<typeof InterviewInviteEmailTemplate.generate>[0],
+      never
+    >,
   ): Promise<void> {
     const auth = this.emailConfigService.auth;
     if (!auth.user || !auth.pass) {
@@ -397,13 +396,7 @@ export class EmailService implements OnModuleInit {
         'Email service not configured. Set EMAIL_USER and EMAIL_PASSWORD (e.g. in production) to send interview invites.',
       );
     }
-    const template = InterviewInviteEmailTemplate.generate(
-      applicantName,
-      jobTitle,
-      interviewDate,
-      interviewTime,
-      message,
-    );
+    const template = InterviewInviteEmailTemplate.generate(options);
     const mailOptions = {
       from: `"${this.emailConfigService.fromName}" <${this.emailConfigService.from}>`,
       to: toEmail,
@@ -424,12 +417,10 @@ export class EmailService implements OnModuleInit {
    */
   async sendOfferLetterEmail(
     toEmail: string,
-    applicantName: string,
-    jobTitle: string,
-    salary: string,
-    startDate: string,
-    offerContent: string,
-    attachmentUrl?: string,
+    options: Omit<
+      Parameters<typeof OfferLetterEmailTemplate.generate>[0],
+      never
+    >,
   ): Promise<void> {
     const auth = this.emailConfigService.auth;
     if (!auth.user || !auth.pass) {
@@ -437,14 +428,7 @@ export class EmailService implements OnModuleInit {
         'Email service not configured. Set EMAIL_USER and EMAIL_PASSWORD (e.g. in production) to send offer letters.',
       );
     }
-    const template = OfferLetterEmailTemplate.generate(
-      applicantName,
-      jobTitle,
-      salary,
-      startDate,
-      offerContent,
-      attachmentUrl,
-    );
+    const template = OfferLetterEmailTemplate.generate(options);
     const mailOptions = {
       from: `"${this.emailConfigService.fromName}" <${this.emailConfigService.from}>`,
       to: toEmail,

@@ -18,10 +18,11 @@ import { Bed } from './bed.entity';
 import { Chair } from './chair.entity';
 
 @Entity('employee_shifts')
-@Unique(['shift_id', 'employee_id'])
+@Unique(['shift_id', 'employee_id', 'scheduled_date'])
 @Index(['shift_id'])
 @Index(['employee_id'])
 @Index(['employee_id', 'status'])
+@Index(['scheduled_date'])
 export class EmployeeShift {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -31,6 +32,9 @@ export class EmployeeShift {
 
   @Column({ type: 'uuid' })
   employee_id: string;
+
+  @Column({ type: 'date' })
+  scheduled_date: string;
 
   @Column({ type: 'uuid', nullable: true })
   department_id: string | null;

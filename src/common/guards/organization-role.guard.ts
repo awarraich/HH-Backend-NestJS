@@ -17,7 +17,7 @@ export class OrganizationRoleGuard implements CanActivate {
     private reflector: Reflector,
     @Inject(forwardRef(() => OrganizationRoleService))
     private organizationRoleService: OrganizationRoleService,
-  ) {}
+  ) { }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const requiredRoles = this.reflector.getAllAndOverride<string[]>(ROLES_KEY, [
@@ -25,7 +25,7 @@ export class OrganizationRoleGuard implements CanActivate {
       context.getClass(),
     ]);
 
-    if (!requiredRoles) {
+    if (!requiredRoles || requiredRoles.length === 0) {
       return true;
     }
 
@@ -41,20 +41,30 @@ export class OrganizationRoleGuard implements CanActivate {
       throw new ForbiddenException('Organization ID is required');
     }
 
-    // Check user's roles in the specific organization (supports multiple roles per user)
-    const userOrgRoles = await this.organizationRoleService.getUsersRolesInOrganization(
+    // Fetch staff roles and assigned feature permissions in one call
+    const { staffRoles, features } = await this.organizationRoleService.getStaffPermissions(
       user.userId,
       organizationId,
     );
 
-    const hasRequiredRole = requiredRoles.some((r) => userOrgRoles.includes(r));
-
-    if (!hasRequiredRole) {
-      throw new ForbiddenException(
-        `You do not have the required role for this organization. Required: ${requiredRoles.join(', ')}, Your roles: ${userOrgRoles.length ? userOrgRoles.join(', ') : 'none'}`,
-      );
+    // Allow if the staff member has been explicitly assigned any feature access,
+    // meaning they are active staff with permissions granted by the organization owner
+    if (features.length > 0) {
+      return true;
     }
 
-    return true;
+    // OWNER always has full access
+    if (staffRoles.includes('OWNER') || features.includes('*')) {
+      return true;
+    }
+
+    // Allow if the staff member's role matches any of the required roles
+    const hasRequiredRole = requiredRoles.some((r) => staffRoles.includes(r));
+    if (hasRequiredRole) {
+      return true;
+    }
+
+    // Neither a matching role nor any feature access — deny silently
+    throw new ForbiddenException('You do not have access to this resource');
   }
 }

@@ -10,8 +10,10 @@ import { Organization } from '../../entities/organization.entity';
 import { RequirementTag } from '../entities/requirement-tag.entity';
 import { RequirementDocumentType } from '../entities/requirement-document-type.entity';
 import { RequirementInserviceTraining } from '../entities/requirement-inservice-training.entity';
+import { RequirementDocumentTemplate } from '../entities/requirement-document-template.entity';
 import { HrDocumentType } from '../entities/hr-document-type.entity';
 import { InserviceTraining } from '../entities/inservice-training.entity';
+import { CompetencyTemplate } from '../../document-workflow/entities/competency-template.entity';
 import { OrganizationRoleService } from '../../services/organization-role.service';
 import { CreateRequirementTagDto } from '../dto/create-requirement-tag.dto';
 import { UpdateRequirementTagDto } from '../dto/update-requirement-tag.dto';
@@ -24,6 +26,7 @@ export interface RequirementTagResponse {
   category: string;
   required_document_type_ids: string[];
   required_inservice_training_ids: string[];
+  document_template_ids: string[];
   created_at: Date;
   updated_at: Date;
 }
@@ -41,6 +44,10 @@ export class RequirementTagService {
     private readonly hrDocumentTypeRepository: Repository<HrDocumentType>,
     @InjectRepository(InserviceTraining)
     private readonly inserviceTrainingRepository: Repository<InserviceTraining>,
+    @InjectRepository(RequirementDocumentTemplate)
+    private readonly requirementDocumentTemplateRepository: Repository<RequirementDocumentTemplate>,
+    @InjectRepository(CompetencyTemplate)
+    private readonly competencyTemplateRepository: Repository<CompetencyTemplate>,
     @InjectRepository(Organization)
     private readonly organizationRepository: Repository<Organization>,
     private readonly organizationRoleService: OrganizationRoleService,
@@ -70,6 +77,7 @@ export class RequirementTagService {
     tag: RequirementTag,
     docTypeIds: string[],
     inserviceTrainingIds: string[],
+    documentTemplateIds: string[] = [],
   ): RequirementTagResponse {
     return {
       id: tag.id,
@@ -78,6 +86,7 @@ export class RequirementTagService {
       category: tag.category,
       required_document_type_ids: docTypeIds,
       required_inservice_training_ids: inserviceTrainingIds,
+      document_template_ids: documentTemplateIds,
       created_at: tag.created_at,
       updated_at: tag.updated_at,
     };
@@ -110,7 +119,7 @@ export class RequirementTagService {
 
     const data: RequirementTagResponse[] = [];
     for (const tag of tags) {
-      const [docLinks, inserviceLinks] = await Promise.all([
+      const [docLinks, inserviceLinks, templateLinks] = await Promise.all([
         this.requirementDocumentTypeRepository.find({
           where: { requirement_tag_id: tag.id },
           select: ['document_type_id'],
@@ -119,12 +128,17 @@ export class RequirementTagService {
           where: { requirement_tag_id: tag.id },
           select: ['inservice_training_id'],
         }),
+        this.requirementDocumentTemplateRepository.find({
+          where: { requirement_tag_id: tag.id },
+          select: ['document_template_id'],
+        }),
       ]);
       data.push(
         this.toResponse(
           tag,
           docLinks.map((l) => l.document_type_id),
           inserviceLinks.map((l) => l.inservice_training_id),
+          templateLinks.map((l) => l.document_template_id),
         ),
       );
     }
@@ -146,7 +160,7 @@ export class RequirementTagService {
       throw new NotFoundException('Requirement tag not found');
     }
 
-    const [docLinks, inserviceLinks] = await Promise.all([
+    const [docLinks, inserviceLinks, templateLinks] = await Promise.all([
       this.requirementDocumentTypeRepository.find({
         where: { requirement_tag_id: tag.id },
         select: ['document_type_id'],
@@ -155,11 +169,16 @@ export class RequirementTagService {
         where: { requirement_tag_id: tag.id },
         select: ['inservice_training_id'],
       }),
+      this.requirementDocumentTemplateRepository.find({
+        where: { requirement_tag_id: tag.id },
+        select: ['document_template_id'],
+      }),
     ]);
     return this.toResponse(
       tag,
       docLinks.map((l) => l.document_type_id),
       inserviceLinks.map((l) => l.inservice_training_id),
+      templateLinks.map((l) => l.document_template_id),
     );
   }
 
@@ -172,6 +191,7 @@ export class RequirementTagService {
 
     const documentTypeIds = dto.document_type_ids ?? [];
     const inserviceTrainingIds = dto.inservice_training_ids ?? [];
+    const documentTemplateIds = dto.document_template_ids ?? [];
 
     if (documentTypeIds.length > 0) {
       const docTypes = await this.hrDocumentTypeRepository.find({
@@ -227,7 +247,29 @@ export class RequirementTagService {
     );
     await this.requirementInserviceTrainingRepository.save(inserviceLinkEntities);
 
-    return this.toResponse(saved, documentTypeIds, inserviceTrainingIds);
+    if (documentTemplateIds.length > 0) {
+      const templates = await this.competencyTemplateRepository.find({
+        where: {
+          id: In(documentTemplateIds),
+          organization_id: organizationId,
+        },
+        select: ['id'],
+      });
+      if (templates.length !== documentTemplateIds.length) {
+        throw new BadRequestException(
+          'One or more document template IDs are invalid or do not belong to this organization.',
+        );
+      }
+      const templateLinkEntities = documentTemplateIds.map((document_template_id) =>
+        this.requirementDocumentTemplateRepository.create({
+          requirement_tag_id: saved.id,
+          document_template_id,
+        }),
+      );
+      await this.requirementDocumentTemplateRepository.save(templateLinkEntities);
+    }
+
+    return this.toResponse(saved, documentTypeIds, inserviceTrainingIds, documentTemplateIds);
   }
 
   async update(
@@ -306,7 +348,35 @@ export class RequirementTagService {
       }
     }
 
-    const [docLinks, inserviceLinks] = await Promise.all([
+    if (dto.document_template_ids !== undefined) {
+      await this.requirementDocumentTemplateRepository.delete({
+        requirement_tag_id: tag.id,
+      });
+      const documentTemplateIds = dto.document_template_ids;
+      if (documentTemplateIds.length > 0) {
+        const templates = await this.competencyTemplateRepository.find({
+          where: {
+            id: In(documentTemplateIds),
+            organization_id: organizationId,
+          },
+          select: ['id'],
+        });
+        if (templates.length !== documentTemplateIds.length) {
+          throw new BadRequestException(
+            'One or more document template IDs are invalid or do not belong to this organization.',
+          );
+        }
+        const templateLinkEntities = documentTemplateIds.map((document_template_id) =>
+          this.requirementDocumentTemplateRepository.create({
+            requirement_tag_id: tag.id,
+            document_template_id,
+          }),
+        );
+        await this.requirementDocumentTemplateRepository.save(templateLinkEntities);
+      }
+    }
+
+    const [docLinks, inserviceLinks, templateLinks] = await Promise.all([
       this.requirementDocumentTypeRepository.find({
         where: { requirement_tag_id: tag.id },
         select: ['document_type_id'],
@@ -315,11 +385,16 @@ export class RequirementTagService {
         where: { requirement_tag_id: tag.id },
         select: ['inservice_training_id'],
       }),
+      this.requirementDocumentTemplateRepository.find({
+        where: { requirement_tag_id: tag.id },
+        select: ['document_template_id'],
+      }),
     ]);
     return this.toResponse(
       tag,
       docLinks.map((l) => l.document_type_id),
       inserviceLinks.map((l) => l.inservice_training_id),
+      templateLinks.map((l) => l.document_template_id),
     );
   }
 

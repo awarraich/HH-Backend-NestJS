@@ -10,8 +10,10 @@ import {
   Index,
 } from 'typeorm';
 import { Station } from './station.entity';
+import { Department } from './department.entity';
 import { Bed } from './bed.entity';
 import { Chair } from './chair.entity';
+import { RoomShiftAssignment } from './room-shift-assignment.entity';
 
 @Entity('rooms')
 @Index(['station_id'])
@@ -23,6 +25,9 @@ export class Room {
   @Column({ type: 'uuid' })
   station_id: string;
 
+  @Column({ type: 'uuid', nullable: true })
+  department_id: string | null;
+
   @Column({ type: 'varchar', length: 100 })
   name: string;
 
@@ -31,6 +36,9 @@ export class Room {
 
   @Column({ type: 'varchar', length: 50, nullable: true })
   floor: string | null;
+
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  room_type: string | null;
 
   @Column({ type: 'varchar', length: 20, nullable: true })
   configuration_type: string | null;
@@ -57,9 +65,16 @@ export class Room {
   @JoinColumn({ name: 'station_id' })
   station: Station;
 
+  @ManyToOne(() => Department, { onDelete: 'CASCADE', nullable: true })
+  @JoinColumn({ name: 'department_id' })
+  department: Department;
+
   @OneToMany(() => Bed, (bed) => bed.room)
   beds: Bed[];
 
   @OneToMany(() => Chair, (chair) => chair.room)
   chairs: Chair[];
+
+  @OneToMany(() => RoomShiftAssignment, (rsa) => rsa.room)
+  shiftAssignments: RoomShiftAssignment[];
 }

@@ -47,6 +47,9 @@ export class OrganizationStaff {
   @Column({ type: 'varchar', length: 100, nullable: true })
   position_title: string | null;
 
+  @Column({ type: 'boolean', default: false })
+  is_supervisor: boolean;
+
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
 

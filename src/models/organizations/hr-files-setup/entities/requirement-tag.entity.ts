@@ -12,6 +12,7 @@ import {
 import { Organization } from '../../entities/organization.entity';
 import { RequirementDocumentType } from './requirement-document-type.entity';
 import { RequirementInserviceTraining } from './requirement-inservice-training.entity';
+import { RequirementDocumentTemplate } from './requirement-document-template.entity';
 
 @Entity('requirement_tags')
 @Index(['organization_id'])
@@ -44,4 +45,7 @@ export class RequirementTag {
 
   @OneToMany(() => RequirementInserviceTraining, (rit) => rit.requirementTag, { cascade: true })
   requirementInserviceTrainings: RequirementInserviceTraining[];
+
+  @OneToMany(() => RequirementDocumentTemplate, (rdt) => rdt.requirementTag, { cascade: true })
+  requirementDocumentTemplates: RequirementDocumentTemplate[];
 }

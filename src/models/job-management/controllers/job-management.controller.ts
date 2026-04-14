@@ -195,6 +195,7 @@ export class JobManagementController {
   @HttpCode(HttpStatus.OK)
   async serveApplicationDocument(
     @Param('filename') filename: string,
+    @Query('disposition') disposition: string | undefined,
     @Res() reply: FastifyReply,
   ): Promise<unknown> {
     const filePath = this.jobApplicationDocumentStorage.getLocalFilePath(filename);
@@ -209,9 +210,10 @@ export class JobManagementController {
       '.png': 'image/png',
       '.txt': 'text/plain',
     };
+    const dispositionType = disposition === 'inline' ? 'inline' : 'attachment';
     return reply
       .header('Content-Type', contentType[ext] ?? 'application/octet-stream')
-      .header('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`)
+      .header('Content-Disposition', `${dispositionType}; filename="${encodeURIComponent(filename)}"`)
       .send(fs.createReadStream(filePath));
   }
 
@@ -221,6 +223,36 @@ export class JobManagementController {
   async createApplication(@Body() dto: CreateJobApplicationDto): Promise<unknown> {
     const result = await this.jobManagementService.createApplication(dto);
     return SuccessHelper.createSuccessResponse(result, 'Application submitted');
+  }
+
+  /** Employee: list applications submitted by a given auth user id (frontend: `/users/:userId/job-applications`). */
+  @Get('users/:userId/job-applications')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async findMyJobApplicationsByUserId(@Param('userId') userId: string): Promise<unknown> {
+    const applications = await this.jobManagementService.findMyJobApplicationsByUserId(userId);
+    return SuccessHelper.createSuccessResponse(applications);
+  }
+
+  /** Candidate: accept or decline an offer on their own application. */
+  @Patch('users/:userId/job-applications/:applicationId/offer-decision')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async respondToOfferAsCandidate(
+    @Param('userId') userId: string,
+    @Param('applicationId') applicationId: string,
+    @Body() body: { decision: 'accept' | 'decline' },
+  ): Promise<unknown> {
+    const decision = body?.decision === 'decline' ? 'decline' : 'accept';
+    const result = await this.jobManagementService.acceptOfferAsCandidate(
+      userId,
+      applicationId,
+      decision,
+    );
+    return SuccessHelper.createSuccessResponse(
+      { id: result.id, status: result.status },
+      decision === 'accept' ? 'Offer accepted' : 'Offer declined',
+    );
   }
 
   /** List applications for a job posting (organization). */

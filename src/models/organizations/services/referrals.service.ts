@@ -22,6 +22,7 @@ import { AssignReferralDto } from '../dto/assign-referral.dto';
 import { PatientsService } from '../../patients/patients.service';
 import { AuditLogService } from '../../../common/services/audit/audit-log.service';
 import type { ReferralListFilters } from '../repositories/referral.repository';
+import { TemplatesService } from '../document-workflow/services/templates.service';
 
 @Injectable()
 export class ReferralsService {
@@ -29,6 +30,7 @@ export class ReferralsService {
 
   constructor(
     private referralRepository: ReferralRepository,
+    private templatesService: TemplatesService,
     @InjectRepository(ReferralOrganization)
     private referralOrganizationRepository: Repository<ReferralOrganization>,
     @InjectRepository(ReferralMessage)
@@ -45,6 +47,48 @@ export class ReferralsService {
     private patientsService: PatientsService,
     private auditLogService: AuditLogService,
   ) {}
+
+  /**
+   * Batch-load template PDFs for referrals that have document_template_ids
+   * and append them to each serialized referral's documents array.
+   */
+  private async appendTemplateDocs(
+    serializedList: any[],
+    rawReferrals: Referral[],
+  ): Promise<void> {
+    const allIds = new Set<string>();
+    for (const r of rawReferrals) {
+      if (r.document_template_ids?.length) {
+        r.document_template_ids.forEach((id) => allIds.add(id));
+      }
+    }
+    if (allIds.size === 0) return;
+
+    const templates = await this.templatesService.findByIdsWithValues([...allIds]);
+    const templateMap = new Map(templates.map((t: any) => [t.id, t]));
+
+    for (let i = 0; i < rawReferrals.length; i++) {
+      const ids = rawReferrals[i].document_template_ids;
+      if (!ids?.length) continue;
+
+      const templateDocs = ids
+        .map((id) => templateMap.get(id))
+        .filter(Boolean)
+        .map((t: any) => ({
+          id: t.id,
+          file_name: t.name,
+          file_url: t.pdfUrl,
+          created_at: t.created_at,
+          type: 'template',
+          document_fields: t.document_fields,
+        }));
+
+      serializedList[i].documents = [
+        ...(serializedList[i].documents || []),
+        ...templateDocs,
+      ];
+    }
+  }
 
   async create(
     organizationId: string,
@@ -118,6 +162,7 @@ export class ReferralsService {
         estimated_cost: dto.estimated_cost ?? null,
         notes: dto.notes,
         level_of_care: dto.level_of_care ?? null,
+        document_template_ids: dto.document_template_ids?.length ? dto.document_template_ids : null,
       });
       const savedReferral = await queryRunner.manager.save(Referral, referral);
 
@@ -170,7 +215,9 @@ export class ReferralsService {
         // ignore
       }
       const loaded = await this.referralRepository.findByIdWithRelations(savedReferral.id);
-      return this.serializer.serialize(loaded!);
+      const serialized = this.serializer.serialize(loaded!);
+      await this.appendTemplateDocs([serialized], [loaded!]);
+      return serialized;
     } catch (e) {
       await queryRunner.rollbackTransaction();
       throw e;
@@ -198,8 +245,12 @@ export class ReferralsService {
       queryDto.scope === 'sent'
         ? await this.referralRepository.findBySent(organizationId, filters)
         : await this.referralRepository.findByReceived(organizationId, filters);
+
+    const serialized = this.serializer.serializeMany(data);
+    await this.appendTemplateDocs(serialized, data);
+
     return {
-      data: this.serializer.serializeMany(data),
+      data: serialized,
       total,
       page: filters.page ?? 1,
       limit: filters.limit ?? 20,
@@ -222,7 +273,10 @@ export class ReferralsService {
     if (!isSender && !isReceiver) {
       throw new ForbiddenException('You do not have access to this referral');
     }
-    return this.serializer.serialize(referral);
+
+    const serialized = this.serializer.serialize(referral);
+    await this.appendTemplateDocs([serialized], [referral]);
+    return serialized;
   }
 
   async updateResponse(

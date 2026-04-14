@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsUUID, MaxLength, IsIn, IsArray } from 'class-validator';
+import { IsOptional, IsString, IsUUID, MaxLength, IsIn, IsArray, IsBoolean } from 'class-validator';
 
 export class UpdateOrganizationStaffDto {
   @IsOptional()
@@ -20,4 +20,8 @@ export class UpdateOrganizationStaffDto {
   @IsString()
   @MaxLength(100)
   position_title?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  is_supervisor?: boolean;
 }

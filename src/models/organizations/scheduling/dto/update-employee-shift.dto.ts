@@ -1,4 +1,4 @@
-import { IsOptional, IsUUID, IsString, IsDateString, MaxLength } from 'class-validator';
+import { IsOptional, IsUUID, IsString, IsDateString, MaxLength, Matches } from 'class-validator';
 
 export class UpdateEmployeeShiftDto {
   @IsOptional()
@@ -20,6 +20,11 @@ export class UpdateEmployeeShiftDto {
   @IsOptional()
   @IsUUID('4')
   chair_id?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'scheduled_date must be YYYY-MM-DD' })
+  scheduled_date?: string;
 
   @IsOptional()
   @IsString()

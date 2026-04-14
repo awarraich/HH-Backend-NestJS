@@ -100,10 +100,20 @@ export class McpHttpHandlerService {
       organizationId?: string;
       employeeId?: string;
       context?: string;
+      timezone?: string;
     } | undefined;
     const organizationId = body?.organizationId;
     const employeeId = body?.employeeId;
     const contextType = body?.context;
+
+    // Per-request timezone: prefer the request body, fall back to the
+    // X-Timezone header. Both are client-supplied. The factory's
+    // resolveTimezone() helper validates and falls back to UTC on bad input.
+    const headerTimezone = req.headers['x-timezone'];
+    const clientTimezone =
+      body?.timezone ??
+      (Array.isArray(headerTimezone) ? headerTimezone[0] : headerTimezone) ??
+      null;
 
     const useEmployeeContext =
       typeof organizationId === 'string' &&
@@ -113,6 +123,12 @@ export class McpHttpHandlerService {
 
     const useComplianceContext =
       contextType === 'compliance' &&
+      typeof organizationId === 'string' &&
+      organizationId.length > 0 &&
+      !useEmployeeContext;
+
+    const useSchedulingContext =
+      contextType === 'scheduling' &&
       typeof organizationId === 'string' &&
       organizationId.length > 0 &&
       !useEmployeeContext;
@@ -133,6 +149,18 @@ export class McpHttpHandlerService {
           organizationId: organizationId!,
           userId,
         });
+      } else if (useSchedulingContext) {
+        server = this.mcpServerFactory.create(
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          {
+            organizationId: organizationId!,
+            userId,
+            timezone: clientTimezone,
+          },
+        );
       } else {
         server = this.mcpServerFactory.create(userId, auditContext);
       }

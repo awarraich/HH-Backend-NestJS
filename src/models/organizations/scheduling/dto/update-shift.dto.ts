@@ -57,4 +57,13 @@ export class UpdateShiftDto {
   @Max(7, { each: true })
   @Type(() => Number)
   recurrence_days?: number[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  assigned_roles?: string[];
+
+  @IsOptional()
+  @IsString()
+  timezone?: string;
 }

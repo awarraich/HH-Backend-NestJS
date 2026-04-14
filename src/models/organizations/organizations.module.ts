@@ -17,6 +17,7 @@ import { StaffRole } from './staff-management/entities/staff-role.entity';
 import { OrganizationStaff } from './staff-management/entities/organization-staff.entity';
 import { OrganizationStaffRolePermission } from './staff-management/entities/organization-staff-role-permission.entity';
 import { Employee } from '../employees/entities/employee.entity';
+import { AvailabilityRule } from '../employees/availability/entities/availability-rule.entity';
 import { User } from '../../authentication/entities/user.entity';
 import { Patient } from '../patients/entities/patient.entity';
 import { AuthenticationModule } from '../../authentication/auth.module';
@@ -45,6 +46,7 @@ import { RequirementDocumentType } from './hr-files-setup/entities/requirement-d
 import { RequirementInserviceTraining } from './hr-files-setup/entities/requirement-inservice-training.entity';
 import { InserviceTraining } from './hr-files-setup/entities/inservice-training.entity';
 import { EmployeeRequirementTag } from './hr-files-setup/entities/employee-requirement-tag.entity';
+import { RequirementDocumentTemplate } from './hr-files-setup/entities/requirement-document-template.entity';
 import { RequirementTagService } from './hr-files-setup/services/requirement-tag.service';
 import { EmployeeRequirementTagService } from './hr-files-setup/services/employee-requirement-tag.service';
 import { RequirementTagsController } from './hr-files-setup/controllers/requirement-tags.controller';
@@ -83,6 +85,19 @@ import { Bed } from './scheduling/entities/bed.entity';
 import { Chair } from './scheduling/entities/chair.entity';
 import { Shift } from './scheduling/entities/shift.entity';
 import { EmployeeShift } from './scheduling/entities/employee-shift.entity';
+import { DepartmentConfigOption } from './scheduling/entities/department-config-option.entity';
+import { Zone } from './scheduling/entities/zone.entity';
+import { FleetVehicle } from './scheduling/entities/fleet-vehicle.entity';
+import { LabWorkstation } from './scheduling/entities/lab-workstation.entity';
+import { DepartmentShift } from './scheduling/entities/department-shift.entity';
+import { ShiftRole } from './scheduling/entities/shift-role.entity';
+import { DepartmentStaff } from './scheduling/entities/department-staff.entity';
+import { StationShiftAssignment } from './scheduling/entities/station-shift-assignment.entity';
+import { RoomShiftAssignment } from './scheduling/entities/room-shift-assignment.entity';
+import { ZoneShiftAssignment } from './scheduling/entities/zone-shift-assignment.entity';
+import { VehicleShiftAssignment } from './scheduling/entities/vehicle-shift-assignment.entity';
+import { WorkstationShiftAssignment } from './scheduling/entities/workstation-shift-assignment.entity';
+import { ProviderRole } from '../employees/entities/provider-role.entity';
 import { DepartmentService } from './scheduling/services/department.service';
 import { StationService } from './scheduling/services/station.service';
 import { RoomService } from './scheduling/services/room.service';
@@ -90,6 +105,12 @@ import { BedService } from './scheduling/services/bed.service';
 import { ChairService } from './scheduling/services/chair.service';
 import { ShiftService } from './scheduling/services/shift.service';
 import { EmployeeShiftService } from './scheduling/services/employee-shift.service';
+import { EmployeeAvailabilityService } from './scheduling/services/employee-availability.service';
+import { DepartmentConfigOptionService } from './scheduling/services/department-config-option.service';
+import { ZoneService } from './scheduling/services/zone.service';
+import { FleetVehicleService } from './scheduling/services/fleet-vehicle.service';
+import { LabWorkstationService } from './scheduling/services/lab-workstation.service';
+import { DepartmentStaffService } from './scheduling/services/department-staff.service';
 import { DepartmentsController } from './scheduling/controllers/departments.controller';
 import { StationsController } from './scheduling/controllers/stations.controller';
 import { RoomsController } from './scheduling/controllers/rooms.controller';
@@ -97,7 +118,12 @@ import { BedsController } from './scheduling/controllers/beds.controller';
 import { ChairsController } from './scheduling/controllers/chairs.controller';
 import { ShiftsController } from './scheduling/controllers/shifts.controller';
 import { EmployeeShiftsController } from './scheduling/controllers/employee-shifts.controller';
+import { DepartmentConfigOptionsController } from './scheduling/controllers/department-config-options.controller';
 import { EmployeeShiftsByEmployeeController } from './scheduling/controllers/employee-shifts-by-employee.controller';
+import { ZonesController } from './scheduling/controllers/zones.controller';
+import { FleetVehiclesController } from './scheduling/controllers/fleet-vehicles.controller';
+import { LabWorkstationsController } from './scheduling/controllers/lab-workstations.controller';
+import { DepartmentStaffController } from './scheduling/controllers/department-staff.controller';
 import { OrganizationDocumentCategory } from './compliance-documents/entities/organization-document-category.entity';
 import { OrganizationDocument } from './compliance-documents/entities/organization-document.entity';
 import { OrganizationDocumentChunk } from './compliance-documents/entities/organization-document-chunk.entity';
@@ -107,6 +133,20 @@ import { OrganizationDocumentStorageService } from './compliance-documents/servi
 import { OrganizationDocumentsChatService } from './compliance-documents/services/organization-documents-chat.service';
 import { OrganizationDocumentCategoriesController } from './compliance-documents/controllers/organization-document-categories.controller';
 import { OrganizationDocumentsController } from './compliance-documents/controllers/organization-documents.controller';
+import { CompetencyTemplate } from './document-workflow/entities/competency-template.entity';
+import { CompetencyAssignment } from './document-workflow/entities/competency-assignment.entity';
+import { DocumentFieldValue } from '../external-documents/entities/document-field-value.entity';
+import { TemplatesController } from './document-workflow/controllers/templates.controller';
+import { AssignmentsController } from './document-workflow/controllers/assignments.controller';
+import { TemplatesService } from './document-workflow/services/templates.service';
+import { AssignmentsService } from './document-workflow/services/assignments.service';
+import { PdfStorageService } from './document-workflow/services/pdf-storage.service';
+import { DocumentWorkflowRole } from './document-workflow/entities/document-workflow-role.entity';
+import { DocumentTemplateUserAssignment } from './document-workflow/entities/document-template-user-assignment.entity';
+import { WorkflowRolesService } from './document-workflow/services/workflow-roles.service';
+import { TemplateAssignmentsService } from './document-workflow/services/template-assignments.service';
+import { WorkflowRolesController } from './document-workflow/controllers/workflow-roles.controller';
+import { FilledDocumentTemplatesController } from './document-workflow/controllers/filled-document-templates.controller';
 
 @Module({
   imports: [
@@ -120,6 +160,19 @@ import { OrganizationDocumentsController } from './compliance-documents/controll
       Chair,
       Shift,
       EmployeeShift,
+      DepartmentConfigOption,
+      Zone,
+      FleetVehicle,
+      LabWorkstation,
+      DepartmentShift,
+      ShiftRole,
+      DepartmentStaff,
+      StationShiftAssignment,
+      RoomShiftAssignment,
+      ZoneShiftAssignment,
+      VehicleShiftAssignment,
+      WorkstationShiftAssignment,
+      ProviderRole,
       Organization,
       OrganizationType,
       OrganizationTypeAssignment,
@@ -130,6 +183,7 @@ import { OrganizationDocumentsController } from './compliance-documents/controll
       OrganizationStaff,
       OrganizationStaffRolePermission,
       Employee,
+      AvailabilityRule,
       HrDocumentType,
       RequirementTag,
       RequirementDocumentType,
@@ -139,6 +193,7 @@ import { OrganizationDocumentsController } from './compliance-documents/controll
       InserviceCompletion,
       InserviceQuizAttempt,
       EmployeeRequirementTag,
+      RequirementDocumentTemplate,
       EmployeeDocument,
       DocumentChunk,
       OrganizationCompanyProfile,
@@ -153,6 +208,11 @@ import { OrganizationDocumentsController } from './compliance-documents/controll
       OrganizationDocumentCategory,
       OrganizationDocument,
       OrganizationDocumentChunk,
+      CompetencyTemplate,
+      CompetencyAssignment,
+      DocumentFieldValue,
+      DocumentWorkflowRole,
+      DocumentTemplateUserAssignment,
     ]),
     AuthenticationModule,
     EmailModule,
@@ -177,6 +237,7 @@ import { OrganizationDocumentsController } from './compliance-documents/controll
     EmployeeInserviceController,
     OrganizationCompanyProfileController,
     DepartmentsController,
+    DepartmentConfigOptionsController,
     StationsController,
     RoomsController,
     BedsController,
@@ -184,17 +245,31 @@ import { OrganizationDocumentsController } from './compliance-documents/controll
     ShiftsController,
     EmployeeShiftsController,
     EmployeeShiftsByEmployeeController,
+    ZonesController,
+    FleetVehiclesController,
+    LabWorkstationsController,
+    DepartmentStaffController,
     OrganizationDocumentCategoriesController,
     OrganizationDocumentsController,
+    TemplatesController,
+    AssignmentsController,
+    WorkflowRolesController,
+    FilledDocumentTemplatesController,
   ],
   providers: [
     DepartmentService,
+    DepartmentConfigOptionService,
     StationService,
     RoomService,
     BedService,
     ChairService,
     ShiftService,
     EmployeeShiftService,
+    EmployeeAvailabilityService,
+    ZoneService,
+    FleetVehicleService,
+    LabWorkstationService,
+    DepartmentStaffService,
     OrganizationsService,
     OrganizationRoleService,
     OrganizationPermissionService,
@@ -224,6 +299,11 @@ import { OrganizationDocumentsController } from './compliance-documents/controll
     OrganizationDocumentsService,
     OrganizationDocumentStorageService,
     OrganizationDocumentsChatService,
+    TemplatesService,
+    AssignmentsService,
+    PdfStorageService,
+    WorkflowRolesService,
+    TemplateAssignmentsService,
   ],
   exports: [
     TypeOrmModule,
@@ -237,6 +317,9 @@ import { OrganizationDocumentsController } from './compliance-documents/controll
     EmployeeRequirementTagService,
     OrganizationDocumentsService,
     OrganizationDocumentsChatService,
+    ShiftService,
+    EmployeeShiftService,
+    EmployeeAvailabilityService,
   ],
 })
 export class OrganizationsModule {}

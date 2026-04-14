@@ -132,6 +132,7 @@ export class OrganizationStaffService {
           status: 'ACTIVE',
           department: dto.department,
           position_title: dto.position_title,
+          is_supervisor: dto.is_supervisor ?? false,
           start_date: new Date(),
           created_by: userId,
           updated_by: userId,
@@ -258,7 +259,7 @@ export class OrganizationStaffService {
       throw new NotFoundException('Organization not found');
     }
 
-    const { page = 1, limit = 20, staff_role_id, status, search } = queryDto;
+    const { page = 1, limit = 20, staff_role_id, status, search, is_supervisor } = queryDto;
     const skip = (page - 1) * limit;
 
     const qb = this.organizationStaffRepository
@@ -279,6 +280,11 @@ export class OrganizationStaffService {
         { search: `%${search}%` },
       );
     }
+    if (is_supervisor !== undefined) {
+      qb.andWhere('os.is_supervisor = :is_supervisor', {
+        is_supervisor: is_supervisor === 'true',
+      });
+    }
 
     qb.orderBy('os.created_at', 'DESC');
 
@@ -295,6 +301,7 @@ export class OrganizationStaffService {
         status: string;
         department: string | null;
         position_title: string | null;
+        is_supervisor: boolean;
         features: { id: string; code: string; name: string | null }[];
       }
     >();
@@ -311,6 +318,7 @@ export class OrganizationStaffService {
           status: row.status,
           department: row.department,
           position_title: row.position_title,
+          is_supervisor: row.is_supervisor,
           features: [],
         });
         staffRoleIdsByUser.set(row.user_id, []);
@@ -348,6 +356,7 @@ export class OrganizationStaffService {
     status: string;
     department: string | null;
     position_title: string | null;
+    is_supervisor: boolean;
     features: { id: string; code: string; name: string | null }[];
   }> {
     const canAccess = await this.organizationRoleService.hasAnyRoleInOrganization(
@@ -382,6 +391,7 @@ export class OrganizationStaffService {
       status: rows[0].status,
       department: rows[0].department,
       position_title: rows[0].position_title,
+      is_supervisor: rows[0].is_supervisor,
       features,
     };
   }
@@ -419,10 +429,12 @@ export class OrganizationStaffService {
       status?: string;
       department?: string;
       position_title?: string;
+      is_supervisor?: boolean;
     } = { updated_by: userId };
     if (dto.status !== undefined) updatePayload.status = dto.status;
     if (dto.department !== undefined) updatePayload.department = dto.department;
     if (dto.position_title !== undefined) updatePayload.position_title = dto.position_title;
+    if (dto.is_supervisor !== undefined) updatePayload.is_supervisor = dto.is_supervisor;
     if (Object.keys(updatePayload).length > 1) {
       await this.organizationStaffRepository.update(
         { organization_id: organizationId, user_id: staffUserId },
