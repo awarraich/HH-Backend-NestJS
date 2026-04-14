@@ -77,6 +77,7 @@ export class DepartmentStaffService {
     await this.ensureDepartment(organizationId, departmentId);
     const staff = this.staffRepository.create({
       department_id: departmentId,
+      provider_role_id: dto.provider_role_id ?? null,
       staff_type: dto.staff_type,
       staff_name: dto.staff_name,
       quantity: dto.quantity ?? 1,
@@ -99,6 +100,7 @@ export class DepartmentStaffService {
   ): Promise<DepartmentStaff> {
     await this.ensureAccess(organizationId, userId);
     const staff = await this.findOne(organizationId, departmentId, staffId, userId);
+    if (dto.provider_role_id !== undefined) staff.provider_role_id = dto.provider_role_id ?? null;
     if (dto.staff_type !== undefined) staff.staff_type = dto.staff_type;
     if (dto.staff_name !== undefined) staff.staff_name = dto.staff_name;
     if (dto.quantity !== undefined) staff.quantity = dto.quantity;

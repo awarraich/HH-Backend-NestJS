@@ -104,7 +104,7 @@ export class DepartmentService {
     userId: string,
   ): Promise<{ data: Department[]; total: number; page: number; limit: number }> {
     await this.ensureAccess(organizationId, userId);
-    const { page = 1, limit = 20, is_active } = query;
+    const { page = 1, limit = 20, is_active, search, department_type, layout_type } = query;
     const skip = (page - 1) * limit;
 
     // First get paginated department IDs
@@ -115,6 +115,18 @@ export class DepartmentService {
 
     if (is_active !== undefined) {
       idQb.andWhere('d.is_active = :is_active', { is_active });
+    }
+    if (search?.trim()) {
+      idQb.andWhere(
+        '(LOWER(d.name) LIKE :search OR LOWER(d.code) LIKE :search OR LOWER(d.description) LIKE :search)',
+        { search: `%${search.trim().toLowerCase()}%` },
+      );
+    }
+    if (department_type) {
+      idQb.andWhere('d.department_type = :department_type', { department_type });
+    }
+    if (layout_type) {
+      idQb.andWhere('d.layout_type = :layout_type', { layout_type });
     }
     idQb.orderBy('d.sort_order', 'ASC', 'NULLS LAST').addOrderBy('d.name', 'ASC');
 
@@ -143,6 +155,7 @@ export class DepartmentService {
         'departmentShifts.shift.shiftRoles',
         'departmentShifts.shift.shiftRoles.providerRole',
         'departmentStaff',
+        'departmentStaff.providerRole',
       ],
       order: { sort_order: 'ASC', name: 'ASC' },
     });
@@ -173,6 +186,7 @@ export class DepartmentService {
         'departmentShifts.shift.shiftRoles',
         'departmentShifts.shift.shiftRoles.providerRole',
         'departmentStaff',
+        'departmentStaff.providerRole',
       ],
     });
     if (!department) throw new NotFoundException('Department not found');
@@ -249,6 +263,7 @@ export class DepartmentService {
           const s = dto.staff[i];
           await queryRunner.manager.save(DepartmentStaff, queryRunner.manager.create(DepartmentStaff, {
             department_id: saved.id,
+            provider_role_id: s.provider_role_id ?? null,
             staff_type: s.type,
             staff_name: s.name,
             quantity: s.quantity ?? 1,
@@ -577,6 +592,7 @@ export class DepartmentService {
           const s = dto.staff[i];
           await queryRunner.manager.save(DepartmentStaff, queryRunner.manager.create(DepartmentStaff, {
             department_id: departmentId,
+            provider_role_id: s.provider_role_id ?? null,
             staff_type: s.type,
             staff_name: s.name,
             quantity: s.quantity ?? 1,

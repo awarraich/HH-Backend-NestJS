@@ -1,7 +1,11 @@
-import { IsString, IsNotEmpty, IsOptional, IsInt, IsArray, IsObject, MaxLength, Min } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsInt, IsArray, IsObject, IsUUID, MaxLength, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateDepartmentStaffDto {
+  @IsOptional()
+  @IsUUID()
+  provider_role_id?: string;
+
   @IsNotEmpty()
   @IsString()
   @MaxLength(50)

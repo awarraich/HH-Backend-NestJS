@@ -9,15 +9,20 @@ import {
   Index,
 } from 'typeorm';
 import { Department } from './department.entity';
+import { ProviderRole } from '../../../employees/entities/provider-role.entity';
 
 @Entity('department_staff')
 @Index(['department_id'])
+@Index(['provider_role_id'])
 export class DepartmentStaff {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
   @Column({ type: 'uuid' })
   department_id: string;
+
+  @Column({ type: 'uuid', nullable: true })
+  provider_role_id: string | null;
 
   @Column({ type: 'varchar', length: 50 })
   staff_type: string;
@@ -55,4 +60,8 @@ export class DepartmentStaff {
   @ManyToOne(() => Department, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'department_id' })
   department: Department;
+
+  @ManyToOne(() => ProviderRole, { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'provider_role_id' })
+  providerRole?: ProviderRole | null;
 }

@@ -6,6 +6,7 @@ import {
   IsInt,
   IsArray,
   IsObject,
+  IsUUID,
   ValidateNested,
   MaxLength,
   Min,
@@ -179,6 +180,11 @@ export class InlineShiftDto {
 
 /** Staff configuration for inline creation within a department. */
 export class InlineStaffDto {
+  /** UUID from provider_roles. Preferred over the free-text `type` code. */
+  @IsOptional()
+  @IsUUID()
+  provider_role_id?: string;
+
   @IsNotEmpty()
   @IsString()
   @MaxLength(50)
