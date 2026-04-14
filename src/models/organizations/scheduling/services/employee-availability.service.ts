@@ -255,8 +255,12 @@ export class EmployeeAvailabilityService {
     const records = await this.loadAvailabilityForEmployee(employeeId);
 
     return records.filter((slot) => {
-      // Recurring rules always apply (they repeat every week)
-      if (slot.availability_type === 'recurring') return true;
+      if (slot.availability_type === 'recurring') {
+        // When a specific date is requested, filter recurring slots by
+        // day-of-week so the caller only sees slots that apply on that day.
+        if (startDate) return this.recurringMatchesDate(slot, startDate);
+        return true;
+      }
       // Specific-date rules: filter by date range
       if (!slot.date) return false;
       if (startDate && slot.date < startDate) return false;

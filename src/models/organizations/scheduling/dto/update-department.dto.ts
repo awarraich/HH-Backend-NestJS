@@ -1,5 +1,14 @@
-import { IsString, IsOptional, IsBoolean, IsInt, MaxLength, Min } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsInt, IsArray, ValidateNested, MaxLength, Min } from 'class-validator';
 import { Type } from 'class-transformer';
+import {
+  InlineStationDto,
+  InlineDepartmentRoomDto,
+  InlineShiftDto,
+  InlineStaffDto,
+  InlineZoneDto,
+  InlineFleetVehicleDto,
+  InlineLabWorkstationDto,
+} from './create-department.dto';
 
 export class UpdateDepartmentDto {
   @IsOptional()
@@ -46,4 +55,53 @@ export class UpdateDepartmentDto {
   @IsInt()
   @Min(0)
   sort_order?: number;
+
+  /** Nested stations for bulk replace (layout_type='stations'). */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InlineStationDto)
+  stations?: InlineStationDto[];
+
+  /** Direct rooms for bulk replace (layout_type='rooms'). */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InlineDepartmentRoomDto)
+  rooms?: InlineDepartmentRoomDto[];
+
+  /** Department shift library (replaces all shifts). */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InlineShiftDto)
+  available_shifts?: InlineShiftDto[];
+
+  /** Staff configuration (replaces all staff). */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InlineStaffDto)
+  staff?: InlineStaffDto[];
+
+  /** Field zones (layout_type='field'). */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InlineZoneDto)
+  field_zones?: InlineZoneDto[];
+
+  /** Fleet vehicles (layout_type='fleet'). */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InlineFleetVehicleDto)
+  fleet_vehicles?: InlineFleetVehicleDto[];
+
+  /** Lab workstations (layout_type='lab'). */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InlineLabWorkstationDto)
+  lab_workstations?: InlineLabWorkstationDto[];
 }
