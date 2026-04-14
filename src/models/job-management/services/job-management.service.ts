@@ -5,6 +5,7 @@ import { JobPosting } from '../entities/job-posting.entity';
 import { JobApplication } from '../entities/job-application.entity';
 import { Organization } from '../../organizations/entities/organization.entity';
 import { Employee } from '../../employees/entities/employee.entity';
+import { User } from '../../../authentication/entities/user.entity';
 import { CreateJobPostingDto } from '../dto/create-job-posting.dto';
 import { CreateJobApplicationDto } from '../dto/create-job-application.dto';
 import { UpdateJobApplicationDto } from '../dto/update-job-application.dto';
@@ -25,6 +26,8 @@ export class JobManagementService {
     private organizationRepository: Repository<Organization>,
     @InjectRepository(Employee)
     private employeeRepository: Repository<Employee>,
+    @InjectRepository(User)
+    private userRepository: Repository<User>,
     private readonly emailService: EmailService,
   ) {}
 
@@ -341,13 +344,11 @@ export class JobManagementService {
   > {
     if (!userId) return [];
 
-    const employee = await this.employeeRepository.findOne({
-      where: { user_id: userId },
-      relations: ['user'],
-      order: { created_at: 'ASC' },
-    });
-
-    const email = employee?.user?.email;
+    // Look up the email from the users table directly so this endpoint also
+    // works for applicants — users who have signed up and applied to jobs but
+    // have not yet been hired into any organization (no employees row exists).
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    const email = user?.email;
     if (!email) return [];
 
     const applications = await this.jobApplicationRepository
@@ -414,11 +415,10 @@ export class JobManagementService {
     applicationId: string,
     decision: 'accept' | 'decline',
   ): Promise<JobApplication> {
-    const employee = await this.employeeRepository.findOne({
-      where: { user_id: userId },
-      relations: ['user'],
-    });
-    const email = employee?.user?.email;
+    // Look up email from users directly so applicants (no employee row) can
+    // still accept or decline offers on their own applications.
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    const email = user?.email;
     if (!email) {
       throw new NotFoundException('User email not found');
     }

@@ -4,6 +4,7 @@ import { JobPosting } from './entities/job-posting.entity';
 import { JobApplication } from './entities/job-application.entity';
 import { Organization } from '../organizations/entities/organization.entity';
 import { Employee } from '../employees/entities/employee.entity';
+import { User } from '../../authentication/entities/user.entity';
 import { JobManagementController } from './controllers/job-management.controller';
 import { JobApplicationsController } from './controllers/job-applications.controller';
 import { CareersController } from './controllers/careers.controller';
@@ -15,7 +16,7 @@ import { EmailModule } from '../../common/services/email/email.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([JobPosting, JobApplication, Organization, Employee]),
+    TypeOrmModule.forFeature([JobPosting, JobApplication, Organization, Employee, User]),
     OrganizationsModule,
     StorageConfigModule,
     EmailModule,
