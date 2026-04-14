@@ -71,8 +71,23 @@ export class OrganizationCompanyProfile {
   @Column({ type: 'varchar', length: 500, nullable: true })
   website: string | null;
 
-  @Column({ type: 'varchar', length: 500, nullable: true })
-  address: string | null;
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  address_line_1: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  address_line_2: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  city: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  state: string | null;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  zip_code: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  country: string | null;
 
   @Column({ type: 'jsonb', nullable: true })
   business_hours: Record<string, { open: string; close: string; closed: boolean }> | null;

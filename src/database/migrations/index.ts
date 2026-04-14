@@ -60,6 +60,7 @@ import { ConvertPdfColumnsToPdfFilesJsonb20260319300000 } from './20260319300000
 import { SplitAddressIntoStructuredFields20260319400000 } from './20260319400000-split-address-into-structured-fields.js';
 import { CreateComplianceDocumentsTables20260317500000 } from './20260317500000-create-compliance-documents-tables.js';
 import { AddFeaturedVideoToBlogs20260324100000 } from './20260324100000-add-featured-video-to-blogs.js';
+import { AddStructuredAddressToCompanyProfile20260326000000 } from './20260326000000-add-structured-address-to-company-profile.js';
 import { AddIsSupervisorFieldToStaffTable20260327100000 } from './20260327100000-add-is_supervisor_field_to_staff_table.js';
 import { CreateDocumentWorkflowTables20260329100000 } from './20260329100000-create-document-workflow-tables.js';
 import { DropSupervisorNameEmailFromAssignments20260330100000 } from './20260330100000-drop-supervisor-name-email-from-assignments.js';
@@ -140,6 +141,7 @@ export const migrations: MigrationConstructor[] = [
   SplitAddressIntoStructuredFields20260319400000,
   CreateComplianceDocumentsTables20260317500000,
   AddFeaturedVideoToBlogs20260324100000,
+  AddStructuredAddressToCompanyProfile20260326000000,
   AddIsSupervisorFieldToStaffTable20260327100000,
   CreateDocumentWorkflowTables20260329100000,
   DropSupervisorNameEmailFromAssignments20260330100000,
