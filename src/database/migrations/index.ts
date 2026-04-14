@@ -72,6 +72,8 @@ import { AddDocumentTemplateIdsToReferrals20260403000001 } from './2026040300000
 import { AddDepartmentConfigOptionsAndLayoutType20260406100000 } from './20260406100000-add-department-config-options-and-layout-type.js';
 import { AddDynamicDepartmentEntities20260409100000 } from './20260409100000-add-dynamic-department-entities.js';
 import { CreateEmployeeCalendarTables20260410100000 } from './20260410100000-create-employee-calendar-tables.js';
+import { AddDateToAvailabilityRules20260410200000 } from './20260410200000-add-date-to-availability-rules.js';
+import { AddScheduledDateToEmployeeShifts20260414100000 } from './20260414100000-add-scheduled-date-to-employee-shifts.js';
 import { AddOfferDetailsToJobApplications20260414100000 } from './20260414100000-add-offer-details-to-job-applications.js';
 
 type MigrationConstructor = new () => MigrationInterface;
@@ -150,5 +152,7 @@ export const migrations: MigrationConstructor[] = [
   AddDepartmentConfigOptionsAndLayoutType20260406100000,
   AddDynamicDepartmentEntities20260409100000,
   CreateEmployeeCalendarTables20260410100000,
+  AddDateToAvailabilityRules20260410200000,
+  AddScheduledDateToEmployeeShifts20260414100000,
   AddOfferDetailsToJobApplications20260414100000,
 ];

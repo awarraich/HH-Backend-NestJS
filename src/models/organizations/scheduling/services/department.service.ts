@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Organization } from '../../entities/organization.entity';
@@ -40,6 +40,8 @@ const DAY_MAP: Record<string, number> = {
 
 @Injectable()
 export class DepartmentService {
+  private readonly logger = new Logger('DepartmentService'); // DEBUG
+
   constructor(
     @InjectRepository(Department)
     private readonly departmentRepository: Repository<Department>,
@@ -456,7 +458,7 @@ export class DepartmentService {
     }
   }
 
-  // ── UPDATE ──────────────────────────────────────────────────────────
+  // ── UPDATE (transactional) ──────────────────────────────────────────
 
   async update(
     organizationId: string,
@@ -466,16 +468,339 @@ export class DepartmentService {
   ): Promise<Department> {
     await this.ensureAccess(organizationId, userId);
     const department = await this.findOne(organizationId, departmentId, userId);
-    if (dto.name !== undefined) department.name = dto.name;
-    if (dto.code !== undefined) department.code = dto.code;
-    if (dto.description !== undefined) department.description = dto.description;
-    if (dto.department_type !== undefined) department.department_type = dto.department_type;
-    if (dto.layout_type !== undefined) department.layout_type = dto.layout_type;
-    if (dto.department_head !== undefined) department.department_head = dto.department_head;
-    if (dto.allow_multi_station_coverage !== undefined) department.allow_multi_station_coverage = dto.allow_multi_station_coverage;
-    if (dto.is_active !== undefined) department.is_active = dto.is_active;
-    if (dto.sort_order !== undefined) department.sort_order = dto.sort_order;
-    return this.departmentRepository.save(department);
+
+    const hasNestedData =
+      dto.available_shifts !== undefined ||
+      dto.staff !== undefined ||
+      dto.stations !== undefined ||
+      dto.rooms !== undefined ||
+      dto.field_zones !== undefined ||
+      dto.fleet_vehicles !== undefined ||
+      dto.lab_workstations !== undefined;
+
+    // DEBUG: Log which nested arrays were detected
+    this.logger.debug(`[UPDATE] dept=${departmentId} hasNestedData=${hasNestedData}`);
+    this.logger.debug(`[UPDATE] nested flags — stations:${dto.stations !== undefined} rooms:${dto.rooms !== undefined} shifts:${dto.available_shifts !== undefined} staff:${dto.staff !== undefined} zones:${dto.field_zones !== undefined} vehicles:${dto.fleet_vehicles !== undefined} workstations:${dto.lab_workstations !== undefined}`);
+
+    // Simple metadata-only update — no transaction needed
+    if (!hasNestedData) {
+      this.logger.debug(`[UPDATE] metadata-only path (no nested data)`); // DEBUG
+      if (dto.name !== undefined) department.name = dto.name;
+      if (dto.code !== undefined) department.code = dto.code;
+      if (dto.description !== undefined) department.description = dto.description;
+      if (dto.department_type !== undefined) department.department_type = dto.department_type;
+      if (dto.layout_type !== undefined) department.layout_type = dto.layout_type;
+      if (dto.department_head !== undefined) department.department_head = dto.department_head;
+      if (dto.allow_multi_station_coverage !== undefined) department.allow_multi_station_coverage = dto.allow_multi_station_coverage;
+      if (dto.is_active !== undefined) department.is_active = dto.is_active;
+      if (dto.sort_order !== undefined) department.sort_order = dto.sort_order;
+      return this.departmentRepository.save(department);
+    }
+
+    // Full transactional update with nested entities
+    this.logger.debug(`[UPDATE] entering transactional path`); // DEBUG
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // 1. Update department metadata
+      if (dto.name !== undefined) department.name = dto.name;
+      if (dto.code !== undefined) department.code = dto.code;
+      if (dto.description !== undefined) department.description = dto.description;
+      if (dto.department_type !== undefined) department.department_type = dto.department_type;
+      if (dto.layout_type !== undefined) department.layout_type = dto.layout_type;
+      if (dto.department_head !== undefined) department.department_head = dto.department_head;
+      if (dto.allow_multi_station_coverage !== undefined) department.allow_multi_station_coverage = dto.allow_multi_station_coverage;
+      if (dto.is_active !== undefined) department.is_active = dto.is_active;
+      if (dto.sort_order !== undefined) department.sort_order = dto.sort_order;
+      await queryRunner.manager.save(Department, department);
+
+      // 2. Replace shifts (delete old department_shifts + shifts, create new)
+      const tempIdToRealId = new Map<string, string>();
+      if (dto.available_shifts !== undefined) {
+        this.logger.debug(`[UPDATE] replacing shifts — ${dto.available_shifts.length} new shifts`); // DEBUG
+        // Remove old department-shift links and their shifts
+        const oldLinks = await queryRunner.manager.find(DepartmentShift, {
+          where: { department_id: departmentId },
+        });
+        if (oldLinks.length) {
+          const oldShiftIds = oldLinks.map((l) => l.shift_id);
+          await queryRunner.manager.remove(DepartmentShift, oldLinks);
+          // Delete orphaned shifts (those only linked to this department)
+          for (const shiftId of oldShiftIds) {
+            const otherLink = await queryRunner.manager.findOne(DepartmentShift, {
+              where: { shift_id: shiftId },
+            });
+            if (!otherLink) {
+              await queryRunner.manager.delete(Shift, shiftId);
+            }
+          }
+        }
+        // Create new shifts
+        for (const s of dto.available_shifts) {
+          const shift = await this.createShiftFromInline(
+            queryRunner.manager,
+            organizationId,
+            s,
+          );
+          tempIdToRealId.set(s.temp_id, shift.id);
+          await queryRunner.manager.save(DepartmentShift, queryRunner.manager.create(DepartmentShift, {
+            department_id: departmentId,
+            shift_id: shift.id,
+          }));
+        }
+      }
+
+      // Helper to remap temp shift IDs to real IDs
+      const remapIds = (ids?: string[]): string[] | undefined => {
+        if (!ids?.length) return undefined;
+        return ids
+          .map((id) => tempIdToRealId.get(id) ?? id)
+          .filter(Boolean);
+      };
+
+      const remapRecord = <T>(rec?: Record<string, T>): Record<string, T> | undefined => {
+        if (!rec) return undefined;
+        const result: Record<string, T> = {};
+        for (const [key, val] of Object.entries(rec)) {
+          result[tempIdToRealId.get(key) ?? key] = val;
+        }
+        return result;
+      };
+
+      // 3. Replace staff
+      if (dto.staff !== undefined) {
+        this.logger.debug(`[UPDATE] replacing staff — ${dto.staff.length} entries`); // DEBUG
+        await queryRunner.manager.delete(DepartmentStaff, { department_id: departmentId });
+        for (let i = 0; i < dto.staff.length; i++) {
+          const s = dto.staff[i];
+          await queryRunner.manager.save(DepartmentStaff, queryRunner.manager.create(DepartmentStaff, {
+            department_id: departmentId,
+            staff_type: s.type,
+            staff_name: s.name,
+            quantity: s.quantity ?? 1,
+            assignment_level: s.assignment_level ?? null,
+            assignment_type: s.assignment_type ?? null,
+            shift_ids: remapIds(s.shift_ids) ?? null,
+            staff_by_shift: remapRecord(s.staff_by_shift) ?? null,
+            staff_min_max_by_shift: remapRecord(s.staff_min_max_by_shift) ?? null,
+            sort_order: i,
+          }));
+        }
+      }
+
+      // 4. Replace stations (for 'stations' layout)
+      if (dto.stations !== undefined) {
+        this.logger.debug(`[UPDATE] replacing stations — ${dto.stations.length} stations to create`); // DEBUG
+        // CASCADE deletes rooms, beds, chairs, and station shift assignments
+        await queryRunner.manager.delete(Station, { department_id: departmentId });
+        this.logger.debug(`[UPDATE] deleted old stations for dept=${departmentId}`); // DEBUG
+        for (let si = 0; si < dto.stations.length; si++) {
+          const s = dto.stations[si];
+          this.logger.debug(`[UPDATE] creating station[${si}]: name="${s.name}" config=${s.configuration_type} rooms=${s.rooms?.length ?? 0}`); // DEBUG
+          const station = await queryRunner.manager.save(Station, queryRunner.manager.create(Station, {
+            department_id: departmentId,
+            name: s.name,
+            location: s.location ?? null,
+            multi_station_am: s.multi_station_am ?? false,
+            multi_station_pm: s.multi_station_pm ?? false,
+            multi_station_noc: s.multi_station_noc ?? false,
+            custom_shift_times: s.custom_shift_times ?? null,
+            configuration_type: s.configuration_type ?? null,
+            default_beds_per_room: s.default_beds_per_room ?? null,
+            default_chairs_per_room: s.default_chairs_per_room ?? null,
+            is_active: true,
+            sort_order: si,
+          }));
+          // Station shift assignments
+          const stationShiftIds = remapIds(s.shift_ids);
+          if (stationShiftIds?.length) {
+            for (const shiftId of stationShiftIds) {
+              await queryRunner.manager.save(StationShiftAssignment, queryRunner.manager.create(StationShiftAssignment, {
+                station_id: station.id,
+                shift_id: shiftId,
+              }));
+            }
+          }
+          // Station rooms
+          if (s.rooms?.length) {
+            const configType = s.configuration_type ?? 'BEDS';
+            for (let ri = 0; ri < s.rooms.length; ri++) {
+              const r = s.rooms[ri];
+              const bedsCount = configType === 'BEDS' ? (r.beds ?? s.default_beds_per_room ?? 0) : 0;
+              const chairsCount = configType === 'CHAIRS' ? (r.chairs ?? s.default_chairs_per_room ?? 0) : 0;
+              const room = await queryRunner.manager.save(Room, queryRunner.manager.create(Room, {
+                station_id: station.id,
+                department_id: departmentId,
+                name: r.name,
+                configuration_type: configType,
+                beds_per_room: bedsCount || null,
+                chairs_per_room: chairsCount || null,
+                is_active: true,
+                sort_order: ri,
+              }));
+              for (let b = 0; b < bedsCount; b++) {
+                await queryRunner.manager.save(Bed, queryRunner.manager.create(Bed, {
+                  room_id: room.id,
+                  bed_number: String(b + 1),
+                }));
+              }
+              for (let c = 0; c < chairsCount; c++) {
+                await queryRunner.manager.save(Chair, queryRunner.manager.create(Chair, {
+                  room_id: room.id,
+                  chair_number: String(c + 1),
+                }));
+              }
+            }
+          }
+        }
+      }
+
+      // 5. Replace rooms (for 'rooms' layout — creates a default station)
+      if (dto.rooms !== undefined) {
+        this.logger.debug(`[UPDATE] replacing rooms — ${dto.rooms.length} rooms to create`); // DEBUG
+        // CASCADE deletes rooms, beds, chairs under existing stations
+        await queryRunner.manager.delete(Station, { department_id: departmentId });
+        const deptName = dto.name ?? department.name;
+        const defaultStation = await queryRunner.manager.save(Station, queryRunner.manager.create(Station, {
+          department_id: departmentId,
+          name: `${deptName} - Default`,
+          is_active: true,
+          sort_order: 0,
+        }));
+        for (let ri = 0; ri < dto.rooms.length; ri++) {
+          const r = dto.rooms[ri];
+          const bedsCount = r.beds ?? 0;
+          const chairsCount = r.chairs ?? 0;
+          const room = await queryRunner.manager.save(Room, queryRunner.manager.create(Room, {
+            station_id: defaultStation.id,
+            department_id: departmentId,
+            name: r.name,
+            room_type: r.room_type ?? null,
+            floor: r.floor ?? null,
+            location_or_wing: r.wing ?? null,
+            configuration_type: bedsCount > 0 ? 'BEDS' : chairsCount > 0 ? 'CHAIRS' : null,
+            beds_per_room: bedsCount || null,
+            chairs_per_room: chairsCount || null,
+            is_active: true,
+            sort_order: ri,
+          }));
+          const roomShiftIds = remapIds(r.shift_ids);
+          if (roomShiftIds?.length) {
+            for (const shiftId of roomShiftIds) {
+              await queryRunner.manager.save(RoomShiftAssignment, queryRunner.manager.create(RoomShiftAssignment, {
+                room_id: room.id,
+                shift_id: shiftId,
+              }));
+            }
+          }
+          for (let b = 0; b < bedsCount; b++) {
+            await queryRunner.manager.save(Bed, queryRunner.manager.create(Bed, {
+              room_id: room.id,
+              bed_number: String(b + 1),
+            }));
+          }
+          for (let c = 0; c < chairsCount; c++) {
+            await queryRunner.manager.save(Chair, queryRunner.manager.create(Chair, {
+              room_id: room.id,
+              chair_number: String(c + 1),
+            }));
+          }
+        }
+      }
+
+      // 6. Replace zones (for 'field' layout)
+      if (dto.field_zones !== undefined) {
+        this.logger.debug(`[UPDATE] replacing zones — ${dto.field_zones.length} zones to create`); // DEBUG
+        await queryRunner.manager.delete(Zone, { department_id: departmentId });
+        for (let i = 0; i < dto.field_zones.length; i++) {
+          const z = dto.field_zones[i];
+          const zone = await queryRunner.manager.save(Zone, queryRunner.manager.create(Zone, {
+            department_id: departmentId,
+            name: z.name,
+            area: z.area ?? null,
+            patient_count: z.patient_count ?? 0,
+            is_active: true,
+            sort_order: i,
+          }));
+          const zoneShiftIds = remapIds(z.shift_ids);
+          if (zoneShiftIds?.length) {
+            for (const shiftId of zoneShiftIds) {
+              await queryRunner.manager.save(ZoneShiftAssignment, queryRunner.manager.create(ZoneShiftAssignment, {
+                zone_id: zone.id,
+                shift_id: shiftId,
+              }));
+            }
+          }
+        }
+      }
+
+      // 7. Replace fleet vehicles (for 'fleet' layout)
+      if (dto.fleet_vehicles !== undefined) {
+        this.logger.debug(`[UPDATE] replacing fleet vehicles — ${dto.fleet_vehicles.length} vehicles to create`); // DEBUG
+        await queryRunner.manager.delete(FleetVehicle, { department_id: departmentId });
+        for (let i = 0; i < dto.fleet_vehicles.length; i++) {
+          const v = dto.fleet_vehicles[i];
+          const vehicle = await queryRunner.manager.save(FleetVehicle, queryRunner.manager.create(FleetVehicle, {
+            department_id: departmentId,
+            name: v.name,
+            vehicle_id: v.vehicle_id ?? null,
+            vehicle_type: v.vehicle_type ?? null,
+            capacity: v.capacity ?? 0,
+            is_active: true,
+            sort_order: i,
+          }));
+          const vehicleShiftIds = remapIds(v.shift_ids);
+          if (vehicleShiftIds?.length) {
+            for (const shiftId of vehicleShiftIds) {
+              await queryRunner.manager.save(VehicleShiftAssignment, queryRunner.manager.create(VehicleShiftAssignment, {
+                vehicle_id: vehicle.id,
+                shift_id: shiftId,
+              }));
+            }
+          }
+        }
+      }
+
+      // 8. Replace lab workstations (for 'lab' layout)
+      if (dto.lab_workstations !== undefined) {
+        this.logger.debug(`[UPDATE] replacing lab workstations — ${dto.lab_workstations.length} workstations to create`); // DEBUG
+        await queryRunner.manager.delete(LabWorkstation, { department_id: departmentId });
+        for (let i = 0; i < dto.lab_workstations.length; i++) {
+          const w = dto.lab_workstations[i];
+          const ws = await queryRunner.manager.save(LabWorkstation, queryRunner.manager.create(LabWorkstation, {
+            department_id: departmentId,
+            name: w.name,
+            equipment: w.equipment ?? null,
+            workstation_type: w.workstation_type ?? null,
+            is_active: true,
+            sort_order: i,
+          }));
+          const wsShiftIds = remapIds(w.shift_ids);
+          if (wsShiftIds?.length) {
+            for (const shiftId of wsShiftIds) {
+              await queryRunner.manager.save(WorkstationShiftAssignment, queryRunner.manager.create(WorkstationShiftAssignment, {
+                workstation_id: ws.id,
+                shift_id: shiftId,
+              }));
+            }
+          }
+        }
+      }
+
+      await queryRunner.commitTransaction();
+      this.logger.debug(`[UPDATE] transaction committed successfully for dept=${departmentId}`); // DEBUG
+      const result = await this.findOne(organizationId, departmentId, userId);
+      this.logger.debug(`[UPDATE] returning dept with stations=${result.stations?.length ?? 0} zones=${result.zones?.length ?? 0} vehicles=${result.fleetVehicles?.length ?? 0} workstations=${result.labWorkstations?.length ?? 0}`); // DEBUG
+      return result;
+    } catch (err) {
+      this.logger.error(`[UPDATE] transaction FAILED for dept=${departmentId}: ${err.message}`, err.stack); // DEBUG
+      await queryRunner.rollbackTransaction();
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   // ── DELETE ──────────────────────────────────────────────────────────
