@@ -512,7 +512,6 @@ export class JobManagementService {
       );
     }
     try {
-<<<<<<< Update/update-the-email-templete-of-the-job-applications
       await this.emailService.sendOfferLetterEmail(dto.toEmail, {
         applicantName: dto.applicantName,
         jobTitle: dto.jobTitle,
@@ -531,27 +530,6 @@ export class JobManagementService {
         contactEmail: dto.contactEmail,
         contactPhone: dto.contactPhone,
       });
-=======
-      await this.emailService.sendOfferLetterEmail(
-        dto.toEmail,
-        dto.applicantName,
-        dto.jobTitle,
-        dto.salary,
-        dto.startDate,
-        dto.offerContent,
-        dto.attachmentUrl,
-      );
-      application.offer_details = {
-        salary: dto.salary,
-        startDate: dto.startDate,
-        offerContent: dto.offerContent,
-        offerType: dto.offerType,
-        attachmentUrl: dto.attachmentUrl ?? null,
-        sentAt: new Date().toISOString(),
-      };
-      application.status = 'offer_sent';
-      await this.jobApplicationRepository.save(application);
->>>>>>> main
       return { message: 'Offer letter email sent successfully' };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
