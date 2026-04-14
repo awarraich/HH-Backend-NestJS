@@ -75,6 +75,7 @@ import { CreateEmployeeCalendarTables20260410100000 } from './20260410100000-cre
 import { AddDateToAvailabilityRules20260410200000 } from './20260410200000-add-date-to-availability-rules.js';
 import { AddScheduledDateToEmployeeShifts20260414100000 } from './20260414100000-add-scheduled-date-to-employee-shifts.js';
 import { AddOfferDetailsToJobApplications20260414100000 } from './20260414100000-add-offer-details-to-job-applications.js';
+import { AddDeclineReasonToJobApplications20260415200000 } from './20260415200000-add-decline-reason-to-job-applications.js';
 
 type MigrationConstructor = new () => MigrationInterface;
 
@@ -155,4 +156,5 @@ export const migrations: MigrationConstructor[] = [
   AddDateToAvailabilityRules20260410200000,
   AddScheduledDateToEmployeeShifts20260414100000,
   AddOfferDetailsToJobApplications20260414100000,
+  AddDeclineReasonToJobApplications20260415200000,
 ];

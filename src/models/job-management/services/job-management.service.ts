@@ -338,6 +338,7 @@ export class JobManagementService {
       applicant_name: string;
       created_at: Date;
       offer_details?: Record<string, unknown> | null;
+      decline_reason?: string | null;
       job_posting?: { id: string; title: string };
       organization?: { id: string; organization_name: string };
     }>
@@ -366,6 +367,7 @@ export class JobManagementService {
       applicant_name: ja.applicant_name,
       created_at: ja.created_at,
       offer_details: ja.offer_details ?? null,
+      decline_reason: ja.decline_reason ?? null,
       ...(ja.job_posting
         ? { job_posting: { id: ja.job_posting.id, title: ja.job_posting.title } }
         : {}),
@@ -414,6 +416,7 @@ export class JobManagementService {
     userId: string,
     applicationId: string,
     decision: 'accept' | 'decline',
+    declineReason?: string | null,
   ): Promise<JobApplication> {
     // Look up email from users directly so applicants (no employee row) can
     // still accept or decline offers on their own applications.
@@ -435,6 +438,12 @@ export class JobManagementService {
       throw new BadRequestException('No active offer to act on for this application');
     }
     application.status = decision === 'accept' ? 'offer_accepted' : 'offer_declined';
+    if (decision === 'decline') {
+      const trimmed = declineReason?.toString().trim() ?? '';
+      application.decline_reason = trimmed.length > 0 ? trimmed : null;
+    } else {
+      application.decline_reason = null;
+    }
     return this.jobApplicationRepository.save(application);
   }
 
