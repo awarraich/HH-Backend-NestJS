@@ -58,4 +58,8 @@ export class CreateShiftDto {
   @IsArray()
   @IsString({ each: true })
   assigned_roles?: string[];
+
+  @IsOptional()
+  @IsString()
+  timezone?: string;
 }

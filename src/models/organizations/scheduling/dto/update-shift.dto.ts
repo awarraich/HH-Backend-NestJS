@@ -62,4 +62,8 @@ export class UpdateShiftDto {
   @IsArray()
   @IsString({ each: true })
   assigned_roles?: string[];
+
+  @IsOptional()
+  @IsString()
+  timezone?: string;
 }

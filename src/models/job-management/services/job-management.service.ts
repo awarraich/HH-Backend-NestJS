@@ -80,8 +80,6 @@ export class JobManagementService {
 
   /**
    * List all active job postings across organizations (public careers page).
-   * Fetches jobs without loading full Organization entity so the endpoint works even if
-   * the organizations table is missing optional columns (e.g. application_form_fields).
    */
   async findAllActive(
     query: QueryJobPostingDto,
@@ -175,8 +173,7 @@ export class JobManagementService {
   }
 
   /**
-   * Public: get one active job by id with organization (for apply page).
-   * Returns 404 if not found or not active.
+   * Public: get one active job by id with organization.
    */
   async findOneByIdPublic(id: string): Promise<JobPosting> {
     const job = await this.jobPostingRepository.findOne({
@@ -263,7 +260,7 @@ export class JobManagementService {
       where: { id: dto.job_posting_id, status: 'active' },
     });
     if (!job) {
-      throw new BadRequestException('Job posting not found or not accepting applications');
+      throw new BadRequestException('Job posting not found.');
     }
     const submittedFields =
       dto.submitted_fields != null &&
@@ -329,11 +326,6 @@ export class JobManagementService {
 
   /**
    * Employee "My Applications" endpoint helper.
-   *
-   * Your `job_applications` table currently stores `applicant_email` (not a `user_id` foreign key),
-   * so to fetch "my" applications we:
-   * 1) resolve the employee from `employees.user_id` using the provided auth `userId`
-   * 2) filter job applications where `job_applications.applicant_email` matches that user email
    */
   async findMyJobApplicationsByUserId(userId: string): Promise<
     Array<{
@@ -342,6 +334,7 @@ export class JobManagementService {
       status: string;
       applicant_name: string;
       created_at: Date;
+      offer_details?: Record<string, unknown> | null;
       job_posting?: { id: string; title: string };
       organization?: { id: string; organization_name: string };
     }>
@@ -371,6 +364,7 @@ export class JobManagementService {
       status: ja.status,
       applicant_name: ja.applicant_name,
       created_at: ja.created_at,
+      offer_details: ja.offer_details ?? null,
       ...(ja.job_posting
         ? { job_posting: { id: ja.job_posting.id, title: ja.job_posting.title } }
         : {}),
@@ -412,6 +406,39 @@ export class JobManagementService {
   }
 
   /**
+   * Candidate accepts the offer on their own application. Verifies the application's
+   * applicant_email matches the authenticated user's email and that an offer was sent.
+   */
+  async acceptOfferAsCandidate(
+    userId: string,
+    applicationId: string,
+    decision: 'accept' | 'decline',
+  ): Promise<JobApplication> {
+    const employee = await this.employeeRepository.findOne({
+      where: { user_id: userId },
+      relations: ['user'],
+    });
+    const email = employee?.user?.email;
+    if (!email) {
+      throw new NotFoundException('User email not found');
+    }
+    const application = await this.jobApplicationRepository.findOne({
+      where: { id: applicationId },
+    });
+    if (!application) {
+      throw new NotFoundException(`Job application not found`);
+    }
+    if (application.applicant_email.toLowerCase() !== email.toLowerCase()) {
+      throw new NotFoundException(`Job application not found`);
+    }
+    if (application.status !== 'offer_sent') {
+      throw new BadRequestException('No active offer to act on for this application');
+    }
+    application.status = decision === 'accept' ? 'offer_accepted' : 'offer_declined';
+    return this.jobApplicationRepository.save(application);
+  }
+
+  /**
    * Send interview invite email to applicant. Application must belong to the organization.
    * Fails with 400 if email service is not configured (e.g. missing EMAIL_USER/EMAIL_PASSWORD in production).
    */
@@ -425,11 +452,11 @@ export class JobManagementService {
       relations: ['job_posting'],
     });
     if (!application) {
-      throw new NotFoundException(`Job application ${applicationId} not found`);
+      throw new NotFoundException(`Job application not found`);
     }
     if (application.job_posting?.organization_id !== organizationId) {
       throw new NotFoundException(
-        `Job application ${applicationId} not found for this organization`,
+        `Job application not found for this organization`,
       );
     }
     try {
@@ -456,10 +483,10 @@ export class JobManagementService {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes('not configured')) {
         throw new BadRequestException(
-          'Email is not configured. Set EMAIL_USER and EMAIL_PASSWORD in your environment to send interview invites.',
+          'Email is not configured.',
         );
       }
-      throw new BadRequestException(`Failed to send interview invite email: ${msg}`);
+      throw new BadRequestException(`Failed to send interview invite email.`);
     }
   }
 
@@ -481,10 +508,11 @@ export class JobManagementService {
     }
     if (application.job_posting?.organization_id !== organizationId) {
       throw new NotFoundException(
-        `Job application ${applicationId} not found for this organization`,
+        `Job application not found for this organization`,
       );
     }
     try {
+<<<<<<< Update/update-the-email-templete-of-the-job-applications
       await this.emailService.sendOfferLetterEmail(dto.toEmail, {
         applicantName: dto.applicantName,
         jobTitle: dto.jobTitle,
@@ -503,15 +531,36 @@ export class JobManagementService {
         contactEmail: dto.contactEmail,
         contactPhone: dto.contactPhone,
       });
+=======
+      await this.emailService.sendOfferLetterEmail(
+        dto.toEmail,
+        dto.applicantName,
+        dto.jobTitle,
+        dto.salary,
+        dto.startDate,
+        dto.offerContent,
+        dto.attachmentUrl,
+      );
+      application.offer_details = {
+        salary: dto.salary,
+        startDate: dto.startDate,
+        offerContent: dto.offerContent,
+        offerType: dto.offerType,
+        attachmentUrl: dto.attachmentUrl ?? null,
+        sentAt: new Date().toISOString(),
+      };
+      application.status = 'offer_sent';
+      await this.jobApplicationRepository.save(application);
+>>>>>>> main
       return { message: 'Offer letter email sent successfully' };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes('not configured')) {
         throw new BadRequestException(
-          'Email is not configured. Set EMAIL_USER and EMAIL_PASSWORD in your environment to send offer letters.',
+          'Email is not configured.',
         );
       }
-      throw new BadRequestException(`Failed to send offer letter email: ${msg}`);
+      throw new BadRequestException(`Failed to send offer letter email.`);
     }
   }
 

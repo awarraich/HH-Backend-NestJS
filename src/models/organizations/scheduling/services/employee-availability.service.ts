@@ -67,26 +67,39 @@ export class EmployeeAvailabilityService {
   /**
    * Convert an AvailabilityRule (DB row keyed by user_id + day_of_week)
    * into the EmployeeAvailabilityRecord shape the MCP tools expect.
+   *
+   * Rules with a non-null `date` column are specific-date availability;
+   * rules with `date IS NULL` are recurring weekly rules.
    */
   private ruleToRecord(
     rule: AvailabilityRule,
     employeeId: string,
     organizationId: string | null,
   ): EmployeeAvailabilityRecord {
-    const dayCode = WEEKDAY_BY_INDEX[rule.day_of_week] ?? 'MON';
+    const isSpecific = !!rule.date;
+    const dayCode = rule.day_of_week != null
+      ? (WEEKDAY_BY_INDEX[rule.day_of_week] ?? 'MON')
+      : 'MON';
+
+    const dateStr = rule.date
+      ? (typeof rule.date === 'string'
+          ? rule.date.slice(0, 10)
+          : new Date(rule.date).toISOString().slice(0, 10))
+      : null;
+
     return {
       id: rule.id,
       employee_id: employeeId,
       organization_id: organizationId,
-      availability_type: 'recurring',
-      date: null,
+      availability_type: isSpecific ? 'specific' : 'recurring',
+      date: dateStr,
       recurring_start_date: rule.effective_from
         ? new Date(rule.effective_from).toISOString().slice(0, 10)
         : null,
       recurring_end_date: rule.effective_until
         ? new Date(rule.effective_until).toISOString().slice(0, 10)
         : null,
-      days_of_week: [dayCode],
+      days_of_week: isSpecific ? null : [dayCode],
       start_time: typeof rule.start_time === 'string'
         ? rule.start_time.slice(0, 5)
         : rule.start_time,
@@ -242,7 +255,13 @@ export class EmployeeAvailabilityService {
     const records = await this.loadAvailabilityForEmployee(employeeId);
 
     return records.filter((slot) => {
-      if (slot.availability_type === 'recurring') return true;
+      if (slot.availability_type === 'recurring') {
+        // When a specific date is requested, filter recurring slots by
+        // day-of-week so the caller only sees slots that apply on that day.
+        if (startDate) return this.recurringMatchesDate(slot, startDate);
+        return true;
+      }
+      // Specific-date rules: filter by date range
       if (!slot.date) return false;
       if (startDate && slot.date < startDate) return false;
       if (endDate && slot.date > endDate) return false;

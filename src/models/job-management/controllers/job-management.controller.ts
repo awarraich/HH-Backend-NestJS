@@ -234,6 +234,27 @@ export class JobManagementController {
     return SuccessHelper.createSuccessResponse(applications);
   }
 
+  /** Candidate: accept or decline an offer on their own application. */
+  @Patch('users/:userId/job-applications/:applicationId/offer-decision')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async respondToOfferAsCandidate(
+    @Param('userId') userId: string,
+    @Param('applicationId') applicationId: string,
+    @Body() body: { decision: 'accept' | 'decline' },
+  ): Promise<unknown> {
+    const decision = body?.decision === 'decline' ? 'decline' : 'accept';
+    const result = await this.jobManagementService.acceptOfferAsCandidate(
+      userId,
+      applicationId,
+      decision,
+    );
+    return SuccessHelper.createSuccessResponse(
+      { id: result.id, status: result.status },
+      decision === 'accept' ? 'Offer accepted' : 'Offer declined',
+    );
+  }
+
   /** List applications for a job posting (organization). */
   @Get('organization/:organizationId/job-postings/:jobId/applications')
   @UseGuards(JwtAuthGuard, OrganizationRoleGuard)

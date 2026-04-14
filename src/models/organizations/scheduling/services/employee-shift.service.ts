@@ -141,6 +141,7 @@ export class EmployeeShiftService {
       .createQueryBuilder('es')
       .leftJoinAndSelect('es.employee', 'employee')
       .leftJoinAndSelect('employee.user', 'user')
+      .leftJoinAndSelect('employee.providerRole', 'providerRole')
       .leftJoinAndSelect('es.department', 'department')
       .leftJoinAndSelect('es.station', 'station')
       .leftJoinAndSelect('es.room', 'room')
@@ -198,16 +199,41 @@ export class EmployeeShiftService {
     });
     if (!employee) throw new BadRequestException('Employee not in this organization');
 
+    // Determine scheduled_date: use provided value, or derive from shift
+    const isRecurring =
+      shift.recurrence_type &&
+      shift.recurrence_type.toUpperCase() !== 'ONE_TIME';
+
+    let scheduledDate = dto.scheduled_date;
+    if (!scheduledDate) {
+      if (isRecurring) {
+        throw new BadRequestException(
+          'scheduled_date is required when assigning to a recurring shift',
+        );
+      }
+      // ONE_TIME: derive from the shift's start_at
+      scheduledDate = shift.start_at.toISOString().slice(0, 10);
+    }
+
     const existing = await this.employeeShiftRepository.findOne({
-      where: { shift_id: shiftId, employee_id: dto.employee_id },
+      where: {
+        shift_id: shiftId,
+        employee_id: dto.employee_id,
+        scheduled_date: scheduledDate,
+      },
     });
-    if (existing) throw new ConflictException('Employee already assigned to this shift');
+    if (existing) {
+      throw new ConflictException(
+        'Employee already assigned to this shift on this date',
+      );
+    }
 
     await this.validateLocationInOrg(organizationId, dto);
 
     const employeeShift = this.employeeShiftRepository.create({
       shift_id: shiftId,
       employee_id: dto.employee_id,
+      scheduled_date: scheduledDate,
       department_id: dto.department_id ?? null,
       station_id: dto.station_id ?? null,
       room_id: dto.room_id ?? null,
@@ -227,6 +253,7 @@ export class EmployeeShiftService {
   ): Promise<EmployeeShift> {
     await this.ensureAccess(organizationId, userId);
     const es = await this.findOne(organizationId, employeeShiftId, userId);
+    if (dto.scheduled_date !== undefined) es.scheduled_date = dto.scheduled_date;
     if (dto.department_id !== undefined) es.department_id = dto.department_id;
     if (dto.station_id !== undefined) es.station_id = dto.station_id;
     if (dto.room_id !== undefined) es.room_id = dto.room_id;
@@ -276,6 +303,7 @@ export class EmployeeShiftService {
       .innerJoinAndSelect('es.shift', 'shift')
       .leftJoinAndSelect('es.employee', 'employee')
       .leftJoinAndSelect('employee.user', 'user')
+      .leftJoinAndSelect('employee.providerRole', 'providerRole')
       .where('shift.organization_id = :organizationId', { organizationId });
 
     if (filters.shift_id) qb.andWhere('es.shift_id = :shift_id', { shift_id: filters.shift_id });
@@ -306,21 +334,25 @@ export class EmployeeShiftService {
       .innerJoinAndSelect('es.shift', 'shift')
       .leftJoinAndSelect('es.employee', 'employee')
       .leftJoinAndSelect('employee.user', 'user')
+      .leftJoinAndSelect('employee.providerRole', 'providerRole')
       .leftJoinAndSelect('es.department', 'department')
       .leftJoinAndSelect('es.station', 'station')
       .where('es.employee_id = :employeeId', { employeeId })
       .andWhere('shift.organization_id = :organizationId', { organizationId });
 
     if (from_date) {
-      qb.andWhere('shift.start_at >= :from_date', { from_date: new Date(from_date) });
+      qb.andWhere('es.scheduled_date >= :from_date', { from_date });
     }
     if (to_date) {
-      qb.andWhere('shift.end_at <= :to_date', { to_date: new Date(to_date) });
+      qb.andWhere('es.scheduled_date <= :to_date', { to_date });
     }
     if (status) {
       qb.andWhere('es.status = :status', { status });
     }
-    qb.orderBy('shift.start_at', 'ASC').skip(skip).take(limit);
+    qb.orderBy('es.scheduled_date', 'ASC')
+      .addOrderBy('shift.start_at', 'ASC')
+      .skip(skip)
+      .take(limit);
 
     const [data, total] = await qb.getManyAndCount();
     return { data, total, page, limit };

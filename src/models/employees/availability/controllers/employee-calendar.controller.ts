@@ -23,6 +23,7 @@ import { SchedulePresetService } from '../services/schedule-preset.service';
 import { CreateCalendarEventDto } from '../dto/create-calendar-event.dto';
 import { UpdateCalendarEventDto } from '../dto/update-calendar-event.dto';
 import { QueryCalendarEventDto } from '../dto/query-calendar-event.dto';
+import { CreateAvailabilityRuleDto } from '../dto/create-availability-rule.dto';
 import { BulkUpsertAvailabilityDto } from '../dto/bulk-upsert-availability.dto';
 import { CreateTimeOffRequestDto } from '../dto/create-time-off-request.dto';
 import { QueryTimeOffRequestDto } from '../dto/query-time-off-request.dto';
@@ -105,13 +106,32 @@ export class EmployeeCalendarController {
   @HttpCode(HttpStatus.OK)
   async getAvailability(
     @Query('organization_id') organizationId: string | undefined,
+    @Query('date') date: string | undefined,
     @LoggedInUser() user: UserWithRolesInterface,
   ) {
+    if (date) {
+      const result = await this.availabilityRuleService.findByUserAndDate(
+        user.userId,
+        date,
+        organizationId ?? null,
+      );
+      return SuccessHelper.createSuccessResponse(result);
+    }
     const result = await this.availabilityRuleService.findByUser(
       user.userId,
       organizationId ?? null,
     );
     return SuccessHelper.createSuccessResponse(result);
+  }
+
+  @Post('availability')
+  @HttpCode(HttpStatus.CREATED)
+  async createAvailabilityRule(
+    @Body() dto: CreateAvailabilityRuleDto,
+    @LoggedInUser() user: UserWithRolesInterface,
+  ) {
+    const result = await this.availabilityRuleService.create(user.userId, dto);
+    return SuccessHelper.createSuccessResponse(result, 'Availability rule created');
   }
 
   @Put('availability')

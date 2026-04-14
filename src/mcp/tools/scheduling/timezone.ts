@@ -32,3 +32,39 @@ export function resolveTimezone(input: string | null | undefined): string {
   if (!input) return FALLBACK_TIMEZONE;
   return isValidIanaTimezone(input) ? input : FALLBACK_TIMEZONE;
 }
+
+/**
+ * Convert a datetime string that represents a local time in the given
+ * IANA timezone to its UTC equivalent.
+ *
+ * Example: localToUtc('2026-04-10T09:00:00', 'Asia/Karachi')
+ *   → Date representing 2026-04-10T04:00:00Z  (9 AM PKT = 4 AM UTC)
+ *
+ * If the timezone is invalid or 'UTC', returns `new Date(dateStr)` unchanged.
+ */
+export function localToUtc(dateStr: string, timezone: string): Date {
+  const safeTz = resolveTimezone(timezone);
+  const naive = new Date(dateStr);
+  if (safeTz === 'UTC' || isNaN(naive.getTime())) return naive;
+
+  // Format the naive UTC instant in the target timezone to find the offset.
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: safeTz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(naive);
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    parseInt(parts.find((p) => p.type === type)?.value ?? '0', 10);
+
+  const localForUtc = new Date(
+    Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second')),
+  );
+  const offsetMs = localForUtc.getTime() - naive.getTime();
+  return new Date(naive.getTime() - offsetMs);
+}

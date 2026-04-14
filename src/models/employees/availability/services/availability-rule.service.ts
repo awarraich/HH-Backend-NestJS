@@ -191,6 +191,37 @@ export class AvailabilityRuleService {
     await deleteQb.execute();
   }
 
+  async findByUserAndDate(
+    userId: string,
+    date: string,
+    organizationId?: string | null,
+  ): Promise<AvailabilityRule[]> {
+    const dayOfWeek = new Date(`${date}T00:00:00Z`).getUTCDay();
+
+    const qb = this.availabilityRuleRepository
+      .createQueryBuilder('r')
+      .where('r.user_id = :userId', { userId })
+      .andWhere(
+        '(r.date = :date OR (r.date IS NULL AND r.day_of_week = :dayOfWeek))',
+        { date, dayOfWeek },
+      )
+      .andWhere(
+        '(r.effective_from IS NULL OR r.effective_from <= :date)',
+        { date },
+      )
+      .andWhere(
+        '(r.effective_until IS NULL OR r.effective_until >= :date)',
+        { date },
+      );
+
+    if (organizationId) {
+      qb.andWhere('r.organization_id = :orgId', { orgId: organizationId });
+    }
+
+    qb.orderBy('r.start_time', 'ASC');
+    return qb.getMany();
+  }
+
   async remove(userId: string, id: string): Promise<void> {
     const rule = await this.availabilityRuleRepository.findOne({
       where: { id, user_id: userId },

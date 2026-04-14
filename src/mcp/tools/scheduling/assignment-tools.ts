@@ -16,6 +16,15 @@ const assignSchema = {
     .uuid()
     .describe('UUID of the existing Shift template (look up via search_shifts first).'),
   employee_id: z.string().uuid().describe('UUID of the employee to assign.'),
+  scheduled_date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional()
+    .describe(
+      'YYYY-MM-DD — the specific calendar date this assignment is for. ' +
+      'REQUIRED for recurring shifts (FULL_WEEK, WEEKDAYS, etc.). ' +
+      'For ONE_TIME shifts, omit this and it will be derived from the shift start_at.',
+    ),
   department_id: z.string().uuid().optional(),
   station_id: z.string().uuid().optional(),
   room_id: z.string().uuid().optional(),
@@ -37,6 +46,7 @@ export function buildAssignmentTools(
   const assignEmployeeToShift = async (args: {
     shift_id: string;
     employee_id: string;
+    scheduled_date?: string;
     department_id?: string;
     station_id?: string;
     room_id?: string;
@@ -51,6 +61,7 @@ export function buildAssignmentTools(
         args.shift_id,
         {
           employee_id: args.employee_id,
+          scheduled_date: args.scheduled_date,
           department_id: args.department_id,
           station_id: args.station_id,
           room_id: args.room_id,
@@ -98,10 +109,12 @@ export function buildAssignmentTools(
     {
       name: TOOL_NAMES.ASSIGN_EMPLOYEE_TO_SHIFT,
       description:
-        "Assign an employee to an existing Shift template (write operation). " +
+        "Assign an employee to an existing Shift template for a specific date (write operation). " +
         "Workflow: (1) call search_shifts to find the shift_id by name (e.g. 'NOC'), " +
         "(2) call get_employee_availability_schedule to confirm the employee is available, " +
-        "(3) only then call this tool. " +
+        "(3) only then call this tool with scheduled_date set to the target YYYY-MM-DD date. " +
+        "For recurring shifts (FULL_WEEK, WEEKDAYS, etc.), you MUST pass scheduled_date and call this tool ONCE PER DATE. " +
+        "For ONE_TIME shifts, scheduled_date is optional (derived from the shift's start_at). " +
         "Returns { success: true, employee_shift } on success or { success: false, error } on conflict/validation failure.",
       inputSchema: assignSchema,
       handler: assignEmployeeToShift as (args: unknown) => SchedulingToolResult,
