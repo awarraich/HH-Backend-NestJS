@@ -59,11 +59,29 @@ export class AddScheduledDateToEmployeeShifts20260414100000
       }),
     );
 
-    // 5. Drop old unique constraint
-    await queryRunner.dropUniqueConstraint(
-      'employee_shifts',
-      'uq_employee_shifts_shift_employee',
-    );
+    // 5. Drop old unique constraint on (shift_id, employee_id).
+    //    Look it up by columns rather than name — production may have it under
+    //    an auto-generated name (e.g. UQ_<hash>) instead of the expected
+    //    `uq_employee_shifts_shift_employee`.
+    const oldUnique: { conname: string }[] = await queryRunner.query(`
+      SELECT c.conname
+      FROM pg_constraint c
+      JOIN pg_class t ON t.oid = c.conrelid
+      JOIN pg_namespace n ON n.oid = t.relnamespace
+      WHERE n.nspname = 'public'
+        AND t.relname = 'employee_shifts'
+        AND c.contype = 'u'
+        AND (
+          SELECT array_agg(a.attname ORDER BY a.attname)
+          FROM unnest(c.conkey) AS k(attnum)
+          JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum
+        ) = ARRAY['employee_id', 'shift_id']
+    `);
+    for (const { conname } of oldUnique) {
+      await queryRunner.query(
+        `ALTER TABLE "employee_shifts" DROP CONSTRAINT "${conname}"`,
+      );
+    }
 
     // 6. Add new unique constraint including scheduled_date
     await queryRunner.createUniqueConstraint(
