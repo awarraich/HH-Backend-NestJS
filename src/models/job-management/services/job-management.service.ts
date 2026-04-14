@@ -433,14 +433,24 @@ export class JobManagementService {
       );
     }
     try {
-      await this.emailService.sendInterviewInviteEmail(
-        dto.toEmail,
-        dto.applicantName,
-        dto.jobTitle,
-        dto.interviewDate,
-        dto.interviewTime,
-        dto.message,
-      );
+      await this.emailService.sendInterviewInviteEmail(dto.toEmail, {
+        applicantName: dto.applicantName,
+        jobTitle: dto.jobTitle,
+        interviewDate: dto.interviewDate,
+        interviewTime: dto.interviewTime,
+        interviewMode: dto.interviewMode,
+        interviewLocation: dto.interviewLocation,
+        interviewDuration: dto.interviewDuration,
+        message: dto.message,
+        jobLocation: dto.jobLocation,
+        jobType: dto.jobType,
+        salaryRange: dto.salaryRange,
+        jobDescription: dto.jobDescription,
+        organizationName: dto.organizationName,
+        contactName: dto.contactName,
+        contactEmail: dto.contactEmail,
+        contactPhone: dto.contactPhone,
+      });
       return { message: 'Interview invite email sent successfully' };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -475,15 +485,24 @@ export class JobManagementService {
       );
     }
     try {
-      await this.emailService.sendOfferLetterEmail(
-        dto.toEmail,
-        dto.applicantName,
-        dto.jobTitle,
-        dto.salary,
-        dto.startDate,
-        dto.offerContent,
-        dto.attachmentUrl,
-      );
+      await this.emailService.sendOfferLetterEmail(dto.toEmail, {
+        applicantName: dto.applicantName,
+        jobTitle: dto.jobTitle,
+        salary: dto.salary,
+        startDate: dto.startDate,
+        offerContent: dto.offerContent,
+        attachmentUrl: dto.attachmentUrl,
+        benefits: dto.benefits,
+        responseDeadline: dto.responseDeadline,
+        employmentType: dto.employmentType,
+        message: dto.message,
+        jobLocation: dto.jobLocation,
+        jobDescription: dto.jobDescription,
+        organizationName: dto.organizationName,
+        contactName: dto.contactName,
+        contactEmail: dto.contactEmail,
+        contactPhone: dto.contactPhone,
+      });
       return { message: 'Offer letter email sent successfully' };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
