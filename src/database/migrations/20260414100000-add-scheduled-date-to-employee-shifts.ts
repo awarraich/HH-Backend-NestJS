@@ -72,10 +72,10 @@ export class AddScheduledDateToEmployeeShifts20260414100000
         AND t.relname = 'employee_shifts'
         AND c.contype = 'u'
         AND (
-          SELECT array_agg(a.attname ORDER BY a.attname)
+          SELECT array_agg(a.attname::text ORDER BY a.attname)
           FROM unnest(c.conkey) AS k(attnum)
           JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum
-        ) = ARRAY['employee_id', 'shift_id']
+        ) = ARRAY['employee_id', 'shift_id']::text[]
     `);
     for (const { conname } of oldUnique) {
       await queryRunner.query(
