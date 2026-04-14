@@ -35,7 +35,10 @@ export class JobApplication {
   submitted_fields: Record<string, unknown> | null;
 
   @Column({ type: 'varchar', length: 50, default: 'pending' })
-  status: string; // pending | not_seen | interview | offer_sent | rejected | etc.
+  status: string;
+
+  @Column({ type: 'jsonb', nullable: true })
+  offer_details: Record<string, unknown> | null;
 
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
