@@ -62,8 +62,33 @@ export class UpdateOrganizationCompanyProfileDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(500)
-  address?: string;
+  @MaxLength(255)
+  address_line_1?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  address_line_2?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  state?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  zip_code?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  country?: string;
 
   @IsOptional()
   @IsObject()

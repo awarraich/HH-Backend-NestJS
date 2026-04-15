@@ -42,7 +42,12 @@ export type CompanyProfileResponse = {
   email: string | null;
   fax: string | null;
   website: string | null;
-  address: string | null;
+  address_line_1: string | null;
+  address_line_2: string | null;
+  city: string | null;
+  state: string | null;
+  zip_code: string | null;
+  country: string | null;
   business_hours: Record<string, { open: string; close: string; closed: boolean }> | null;
   service_area: string[] | null;
   coverage_radius: string | null;
@@ -191,7 +196,12 @@ export class OrganizationCompanyProfileService {
       email: profile.email,
       fax: profile.fax ?? null,
       website: profile.website,
-      address: profile.address,
+      address_line_1: profile.address_line_1 ?? null,
+      address_line_2: profile.address_line_2 ?? null,
+      city: profile.city ?? null,
+      state: profile.state ?? null,
+      zip_code: profile.zip_code ?? null,
+      country: profile.country ?? null,
       business_hours: profile.business_hours ?? null,
       service_area: profile.service_area ?? null,
       coverage_radius: profile.coverage_radius,
@@ -236,7 +246,7 @@ export class OrganizationCompanyProfileService {
   }
 
   private static readonly BASE_COLUMNS =
-    'id, organization_id, company_name, logo, cover_image, organization_type, description, phone, email, website, address, business_hours, service_area, coverage_radius, selected_services, licenses, certifications, gallery, videos, packages, specialty_services, accepted_insurance, amenities, room_types, equipment_catalog, transport_types, availability_status, rating, review_count, reviews, created_at, updated_at';
+    'id, organization_id, company_name, logo, cover_image, organization_type, description, phone, email, website, address_line_1, address_line_2, city, state, zip_code, country, business_hours, service_area, coverage_radius, selected_services, licenses, certifications, gallery, videos, packages, specialty_services, accepted_insurance, amenities, room_types, equipment_catalog, transport_types, availability_status, rating, review_count, reviews, created_at, updated_at';
 
   /**
    * Load profile using raw query (only columns that always exist).
@@ -255,6 +265,12 @@ export class OrganizationCompanyProfileService {
       ...row,
       cover_images: [],
       fax: null,
+      address_line_1: row.address_line_1 ?? null,
+      address_line_2: row.address_line_2 ?? null,
+      city: row.city ?? null,
+      state: row.state ?? null,
+      zip_code: row.zip_code ?? null,
+      country: row.country ?? null,
     } as OrganizationCompanyProfile;
   }
 
@@ -275,6 +291,12 @@ export class OrganizationCompanyProfileService {
       ...row,
       cover_images: [],
       fax: null,
+      address_line_1: row.address_line_1 ?? null,
+      address_line_2: row.address_line_2 ?? null,
+      city: row.city ?? null,
+      state: row.state ?? null,
+      zip_code: row.zip_code ?? null,
+      country: row.country ?? null,
     } as OrganizationCompanyProfile;
   }
 
@@ -353,6 +375,26 @@ export class OrganizationCompanyProfileService {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '');
+  }
+
+  /**
+   * Check whether a company name is available for the given organization.
+   * Returns { available: true } if no other org uses the same slug, { available: false } otherwise.
+   */
+  async checkNameAvailability(
+    organizationId: string,
+    name: string,
+  ): Promise<{ available: boolean; slug: string }> {
+    const slug = OrganizationCompanyProfileService.slugify(name);
+    if (!slug) return { available: false, slug };
+    const rows = await this.profileRepository.query(
+      `SELECT id FROM organization_company_profiles
+       WHERE organization_id != $1
+       AND TRIM(BOTH '-' FROM LOWER(TRIM(REGEXP_REPLACE(COALESCE(company_name, ''), '[^a-z0-9]+', '-', 'gi')))) = $2
+       LIMIT 1`,
+      [organizationId, slug],
+    );
+    return { available: rows.length === 0, slug };
   }
 
   /** Get profile for public view by slug (URL-friendly name). Returns null if not found. Never throws 500. */
@@ -548,7 +590,12 @@ export class OrganizationCompanyProfileService {
       profile.cover_images = Array.isArray(dto.cover_images) ? dto.cover_images : [];
       profile.cover_image = profile.cover_images[0] ?? null;
     }
-    if (dto.address !== undefined) profile.address = dto.address;
+    if (dto.address_line_1 !== undefined) profile.address_line_1 = dto.address_line_1;
+    if (dto.address_line_2 !== undefined) profile.address_line_2 = dto.address_line_2;
+    if (dto.city !== undefined) profile.city = dto.city;
+    if (dto.state !== undefined) profile.state = dto.state;
+    if (dto.zip_code !== undefined) profile.zip_code = dto.zip_code;
+    if (dto.country !== undefined) profile.country = dto.country;
     if (dto.business_hours !== undefined) profile.business_hours = dto.business_hours;
     if (dto.service_area !== undefined) profile.service_area = dto.service_area;
     if (dto.coverage_radius !== undefined) profile.coverage_radius = dto.coverage_radius;

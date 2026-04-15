@@ -1,4 +1,36 @@
-import { IsEmail, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  IsEmail,
+  IsIn,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+
+/** PDF signature-box coordinates (points, origin top-left). */
+export class SignaturePositionDto {
+  @IsInt()
+  @Min(1)
+  pageNumber: number;
+
+  @IsNumber()
+  x: number;
+
+  @IsNumber()
+  y: number;
+
+  @IsNumber()
+  @Min(1)
+  width: number;
+
+  @IsNumber()
+  @Min(1)
+  height: number;
+}
 
 /** Body for POST send-offer: email content from Send Offer modal. */
 export class SendOfferLetterDto {
@@ -79,4 +111,9 @@ export class SendOfferLetterDto {
   @IsString()
   @MaxLength(50)
   contactPhone?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SignaturePositionDto)
+  signaturePosition?: SignaturePositionDto;
 }
