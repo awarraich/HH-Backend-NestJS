@@ -8,6 +8,7 @@ import { Employee } from '../employees/entities/employee.entity';
 import { User } from '../../authentication/entities/user.entity';
 import { JobManagementController } from './controllers/job-management.controller';
 import { JobApplicationsController } from './controllers/job-applications.controller';
+import { ApplicantJobManagementController } from './controllers/applicant-job-management.controller';
 import { CareersController } from './controllers/careers.controller';
 import { OfferLetterSigningController } from './controllers/offer-letter-signing.controller';
 import { JobManagementService } from './services/job-management.service';
@@ -27,6 +28,7 @@ import { EmailModule } from '../../common/services/email/email.module';
   controllers: [
     JobManagementController,
     JobApplicationsController,
+    ApplicantJobManagementController,
     CareersController,
     OfferLetterSigningController,
   ],

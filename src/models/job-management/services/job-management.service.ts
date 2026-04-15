@@ -398,6 +398,69 @@ export class JobManagementService {
   }
 
   /**
+   * Applicant-self detail view: fetch one of the caller's own job applications.
+   * Authorization = email match between the authenticated user and the application.
+   */
+  async findMyJobApplicationByIdForUser(
+    userId: string,
+    applicationId: string,
+  ): Promise<Record<string, unknown>> {
+    if (!userId) {
+      throw new NotFoundException('User not found');
+    }
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    const email = user?.email;
+    if (!email) {
+      throw new NotFoundException('User not found');
+    }
+
+    const ja = await this.jobApplicationRepository
+      .createQueryBuilder('ja')
+      .leftJoinAndSelect('ja.job_posting', 'jp')
+      .leftJoinAndSelect('jp.organization', 'org')
+      .where('ja.id = :applicationId', { applicationId })
+      .andWhere('ja.applicant_email = :email', { email })
+      .getOne();
+
+    if (!ja) {
+      throw new NotFoundException(
+        `Job application ${applicationId} not found`,
+      );
+    }
+
+    const offerDetails = (ja.offer_details ?? {}) as Record<string, unknown>;
+    // Lift signing-flow URLs to top-level for frontend compatibility.
+    return {
+      id: ja.id,
+      job_posting_id: ja.job_posting_id,
+      status: ja.status,
+      applicant_name: ja.applicant_name,
+      applicant_email: ja.applicant_email,
+      applicant_phone: ja.applicant_phone ?? null,
+      submitted_fields: ja.submitted_fields ?? null,
+      offer_details: offerDetails,
+      decline_reason: ja.decline_reason ?? null,
+      created_at: ja.created_at,
+      offer_letter_url: offerDetails.offer_letter_url ?? null,
+      application_form_url: offerDetails.application_form_url ?? null,
+      filled_offer_letter_url: offerDetails.filled_offer_letter_url ?? null,
+      filled_application_form_url:
+        offerDetails.filled_application_form_url ?? null,
+      ...(ja.job_posting
+        ? { job_posting: { id: ja.job_posting.id, title: ja.job_posting.title } }
+        : {}),
+      ...(ja.job_posting?.organization
+        ? {
+            organization: {
+              id: ja.job_posting.organization.id,
+              organization_name: ja.job_posting.organization.organization_name,
+            },
+          }
+        : {}),
+    };
+  }
+
+  /**
    * Update a job application (e.g. status). Application must belong to a job posting of the organization.
    */
   async updateApplicationStatus(
