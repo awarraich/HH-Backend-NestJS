@@ -40,6 +40,10 @@ export class JobApplication {
   @Column({ type: 'jsonb', nullable: true })
   offer_details: Record<string, unknown> | null;
 
+  /** Reason the candidate gave when declining an offer. Populated when status = offer_declined. */
+  @Column({ type: 'text', nullable: true })
+  decline_reason: string | null;
+
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
 

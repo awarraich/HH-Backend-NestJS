@@ -241,16 +241,21 @@ export class JobManagementController {
   async respondToOfferAsCandidate(
     @Param('userId') userId: string,
     @Param('applicationId') applicationId: string,
-    @Body() body: { decision: 'accept' | 'decline' },
+    @Body() body: { decision: 'accept' | 'decline'; reason?: string | null },
   ): Promise<unknown> {
     const decision = body?.decision === 'decline' ? 'decline' : 'accept';
+    const reason =
+      decision === 'decline' && typeof body?.reason === 'string'
+        ? body.reason
+        : null;
     const result = await this.jobManagementService.acceptOfferAsCandidate(
       userId,
       applicationId,
       decision,
+      reason,
     );
     return SuccessHelper.createSuccessResponse(
-      { id: result.id, status: result.status },
+      { id: result.id, status: result.status, decline_reason: result.decline_reason },
       decision === 'accept' ? 'Offer accepted' : 'Offer declined',
     );
   }
