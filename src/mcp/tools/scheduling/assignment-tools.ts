@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { EmployeeShiftService } from '../../../models/organizations/scheduling/services/employee-shift.service';
+import type { EmployeeAvailabilityService } from '../../../models/organizations/scheduling/services/employee-availability.service';
 import type { EmployeesService } from '../../../models/employees/services/employees.service';
 import { TOOL_NAMES } from '../../constants/mcp.constants';
 import {
@@ -9,6 +10,8 @@ import {
   SchedulingToolResult,
 } from './types';
 import { enrichShiftWithLocalTime } from './format-shift-times';
+
+const WEEKDAY_CODES = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'] as const;
 
 const assignSchema = {
   shift_id: z
@@ -41,6 +44,7 @@ const assignSchema = {
 export function buildAssignmentTools(
   employeeShiftService: EmployeeShiftService,
   employeesService: EmployeesService,
+  availabilityService: EmployeeAvailabilityService,
   ctx: SchedulingToolContext,
 ): SchedulingToolDescriptor[] {
   const assignEmployeeToShift = async (args: {
@@ -56,19 +60,102 @@ export function buildAssignmentTools(
     notes?: string;
   }): SchedulingToolResult => {
     try {
+      // Reject scheduled_date values where the employee has no matching
+      // availability rule. Without this guard, the agent can (and has)
+      // pick a weekday the employee isn't available on — e.g. assigning a
+      // Wednesday-only employee to Tuesday. We fail fast with a clear
+      // error message so the agent can correct itself.
+      if (args.scheduled_date) {
+        const availability = await availabilityService.findAvailability({
+          employeeId: args.employee_id,
+          organizationId: ctx.organizationId,
+          status: 'available',
+        });
+        if (availability.length > 0) {
+          const weekday = WEEKDAY_CODES[
+            new Date(`${args.scheduled_date}T00:00:00Z`).getUTCDay()
+          ];
+          const matches = availability.some((slot) => {
+            if (slot.availability_type === 'specific') {
+              return slot.date === args.scheduled_date;
+            }
+            return !!slot.days_of_week?.includes(weekday);
+          });
+          if (!matches) {
+            const availDays = Array.from(new Set(
+              availability
+                .flatMap((s) => s.days_of_week ?? (s.date ? [s.date] : []))
+                .filter(Boolean),
+            )).join(', ');
+            return jsonResult({
+              success: false,
+              error:
+                `Employee is not available on ${args.scheduled_date} (${weekday}). ` +
+                `Available days: ${availDays || 'none'}. ` +
+                `Pick a scheduled_date matching one of the available days.`,
+            });
+          }
+        }
+      }
+
+      // Resolve employee display info up-front so we can auto-fill notes
+      // with the employee's role code when the caller didn't pass notes.
+      // The frontend grid is keyed by notes.role, so without this the row
+      // axis is wrong even if station_id is populated.
+      const displayMap = await employeesService.findDisplayInfoByIds(
+        ctx.organizationId,
+        [args.employee_id],
+      );
+      const display = displayMap.get(args.employee_id);
+
+      const department_id = args.department_id ?? ctx.departmentId;
+      const station_id = args.station_id ?? ctx.stationId;
+      const room_id = args.room_id ?? ctx.roomId;
+      const bed_id = args.bed_id ?? ctx.bedId;
+      const chair_id = args.chair_id ?? ctx.chairId;
+
+      // The frontend grid is keyed by notes.role × date. LLM callers tend
+      // to guess a role from the shift's eligible roles list, which lands
+      // the row in the wrong column — so always override `role` with the
+      // employee's real providerRole, preserving any other caller fields
+      // (e.g. `rooms`). Also guard against `null` — zod allows only string
+      // | undefined, but callers occasionally send literal null.
+      let notes = args.notes;
+      let notesObj: Record<string, unknown> | null = null;
+      if (notes != null && notes.trim() !== '') {
+        try {
+          const parsed = JSON.parse(notes);
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            notesObj = parsed as Record<string, unknown>;
+          } else {
+            notesObj = { text: notes };
+          }
+        } catch {
+          notesObj = { text: notes };
+        }
+      }
+      if (display?.role_code) {
+        const merged: Record<string, unknown> = { ...(notesObj ?? {}) };
+        merged.role = display.role_code;
+        if (!Array.isArray(merged.rooms)) merged.rooms = [];
+        notes = JSON.stringify(merged);
+      } else if (notes == null) {
+        notes = undefined;
+      }
+
       const created = await employeeShiftService.create(
         ctx.organizationId,
         args.shift_id,
         {
           employee_id: args.employee_id,
           scheduled_date: args.scheduled_date,
-          department_id: args.department_id,
-          station_id: args.station_id,
-          room_id: args.room_id,
-          bed_id: args.bed_id,
-          chair_id: args.chair_id,
+          department_id,
+          station_id,
+          room_id,
+          bed_id,
+          chair_id,
           status: args.status,
-          notes: args.notes,
+          notes,
         },
         ctx.userId,
       );
@@ -80,12 +167,6 @@ export function buildAssignmentTools(
         created.id,
         ctx.userId,
       );
-
-      const displayMap = await employeesService.findDisplayInfoByIds(
-        ctx.organizationId,
-        [args.employee_id],
-      );
-      const display = displayMap.get(args.employee_id);
 
       const enrichedShift = hydrated.shift
         ? enrichShiftWithLocalTime(hydrated.shift, ctx.timezone)

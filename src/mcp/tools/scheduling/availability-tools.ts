@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { EmployeeAvailabilityService } from '../../../models/organizations/scheduling/services/employee-availability.service';
+import type { EmployeeShiftService } from '../../../models/organizations/scheduling/services/employee-shift.service';
 import type { EmployeesService } from '../../../models/employees/services/employees.service';
 import { TOOL_NAMES } from '../../constants/mcp.constants';
 import {
@@ -9,6 +10,7 @@ import {
   SchedulingToolResult,
 } from './types';
 import { enrichRecordsWithEmployeeNames } from './enrich-employees';
+import { enrichRecordsWithAssignments } from './enrich-assignments';
 
 const dateString = z
   .string()
@@ -43,6 +45,7 @@ const scheduleSchema = {
 
 export function buildAvailabilityTools(
   availabilityService: EmployeeAvailabilityService,
+  employeeShiftService: EmployeeShiftService,
   employeesService: EmployeesService,
   ctx: SchedulingToolContext,
 ): SchedulingToolDescriptor[] {
@@ -65,9 +68,14 @@ export function buildAvailabilityTools(
       endTime: isOrgWide ? undefined : (args.end_time ?? undefined),
       status: args.status ?? undefined,
     });
-    const enriched = await enrichRecordsWithEmployeeNames(
+    const withNames = await enrichRecordsWithEmployeeNames(
       records,
       employeesService,
+      ctx.organizationId,
+    );
+    const enriched = await enrichRecordsWithAssignments(
+      withNames,
+      employeeShiftService,
       ctx.organizationId,
     );
     return jsonResult({ count: enriched.length, availability: enriched });
@@ -86,9 +94,14 @@ export function buildAvailabilityTools(
       organizationId: ctx.organizationId,
       maxResults: args.max_results,
     });
-    const enriched = await enrichRecordsWithEmployeeNames(
+    const withNames = await enrichRecordsWithEmployeeNames(
       records,
       employeesService,
+      ctx.organizationId,
+    );
+    const enriched = await enrichRecordsWithAssignments(
+      withNames,
+      employeeShiftService,
       ctx.organizationId,
     );
     return jsonResult({ count: enriched.length, candidates: enriched });
@@ -104,9 +117,14 @@ export function buildAvailabilityTools(
       startDate: args.start_date,
       endDate: args.end_date,
     });
-    const enriched = await enrichRecordsWithEmployeeNames(
+    const withNames = await enrichRecordsWithEmployeeNames(
       records,
       employeesService,
+      ctx.organizationId,
+    );
+    const enriched = await enrichRecordsWithAssignments(
+      withNames,
+      employeeShiftService,
       ctx.organizationId,
     );
     return jsonResult({ count: enriched.length, schedule: enriched });
@@ -122,7 +140,9 @@ export function buildAvailabilityTools(
         "IMPORTANT: Do NOT pass a date parameter unless the user explicitly asks about a specific date. " +
         "When the user asks 'what are the availabilities?' without mentioning a date, omit the date parameter to get ALL recurring availability rules. " +
         "Passing today's date will filter to only rules matching today's day-of-week, which hides rules for other days. " +
-        "All parameters are optional. Data comes from the availability_rules table.",
+        "All parameters are optional. Data comes from the availability_rules table. " +
+        "Each record also includes `current_assignments`: a list of actual employee_shifts rows the employee is ALREADY assigned to (shift_id, shift_name, scheduled_date, status). " +
+        "Use `current_assignments` — NOT the availability rule itself — to decide whether an employee is already booked on a shift. Availability means the employee CAN work that slot; an entry in `current_assignments` means they ARE already scheduled.",
       inputSchema: getAvailabilitySchema,
       handler: getEmployeeAvailability as (args: unknown) => SchedulingToolResult,
     },
@@ -138,7 +158,9 @@ export function buildAvailabilityTools(
       description:
         "Return ONE specific employee's availability calendar over a date range. " +
         "REQUIRES a valid employee_id UUID — resolve names to UUIDs via search_employees first. " +
-        "NEVER invent or guess employee_id values. If you don't have a real UUID, call get_employee_availability without employee_id instead.",
+        "NEVER invent or guess employee_id values. If you don't have a real UUID, call get_employee_availability without employee_id instead. " +
+        "Each record also includes `current_assignments` listing the employee's actual shift bookings (shift_id, shift_name, scheduled_date, status). " +
+        "Before reporting an employee as 'already assigned' to a shift, confirm the shift_id + scheduled_date exist in `current_assignments` — availability rules alone do NOT mean an assignment exists.",
       inputSchema: scheduleSchema,
       handler: getEmployeeAvailabilitySchedule as (args: unknown) => SchedulingToolResult,
     },

@@ -51,6 +51,27 @@ export class ShiftService {
       .leftJoinAndSelect('sr.providerRole', 'pr')
       .where('s.organization_id = :organizationId', { organizationId });
 
+    // When a date range is requested (calendar views), also return the
+    // employee_shifts booked inside that range so the client can render
+    // assignments per-day without a second round-trip. Filter is applied
+    // in the JOIN so shifts with zero bookings in range still appear.
+    if (from_date || to_date) {
+      qb.leftJoinAndSelect(
+        's.employeeShifts',
+        'es',
+        [
+          from_date ? 'es.scheduled_date >= :esFrom' : null,
+          to_date ? 'es.scheduled_date <= :esTo' : null,
+        ].filter(Boolean).join(' AND ') || '1=1',
+        { esFrom: from_date, esTo: to_date },
+      )
+        .leftJoinAndSelect('es.employee', 'esEmp')
+        .leftJoinAndSelect('esEmp.user', 'esEmpUser')
+        .leftJoinAndSelect('esEmp.providerRole', 'esEmpRole')
+        .leftJoinAndSelect('es.station', 'esStation')
+        .leftJoinAndSelect('es.department', 'esDept');
+    }
+
     // Date filtering: two cases to handle:
     // 1. ONE_TIME shifts — match by timestamp overlap (start_at/end_at in the requested range)
     // 2. Recurring shifts (FULL_WEEK, WEEKDAYS, WEEKENDS, CUSTOM) — stored with base dates

@@ -30,6 +30,7 @@ import { SchedulingAgentService } from './scheduling-agent.service';
 import type {
   SchedulingAgentContext,
   SchedulingAgentHistoryMessage,
+  SchedulingAgentToolCall,
 } from './scheduling-agent.service';
 
 class SchedulingAgentHistoryMessageDto implements SchedulingAgentHistoryMessage {
@@ -41,6 +42,19 @@ class SchedulingAgentHistoryMessageDto implements SchedulingAgentHistoryMessage 
   @IsNotEmpty()
   @MaxLength(8000)
   content: string;
+}
+
+class SchedulingAgentToolCallDto implements SchedulingAgentToolCall {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  name: string;
+
+  @IsOptional()
+  arguments: unknown;
+
+  @IsOptional()
+  result: unknown;
 }
 
 class SchedulingAgentDto {
@@ -86,6 +100,19 @@ class SchedulingAgentDto {
   @IsOptional()
   @IsObject()
   context?: SchedulingAgentContext;
+
+  /**
+   * Tool-call trace from the previous response (pass through the
+   * `toolCalls` array from the last response body, capped client-side to
+   * the last ~12 calls). Lets the server replay prior UUIDs so a "yes"
+   * confirmation turn doesn't lose context.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(24)
+  @ValidateNested({ each: true })
+  @Type(() => SchedulingAgentToolCallDto)
+  priorToolCalls?: SchedulingAgentToolCallDto[];
 }
 
 type RequestWithUser = FastifyRequest & {
@@ -111,6 +138,7 @@ export class SchedulingAgentController {
       context: dto.context,
       timezone: dto.timezone,
       history: dto.history,
+      priorToolCalls: dto.priorToolCalls,
     });
 
     return SuccessHelper.createSuccessResponse(result);

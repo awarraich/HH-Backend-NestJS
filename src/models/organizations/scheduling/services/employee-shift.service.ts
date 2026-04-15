@@ -22,6 +22,23 @@ import { UpdateEmployeeShiftDto } from '../dto/update-employee-shift.dto';
 import { QueryEmployeeShiftDto } from '../dto/query-employee-shift.dto';
 import { QueryEmployeeShiftsByEmployeeDto } from '../dto/query-employee-shifts-by-employee.dto';
 
+/**
+ * Format a Postgres DATE value (returned by pg as a midnight-local Date, or
+ * a pre-formatted string) as YYYY-MM-DD using LOCAL components.
+ *
+ * Why: pg parses `date` columns at midnight in the server's local timezone,
+ * so `.toISOString()` shifts the day backward for UTC-ahead zones (e.g.
+ * Asia/Karachi UTC+5 turns 2026-04-14 into 2026-04-13T19:00Z → "2026-04-13").
+ * We want the calendar date the DB stored, regardless of timezone.
+ */
+function formatDateOnly(d: string | Date): string {
+  if (typeof d === 'string') return d.slice(0, 10);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 @Injectable()
 export class EmployeeShiftService {
   constructor(
@@ -134,7 +151,7 @@ export class EmployeeShiftService {
     });
     if (!shift) throw new NotFoundException('Shift not found');
 
-    const { page = 1, limit = 20, employee_id, status } = query;
+    const { page = 1, limit = 20, employee_id, status, from_date, to_date } = query;
     const skip = (page - 1) * limit;
 
     const qb = this.employeeShiftRepository
@@ -151,6 +168,8 @@ export class EmployeeShiftService {
 
     if (employee_id) qb.andWhere('es.employee_id = :employee_id', { employee_id });
     if (status) qb.andWhere('es.status = :status', { status });
+    if (from_date) qb.andWhere('es.scheduled_date >= :from_date', { from_date });
+    if (to_date) qb.andWhere('es.scheduled_date <= :to_date', { to_date });
     qb.orderBy('es.created_at', 'ASC').skip(skip).take(limit);
 
     const [data, total] = await qb.getManyAndCount();
@@ -312,6 +331,50 @@ export class EmployeeShiftService {
 
     qb.orderBy('shift.start_at', 'ASC').take(filters.limit ?? 50);
     return qb.getMany();
+  }
+
+  async findAssignmentsForEmployees(
+    organizationId: string,
+    employeeIds: string[],
+  ): Promise<
+    Array<{
+      employee_id: string;
+      shift_id: string;
+      shift_name: string | null;
+      scheduled_date: string;
+      status: string;
+    }>
+  > {
+    if (employeeIds.length === 0) return [];
+
+    const rows = await this.employeeShiftRepository
+      .createQueryBuilder('es')
+      .innerJoin('es.shift', 'shift')
+      .where('shift.organization_id = :organizationId', { organizationId })
+      .andWhere('es.employee_id IN (:...employeeIds)', { employeeIds })
+      .select([
+        'es.employee_id AS employee_id',
+        'es.shift_id AS shift_id',
+        'shift.name AS shift_name',
+        'es.scheduled_date AS scheduled_date',
+        'es.status AS status',
+      ])
+      .orderBy('es.scheduled_date', 'ASC')
+      .getRawMany<{
+        employee_id: string;
+        shift_id: string;
+        shift_name: string | null;
+        scheduled_date: string | Date;
+        status: string;
+      }>();
+
+    return rows.map((r) => ({
+      employee_id: r.employee_id,
+      shift_id: r.shift_id,
+      shift_name: r.shift_name,
+      scheduled_date: formatDateOnly(r.scheduled_date),
+      status: r.status,
+    }));
   }
 
   async findByEmployee(
