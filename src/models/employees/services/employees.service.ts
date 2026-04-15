@@ -649,13 +649,22 @@ export class EmployeesService {
   async findDisplayInfoByIds(
     organizationId: string,
     ids: string[],
-  ): Promise<Map<string, { id: string; name: string; email: string | null }>> {
-    const map = new Map<string, { id: string; name: string; email: string | null }>();
+  ): Promise<
+    Map<
+      string,
+      { id: string; name: string; email: string | null; role_code: string | null }
+    >
+  > {
+    const map = new Map<
+      string,
+      { id: string; name: string; email: string | null; role_code: string | null }
+    >();
     if (ids.length === 0) return map;
 
     const employees = await this.employeeRepository
       .createQueryBuilder('employee')
       .leftJoinAndSelect('employee.user', 'user')
+      .leftJoinAndSelect('employee.providerRole', 'providerRole')
       .where('employee.organization_id = :organizationId', { organizationId })
       .andWhere('employee.id IN (:...ids)', { ids })
       .getMany();
@@ -664,7 +673,12 @@ export class EmployeesService {
       const first = e.user?.firstName ?? '';
       const last = e.user?.lastName ?? '';
       const name = `${first} ${last}`.trim() || e.user?.email || 'Unknown';
-      map.set(e.id, { id: e.id, name, email: e.user?.email ?? null });
+      map.set(e.id, {
+        id: e.id,
+        name,
+        email: e.user?.email ?? null,
+        role_code: e.providerRole?.code ?? null,
+      });
     }
     return map;
   }

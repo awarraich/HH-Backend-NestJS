@@ -39,6 +39,16 @@ export interface SchedulingContext {
    * back to 'UTC' if missing or invalid.
    */
   timezone?: string | null;
+  /**
+   * Optional page-context UUIDs. Forwarded to the assignment tool handler
+   * so new assignments land in the department/station/room the user is
+   * currently looking at.
+   */
+  departmentId?: string | null;
+  stationId?: string | null;
+  roomId?: string | null;
+  bedId?: string | null;
+  chairId?: string | null;
 }
 
 @Injectable()
@@ -140,6 +150,11 @@ export class McpServerFactory {
           organizationId: schedulingContext.organizationId,
           userId: schedulingContext.userId,
           timezone: resolveTimezone(schedulingContext.timezone),
+          departmentId: schedulingContext.departmentId ?? undefined,
+          stationId: schedulingContext.stationId ?? undefined,
+          roomId: schedulingContext.roomId ?? undefined,
+          bedId: schedulingContext.bedId ?? undefined,
+          chairId: schedulingContext.chairId ?? undefined,
         },
       );
       for (const tool of tools) {
@@ -208,6 +223,11 @@ export class McpServerFactory {
         organizationId: ctx.organizationId,
         userId: ctx.userId,
         timezone: resolveTimezone(ctx.timezone),
+        departmentId: ctx.departmentId ?? undefined,
+        stationId: ctx.stationId ?? undefined,
+        roomId: ctx.roomId ?? undefined,
+        bedId: ctx.bedId ?? undefined,
+        chairId: ctx.chairId ?? undefined,
       },
     );
   }

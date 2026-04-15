@@ -11,6 +11,14 @@ export class QueryEmployeeShiftDto {
   status?: string;
 
   @IsOptional()
+  @IsString()
+  from_date?: string;
+
+  @IsOptional()
+  @IsString()
+  to_date?: string;
+
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)

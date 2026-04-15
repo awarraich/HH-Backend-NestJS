@@ -15,6 +15,19 @@ Domain notes (CRITICAL — do not skip):
 - A "Shift" is a TEMPLATE with FIXED start_at and end_at timestamps (UTC ISO strings). The user does NOT pick the shift's hours — they pick which shift template to assign someone to. If the user types a time window, treat it as a HINT about which shift they mean, not as the assignment window.
 - Shifts can cross midnight (e.g. NOC: 18:00 → 02:00 next day). When checking coverage, treat the shift as a single contiguous window even if end_at is on the next calendar day.
 - An employee's availability slot has a start_time/end_time on a specific day-of-week. To assign an employee to a shift, the shift's ENTIRE local time window must fit inside one availability slot on the shift's start day.
+- CRITICAL — "available" vs "assigned" are DIFFERENT:
+  * An availability slot means the employee CAN work that window. It is NOT an assignment.
+  * An assignment only exists as a row in employee_shifts. The availability tools return a \`current_assignments\` array on every record — this is the source of truth for "is this employee already booked on this shift?".
+  * Before telling the user an employee is "already assigned" to a shift on a date, you MUST confirm a matching \`current_assignments\` entry exists (same shift_id + scheduled_date). If \`current_assignments\` is empty or does not match, the employee is AVAILABLE but NOT YET ASSIGNED.
+
+CONFIRMATION PROTOCOL — read this before any assignment flow.
+Tool results from previous turns are NOT replayed in your message history — only the text of your prior assistant messages is. If you tell the user "Would you like me to assign X to Y?" and stop, ALL UUIDs you learned this turn are lost. When the user then says "yes", you will have nothing to pass to assign_employee_to_shift and will be forced to either fabricate placeholder strings (FORBIDDEN) or re-run every discovery tool and hope the results are identical.
+The ONLY way to carry UUIDs across turns is to embed them in your text response inside an HTML comment. The UI hides HTML comments from the user, but you will see them in the next turn's message history.
+RULE: any assistant response that ends by asking the user to confirm an assignment (e.g. "Would you like to assign…?", "Shall I proceed?", "Confirm?") MUST include a trailing HTML comment of this exact shape:
+  <!-- ASSIGNMENTS: [{"shift_id":"<uuid>","employee_id":"<uuid>","scheduled_date":"YYYY-MM-DD"},…] -->
+One object per planned assignment. Real UUIDs only — never placeholders like "<uuid-for-…>". This applies to SLOW PATH (single employee), BULK PATH (many employees), and any ad-hoc confirmation you invent.
+On the next turn, if the user confirms ("yes", "go ahead", "proceed", "confirm"), parse the ASSIGNMENTS block from your most recent assistant message in the history and call assign_employee_to_shift with those exact UUIDs and scheduled_dates. Do NOT re-run search_shifts / get_employee_availability / list_employees — the block is authoritative. Do NOT ask the user for names or IDs.
+If a prior assistant turn asked for confirmation WITHOUT an ASSIGNMENTS block, you have no UUIDs to use. Do not fabricate them. Apologise briefly and re-run the discovery tools to rebuild the plan, then emit a fresh ASSIGNMENTS block and ask for confirmation again.
 
 Assignment workflow (follow strictly when the user asks to "schedule", "assign", "book", or "put X on Y shift"):
 
@@ -34,7 +47,7 @@ Assignment workflow (follow strictly when the user asks to "schedule", "assign",
      - For each availability slot, check whether the SHIFT WINDOW (not the user's typed window) is fully contained: (slot.start_time <= shift_local_start) AND (slot.end_time >= shift_local_end). For overnight shifts where shift_local_end is on the next day, the slot must end at or after midnight of the next day — i.e. a normal daytime slot CANNOT cover an overnight shift.
      - For recurring slots, match by day-of-week: the slot's days_of_week must include the day you are checking.
   4. Decision:
-     - For ONE_TIME shifts: if at least one slot fully covers the SHIFT WINDOW → call assign_employee_to_shift with shift_id, employee_id, and scheduled_date set to the shift's local start date (YYYY-MM-DD).
+     - For ONE_TIME shifts: if at least one slot fully covers the SHIFT WINDOW → call assign_employee_to_shift with shift_id, employee_id, and scheduled_date set to the shift's local start date (YYYY-MM-DD). Only pause for confirmation if the user explicitly asked you to confirm first; if they already said "assign", just do it.
      - For RECURRING shifts: determine which days of the week the employee IS available AND the shift recurs on. The shift's recurrence_type tells you which days: FULL_WEEK = MON-SUN, WEEKDAYS = MON-FRI, WEEKENDS = SAT-SUN, CUSTOM = check recurrence_days field.
        * If the employee covers ALL recurrence days → tell the user the employee is available for all days and ask which dates to assign (or ask if they want a specific week).
        * If the employee covers SOME but not all days → tell the user which days are covered and which are not. Ask if they want to assign for just the covered days.
@@ -42,6 +55,7 @@ Assignment workflow (follow strictly when the user asks to "schedule", "assign",
      - When the user confirms which dates to assign, call assign_employee_to_shift ONCE PER DATE, passing scheduled_date (YYYY-MM-DD) for each call. Each call creates one assignment row for that specific date.
      - If NO slot fully covers the SHIFT WINDOW on any day → DO NOT call assign_employee_to_shift. Tell the user the employee is not available for the shift's full window (state the shift's actual hours). DO NOT propose assigning to a partial sub-window — partial assignments are not supported.
      - If the schedule tool returns no slots at all → say so honestly.
+     - WHENEVER you stop to ask the user which date(s) / whether to proceed, you MUST append the ASSIGNMENTS HTML comment (see CONFIRMATION PROTOCOL above) listing every candidate {shift_id, employee_id, scheduled_date}. Without it, the next turn will have no UUIDs and the assignment will fail.
   5. Report the result. On a 'success: false' error from the assign tool (e.g. duplicate assignment), surface the error message to the user.
 
   BULK PATH — if the user asks to assign/plot/schedule multiple or all employees to shifts without naming specific employees (e.g. "plot my employees to available shifts", "auto-assign employees", "fill all shifts", "schedule everyone"):
@@ -84,7 +98,7 @@ Rules:
 - NEVER invent or guess UUIDs for any tool parameter. Always resolve names to real IDs via search_employees, search_shifts, or search_roles first.
 - If the user's request is ambiguous (missing date, employee, or shift name), ask a short clarifying question instead of inventing arguments.
 - Use concise plain English in the final answer. Bullet lists for multiple items.
-- Never expose raw UUIDs in the visible part of your answer. Always refer to people and shifts by NAME using the \`employee_name\` or shift \`name\` field from tool results. The phrase "Employee 1", "Employee 2", or "Employee bb41…" must NEVER appear in your reply — if a tool result lacks a name, call search_employees to resolve it before answering. Exception: you MAY embed UUIDs in an HTML comment block (<!-- ... -->) when the BULK PATH requires it for cross-turn persistence.
+- Never expose raw UUIDs in the visible part of your answer. Always refer to people and shifts by NAME using the \`employee_name\` or shift \`name\` field from tool results. The phrase "Employee 1", "Employee 2", or "Employee bb41…" must NEVER appear in your reply — if a tool result lacks a name, call search_employees to resolve it before answering. Exception: you MUST embed UUIDs in an HTML comment block (<!-- ASSIGNMENTS: [...] -->) whenever your reply asks the user to confirm an assignment, per the CONFIRMATION PROTOCOL. This applies to SLOW PATH, BULK PATH, and any ad-hoc confirmation flow.
 
 Conversation memory and back-references:
 - You receive prior conversation turns in the messages array. Read them. The user's current message often refers to entities mentioned in earlier turns ("this shift", "that employee", "the one we just assigned", "the NOC shift from before").
@@ -165,6 +179,42 @@ const MODEL = 'gpt-4o-mini';
  * uses these as defaults when the user's query omits a specific shift,
  * department, station, or date.
  */
+/**
+ * Tell the LLM what "today" is in the user's local timezone. Without this,
+ * GPT happily guesses dates based on its training-era clock and can pick
+ * yesterday (or an arbitrary nearby day) when the user asks to schedule
+ * "this week" without giving a specific date. That produces assignments
+ * against the wrong weekday, which then get rejected by the availability
+ * check in assign_employee_to_shift.
+ */
+function buildTodayBlock(timezone?: string): string {
+  const tz = timezone && timezone.trim() ? timezone : 'UTC';
+  let today: string;
+  let weekday: string;
+  try {
+    const fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      weekday: 'long',
+    });
+    const parts = fmt.formatToParts(new Date());
+    const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
+    today = `${get('year')}-${get('month')}-${get('day')}`;
+    weekday = get('weekday');
+  } catch {
+    const now = new Date();
+    today = now.toISOString().slice(0, 10);
+    weekday = now.toUTCString().slice(0, 3);
+  }
+  return [
+    `Today's date is ${today} (${weekday}) in timezone ${tz}.`,
+    'When the user does not specify a date, default to today. When they say "this week" or "the coming week", use the 7-day window starting at today. NEVER schedule an assignment for a date before today without explicit user confirmation.',
+    'For a recurring shift, when picking which specific date(s) to assign an employee to, pick the NEXT calendar date on or after today whose day-of-week matches the employee\'s availability. Do not pick yesterday.',
+  ].join('\n');
+}
+
 function buildContextBlock(ctx?: SchedulingAgentContext): string | null {
   if (!ctx) return null;
   const lines: string[] = [];
@@ -212,6 +262,42 @@ function buildContextBlock(ctx?: SchedulingAgentContext): string | null {
   ].join('\n');
 }
 
+/**
+ * Flatten the prior turn's tool-call trace into a compact system message so
+ * the LLM sees raw UUIDs from the last turn's discoveries even if they were
+ * not embedded in the assistant's text via the ASSIGNMENTS HTML comment.
+ *
+ * Bounded: at most the last 12 calls, each result truncated to 2000 chars,
+ * to keep the prompt cheap on "yes"-style confirmation turns where the
+ * client may have sent us a very long trace.
+ */
+function buildPriorToolCallsBlock(
+  calls: SchedulingAgentToolCall[] | undefined,
+): string | null {
+  if (!calls?.length) return null;
+  const recent = calls.slice(-12);
+  const lines: string[] = [
+    'Prior-turn tool results (most recent call last). These are authoritative for any UUID or field you need to reference in the current turn. Prefer these over re-running discovery tools:',
+  ];
+  for (const c of recent) {
+    const args = safeStringify(c.arguments, 500);
+    const result = safeStringify(c.result, 2000);
+    lines.push(`- ${c.name}(${args}) → ${result}`);
+  }
+  return lines.join('\n');
+}
+
+function safeStringify(value: unknown, maxLen: number): string {
+  let text: string;
+  try {
+    text = typeof value === 'string' ? value : JSON.stringify(value);
+  } catch {
+    text = String(value);
+  }
+  if (text.length > maxLen) return text.slice(0, maxLen) + '…';
+  return text;
+}
+
 export interface SchedulingAgentContext {
   /** Free-form label for the page or view (e.g. "employee-schedule-grid"). */
   viewing?: string;
@@ -253,6 +339,17 @@ export interface SchedulingAgentRequest {
    */
   history?: SchedulingAgentHistoryMessage[];
   /**
+   * Tool-call trace from the IMMEDIATELY PRIOR turn, as returned in the
+   * previous response's `toolCalls` field. The service converts these into
+   * a synthetic system message so the LLM can see prior tool results
+   * (including UUIDs) without us having to rehydrate OpenAI-native tool
+   * messages with strict tool_call_id matching.
+   * Belt-and-suspenders for the cross-turn UUID loss problem: even if the
+   * LLM forgot to embed the ASSIGNMENTS HTML comment, the raw UUIDs from
+   * prior tool results are still reachable here.
+   */
+  priorToolCalls?: SchedulingAgentToolCall[];
+  /**
    * Client-supplied IANA timezone, e.g. "Asia/Karachi".
    * The browser provides this for free via
    * `Intl.DateTimeFormat().resolvedOptions().timeZone`. Optional — falls
@@ -286,14 +383,22 @@ export class SchedulingAgentService {
       organizationId: req.organizationId,
       userId: req.userId,
       timezone: req.timezone,
+      departmentId: req.context?.departmentId,
+      stationId: req.context?.stationId,
+      roomId: req.context?.roomId,
+      bedId: req.context?.bedId,
+      chairId: req.context?.chairId,
     });
     const openAiTools = toOpenAiTools(tools);
     const toolByName = new Map(tools.map((t) => [t.name, t]));
 
     const contextBlock = buildContextBlock(req.context);
-    const systemContent = contextBlock ? `${SYSTEM_PROMPT}\n\n${contextBlock}` : SYSTEM_PROMPT;
+    const todayBlock = buildTodayBlock(req.timezone);
+    const systemContent = [SYSTEM_PROMPT, todayBlock, contextBlock]
+      .filter(Boolean)
+      .join('\n\n');
 
-    // Build the conversation: [system, ...history, current user query]
+    // Build the conversation: [system, ...history, (priorToolContext?), user query]
     // History gives the LLM multi-turn memory so it can resolve references
     // like "this shift" or "the one we just assigned".
     const historyMessages: ChatCompletionMessageParam[] = (req.history ?? [])
@@ -303,8 +408,18 @@ export class SchedulingAgentService {
     const messages: ChatCompletionMessageParam[] = [
       { role: 'system', content: systemContent },
       ...historyMessages,
-      { role: 'user', content: req.query },
     ];
+
+    // Cross-turn UUID rescue: if the client replayed the prior turn's tool
+    // trace, flatten it into one system message right before the user's
+    // query. This way the LLM can read real UUIDs from prior tool results
+    // even if it forgot to embed them in the ASSIGNMENTS HTML comment.
+    const priorBlock = buildPriorToolCallsBlock(req.priorToolCalls);
+    if (priorBlock) {
+      messages.push({ role: 'system', content: priorBlock });
+    }
+
+    messages.push({ role: 'user', content: req.query });
     const trace: SchedulingAgentToolCall[] = [];
 
     for (let step = 0; step < MAX_STEPS; step++) {
@@ -319,6 +434,9 @@ export class SchedulingAgentService {
       messages.push(msg);
 
       if (!msg.tool_calls?.length) {
+        this.logger.debug(
+          `agent finished in ${step + 1} step(s); ${trace.length} tool call(s): ${trace.map((t) => t.name).join(', ') || '(none)'}`,
+        );
         return { answer: msg.content ?? '', toolCalls: trace };
       }
 
@@ -350,6 +468,9 @@ export class SchedulingAgentService {
             parsed = text;
           }
           trace.push({ name: tool.name, arguments: args, result: parsed });
+          this.logger.debug(
+            `[step ${step}] tool_call ${tool.name} args=${JSON.stringify(args)} result=${text.slice(0, 2000)}`,
+          );
           messages.push({
             role: 'tool',
             tool_call_id: call.id,

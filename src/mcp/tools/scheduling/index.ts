@@ -21,9 +21,9 @@ export function registerSchedulingHandlers(
   return [
     ...buildShiftTools(shiftService, employeeShiftService, context),
     ...buildRoleTools(providerRolesService, employeesService, context),
-    ...buildAvailabilityTools(availabilityService, employeesService, context),
+    ...buildAvailabilityTools(availabilityService, employeeShiftService, employeesService, context),
     ...buildEmployeeTools(employeesService, context),
-    ...buildAssignmentTools(employeeShiftService, employeesService, context),
+    ...buildAssignmentTools(employeeShiftService, employeesService, availabilityService, context),
   ];
 }
 
