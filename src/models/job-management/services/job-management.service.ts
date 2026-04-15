@@ -1,6 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
+import { OfferLetterSigningService } from './offer-letter-signing.service';
 import { JobPosting } from '../entities/job-posting.entity';
 import { JobApplication } from '../entities/job-application.entity';
 import { Organization } from '../../organizations/entities/organization.entity';
@@ -26,7 +28,20 @@ export class JobManagementService {
     @InjectRepository(Employee)
     private employeeRepository: Repository<Employee>,
     private readonly emailService: EmailService,
+    private readonly configService: ConfigService,
+    @Optional()
+    private readonly offerLetterSigningService?: OfferLetterSigningService,
   ) {}
+
+  private async resolveOrganizationName(
+    organizationId: string,
+  ): Promise<string | undefined> {
+    const org = await this.organizationRepository.findOne({
+      where: { id: organizationId },
+      select: ['id', 'organization_name'],
+    });
+    return org?.organization_name?.trim() || undefined;
+  }
 
   async create(organizationId: string, dto: CreateJobPostingDto): Promise<JobPosting> {
     const applicationDeadline = dto.application_deadline
@@ -431,7 +446,7 @@ export class JobManagementService {
     if (application.applicant_email.toLowerCase() !== email.toLowerCase()) {
       throw new NotFoundException(`Job application not found`);
     }
-    if (application.status !== 'offer_sent') {
+    if (application.status !== 'offer_sent' && application.status !== 'offer_signed') {
       throw new BadRequestException('No active offer to act on for this application');
     }
     application.status = decision === 'accept' ? 'offer_accepted' : 'offer_declined';
@@ -459,6 +474,9 @@ export class JobManagementService {
         `Job application not found for this organization`,
       );
     }
+    const organizationName =
+      dto.organizationName?.trim() ||
+      (await this.resolveOrganizationName(organizationId));
     try {
       await this.emailService.sendInterviewInviteEmail(dto.toEmail, {
         applicantName: dto.applicantName,
@@ -473,7 +491,7 @@ export class JobManagementService {
         jobType: dto.jobType,
         salaryRange: dto.salaryRange,
         jobDescription: dto.jobDescription,
-        organizationName: dto.organizationName,
+        organizationName,
         contactName: dto.contactName,
         contactEmail: dto.contactEmail,
         contactPhone: dto.contactPhone,
@@ -511,6 +529,25 @@ export class JobManagementService {
         `Job application not found for this organization`,
       );
     }
+    const organizationName =
+      dto.organizationName?.trim() ||
+      (await this.resolveOrganizationName(organizationId));
+
+    let signingUrl: string | undefined;
+    if (this.offerLetterSigningService && dto.attachmentUrl) {
+      const { token } = await this.offerLetterSigningService.createToken({
+        offerLetterApplicationId: application.id,
+        candidateEmail: dto.toEmail,
+        candidateName: dto.applicantName,
+        jobTitle: dto.jobTitle,
+        organizationId,
+        pdfUrl: dto.attachmentUrl,
+        signaturePosition: dto.signaturePosition,
+      });
+      const frontendBase = this.configService.get<string>('HOME_HEALTH_AI_URL')!;
+      signingUrl = `${frontendBase.replace(/\/$/, '')}/offer-letter/sign/${token}`;
+    }
+
     try {
       await this.emailService.sendOfferLetterEmail(dto.toEmail, {
         applicantName: dto.applicantName,
@@ -525,10 +562,11 @@ export class JobManagementService {
         message: dto.message,
         jobLocation: dto.jobLocation,
         jobDescription: dto.jobDescription,
-        organizationName: dto.organizationName,
+        organizationName,
         contactName: dto.contactName,
         contactEmail: dto.contactEmail,
         contactPhone: dto.contactPhone,
+        signingUrl,
       });
       return { message: 'Offer letter email sent successfully' };
     } catch (err) {

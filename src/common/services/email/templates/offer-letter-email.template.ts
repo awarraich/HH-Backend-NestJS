@@ -16,6 +16,8 @@ export interface OfferLetterOptions {
   contactName?: string;
   contactEmail?: string;
   contactPhone?: string;
+  /** One-time secure link for the candidate to review and digitally sign the offer. */
+  signingUrl?: string;
 }
 
 export class OfferLetterEmailTemplate {
@@ -41,6 +43,7 @@ export class OfferLetterEmailTemplate {
       contactName,
       contactEmail,
       contactPhone,
+      signingUrl,
     } = opts;
 
     const subject = organizationName
@@ -159,6 +162,38 @@ export class OfferLetterEmailTemplate {
                           <a href="${escapeHtml(attachmentUrl)}" target="_blank" style="display: inline-block; padding: 14px 36px; color: #ffffff; font-size: 14px; font-weight: 600; text-decoration: none; border-radius: 6px; letter-spacing: 0.2px;">
                             Download Offer Letter (PDF)
                           </a>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>`
+      : '';
+
+    // ── Digital signing CTA ──────────────────────────────────────────────────
+    const signingBlock = signingUrl
+      ? `
+                <tr>
+                  <td style="padding: 8px 0 28px 0;">
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;">
+                      <tr>
+                        <td style="padding: 24px 28px;">
+                          <p style="margin: 0 0 6px 0; font-size: 11px; font-weight: 700; color: #4338ca; letter-spacing: 0.8px; text-transform: uppercase;">Review &amp; Sign Digitally</p>
+                          <p style="margin: 0 0 16px 0; color: #1e1b4b; font-size: 14px; line-height: 1.6;">
+                            Review the offer letter and apply your digital signature using the secure link below.
+                          </p>
+                          <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                            <tr>
+                              <td style="border-radius: 6px; background: #4f46e5;">
+                                <a href="${escapeHtml(signingUrl)}" target="_blank" style="display: inline-block; padding: 14px 32px; color: #ffffff; font-size: 14px; font-weight: 600; text-decoration: none; border-radius: 6px; letter-spacing: 0.2px;">
+                                  Review &amp; Sign Offer Letter
+                                </a>
+                              </td>
+                            </tr>
+                          </table>
+                          <p style="margin: 14px 0 0 0; color: #475569; font-size: 12px; line-height: 1.6;">
+                            This link is valid for 7 days and can only be used once. If the button doesn't work, copy and paste this URL into your browser:<br/>
+                            <span style="color:#4338ca;word-break:break-all;">${escapeHtml(signingUrl)}</span>
+                          </p>
                         </td>
                       </tr>
                     </table>
@@ -335,6 +370,7 @@ export class OfferLetterEmailTemplate {
                 ${contentBlock}
                 ${messageBlock}
                 ${attachmentBlock}
+                ${signingBlock}
                 ${contactBlock}
 
                 <!-- Closing -->
@@ -418,6 +454,12 @@ export class OfferLetterEmailTemplate {
     if (offerContent?.trim())   textLines.push('', 'OFFER LETTER',         offerContent.trim());
     if (message?.trim())        textLines.push('', 'A NOTE FROM THE TEAM', message.trim());
     if (attachmentUrl)          textLines.push('', `Download Offer Letter: ${attachmentUrl}`);
+    if (signingUrl)             textLines.push(
+      '',
+      'REVIEW & SIGN',
+      `  Review and sign your offer digitally: ${signingUrl}`,
+      '  This link is valid for 7 days and can only be used once.',
+    );
 
     if (contactName || contactEmail || contactPhone) {
       textLines.push('', 'YOUR CONTACT');
