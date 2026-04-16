@@ -24,6 +24,8 @@ import { UpdateEmployeeProfileDto } from '../dto/update-employee-profile.dto';
 import { EmployeeSerializer } from '../serializers/employee.serializer';
 import { OrganizationRoleService } from '../../organizations/services/organization-role.service';
 import { EmployeeRequirementTagService } from '../../organizations/hr-files-setup/services/employee-requirement-tag.service';
+import { AvailabilityRuleService } from '../availability/services/availability-rule.service';
+import { AvailabilityRule } from '../availability/entities/availability-rule.entity';
 import { AuditLogService } from '../../../common/services/audit/audit-log.service';
 import { AuthService } from '../../../authentication/services/auth.service';
 import { EmailService } from '../../../common/services/email/email.service';
@@ -51,7 +53,71 @@ export class EmployeesService {
     private emailService: EmailService,
     private configService: ConfigService,
     private employeeRequirementTagService: EmployeeRequirementTagService,
+    private availabilityRuleService: AvailabilityRuleService,
   ) {}
+
+  async getAvailability(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<
+    Array<{
+      id: string;
+      day_of_week: number | null;
+      start_time: string;
+      end_time: string;
+      status: 'AVAILABLE' | 'UNAVAILABLE' | 'PREFERRED';
+      override_date: string | null;
+      organization_id: string | null;
+      notes: string | null;
+    }>
+  > {
+    const employee = await this.employeeRepository.findOne({
+      where: { id: employeeId, organization_id: organizationId },
+    });
+
+    if (!employee) {
+      throw new NotFoundException(
+        `Employee with ID ${employeeId} not found in organization ${organizationId}`,
+      );
+    }
+
+    const rules = await this.availabilityRuleService.findByUser(
+      employee.user_id,
+      organizationId,
+    );
+
+    return rules.map((rule: AvailabilityRule) => {
+      const isOverride =
+        rule.effective_from != null &&
+        rule.effective_until != null &&
+        new Date(rule.effective_from).getTime() ===
+          new Date(rule.effective_until).getTime();
+
+      let status: 'AVAILABLE' | 'UNAVAILABLE' | 'PREFERRED';
+      if (!rule.is_available) {
+        status = 'UNAVAILABLE';
+      } else if (rule.shift_type === 'preferred') {
+        status = 'PREFERRED';
+      } else {
+        status = 'AVAILABLE';
+      }
+
+      const overrideDate = isOverride && rule.effective_from
+        ? new Date(rule.effective_from).toISOString().slice(0, 10)
+        : null;
+
+      return {
+        id: rule.id,
+        day_of_week: rule.day_of_week,
+        start_time: rule.start_time,
+        end_time: rule.end_time,
+        status,
+        override_date: overrideDate,
+        organization_id: rule.organization_id,
+        notes: null,
+      };
+    });
+  }
 
   private async validateOrganizationAccess(
     organizationId: string,

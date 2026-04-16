@@ -196,6 +196,17 @@ export class EmployeesController {
     return SuccessHelper.createSuccessResponse(result);
   }
 
+  @Get(':id/availability')
+  @HttpCode(HttpStatus.OK)
+  @Roles('OWNER', 'HR', 'ADMIN')
+  async getAvailability(
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+  ) {
+    const result = await this.employeesService.getAvailability(organizationId, id);
+    return SuccessHelper.createSuccessResponse(result);
+  }
+
   @Put(':id/profile')
   @HttpCode(HttpStatus.OK)
   async updateProfile(
