@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JobPosting } from './entities/job-posting.entity';
 import { JobApplication } from './entities/job-application.entity';
+import { JobApplicationFieldValue } from './entities/job-application-field-value.entity';
 import { OfferLetterSigningToken } from './entities/offer-letter-signing-token.entity';
 import { Organization } from '../organizations/entities/organization.entity';
 import { Employee } from '../employees/entities/employee.entity';
@@ -19,7 +20,7 @@ import { EmailModule } from '../../common/services/email/email.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([JobPosting, JobApplication, Organization, Employee, OfferLetterSigningToken, User]),
+    TypeOrmModule.forFeature([JobPosting, JobApplication, JobApplicationFieldValue, Organization, Employee, OfferLetterSigningToken, User]),
     OrganizationsModule,
     StorageConfigModule,
     EmailModule,

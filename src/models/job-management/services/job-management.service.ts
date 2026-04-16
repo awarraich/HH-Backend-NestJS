@@ -2,9 +2,11 @@ import { Injectable, NotFoundException, BadRequestException, Optional } from '@n
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
+import type { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import { OfferLetterSigningService } from './offer-letter-signing.service';
 import { JobPosting } from '../entities/job-posting.entity';
 import { JobApplication } from '../entities/job-application.entity';
+import { JobApplicationFieldValue } from '../entities/job-application-field-value.entity';
 import { Organization } from '../../organizations/entities/organization.entity';
 import { Employee } from '../../employees/entities/employee.entity';
 import { User } from '../../../authentication/entities/user.entity';
@@ -13,6 +15,7 @@ import { CreateJobApplicationDto } from '../dto/create-job-application.dto';
 import { UpdateJobApplicationDto } from '../dto/update-job-application.dto';
 import { UpdateJobPostingDto } from '../dto/update-job-posting.dto';
 import { QueryJobPostingDto } from '../dto/query-job-posting.dto';
+import { QueryJobApplicationsDto } from '../dto/query-job-applications.dto';
 import { SendInterviewInviteDto } from '../dto/send-interview-invite.dto';
 import { SendOfferLetterDto } from '../dto/send-offer-letter.dto';
 import { EmailService } from '../../../common/services/email/email.service';
@@ -24,6 +27,8 @@ export class JobManagementService {
     private jobPostingRepository: Repository<JobPosting>,
     @InjectRepository(JobApplication)
     private jobApplicationRepository: Repository<JobApplication>,
+    @InjectRepository(JobApplicationFieldValue)
+    private jobApplicationFieldValueRepository: Repository<JobApplicationFieldValue>,
     @InjectRepository(Organization)
     private organizationRepository: Repository<Organization>,
     @InjectRepository(Employee)
@@ -292,11 +297,23 @@ export class JobManagementService {
       applicant_email: String(dto.applicant_email).trim(),
       applicant_phone: dto.applicant_phone ? String(dto.applicant_phone).trim() : null,
       notes: dto.notes != null ? String(dto.notes) : null,
+      // Keep populating the legacy JSONB column during the transition so older reads still work.
       submitted_fields: submittedFields,
       status: 'pending',
     });
     try {
-      return await this.jobApplicationRepository.save(application);
+      const saved = await this.jobApplicationRepository.save(application);
+      // Fan out each form answer into its own row in the normalized table.
+      const rows = this.buildFieldValueRows(saved.id, submittedFields);
+      if (rows.length > 0) {
+        await this.jobApplicationFieldValueRepository
+          .createQueryBuilder()
+          .insert()
+          .values(rows as unknown as QueryDeepPartialEntity<JobApplicationFieldValue>[])
+          .orIgnore()
+          .execute();
+      }
+      return saved;
     } catch (err: unknown) {
       const ex = err as { message?: string; code?: string };
       const msg = ex?.message || String(err);
@@ -331,15 +348,182 @@ export class JobManagementService {
   }
 
   /**
-   * List all applications for an organization (across all job postings).
+   * Paginated list of applications for an organization (across all job postings).
+   *
+   * Supports:
+   *   - `status` — concrete state OR the bucket `offers` (any offer-lifecycle state)
+   *   - `q` — case-insensitive search on applicant name/email and job title
+   *   - `job_posting_id` — filter to a single job
+   *   - `page` / `limit` — standard paging
+   *
+   * Returns a pagination envelope with `total_by_status` so the UI can render tab badges
+   * without loading every row.
    */
-  async findAllApplicationsByOrganization(organizationId: string): Promise<JobApplication[]> {
-    return this.jobApplicationRepository
+  async findAllApplicationsByOrganization(
+    organizationId: string,
+    query: QueryJobApplicationsDto = {},
+  ): Promise<{
+    applications: JobApplication[];
+    page: number;
+    limit: number;
+    total: number;
+    has_more: boolean;
+    total_by_status: Record<string, number>;
+  }> {
+    const page = Math.max(1, query.page ?? 1);
+    const limit = Math.min(100, Math.max(1, query.limit ?? 25));
+
+    const base = this.jobApplicationRepository
       .createQueryBuilder('ja')
       .leftJoinAndSelect('ja.job_posting', 'jp')
-      .where('jp.organization_id = :organizationId', { organizationId })
+      .leftJoinAndSelect('ja.field_values', 'fv')
+      .where('jp.organization_id = :organizationId', { organizationId });
+
+    // Optional: single job filter
+    if (query.job_posting_id) {
+      base.andWhere('ja.job_posting_id = :jobPostingId', {
+        jobPostingId: query.job_posting_id,
+      });
+    }
+
+    // Optional: text search across applicant fields + job title
+    if (query.q && query.q.trim()) {
+      const needle = `%${query.q.trim().toLowerCase()}%`;
+      base.andWhere(
+        '(LOWER(ja.applicant_name) LIKE :q OR LOWER(ja.applicant_email) LIKE :q OR LOWER(jp.title) LIKE :q)',
+        { q: needle },
+      );
+    }
+
+    // Status filter — supports the special "offers" bucket which maps to any offer state
+    const OFFER_STATES = ['offer_sent', 'offer_accepted', 'offer_declined'];
+    if (query.status && query.status !== 'all') {
+      if (query.status === 'offers') {
+        base.andWhere('ja.status IN (:...offerStates)', { offerStates: OFFER_STATES });
+      } else {
+        base.andWhere('ja.status = :status', { status: query.status });
+      }
+    }
+
+    // Compute the paginated slice + total in one round-trip
+    const [applications, total] = await base
       .orderBy('ja.created_at', 'DESC')
-      .getMany();
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+
+    // Re-hydrate legacy `submitted_fields` from the normalized rows so any consumer still
+    // reading that shape keeps working. When all consumers have migrated we can drop this
+    // projection and the `submitted_fields` column in a follow-up.
+    for (const app of applications) {
+      const projected = this.projectFieldValuesToSubmittedFields(app.field_values);
+      if (projected) app.submitted_fields = projected;
+    }
+
+    // Unfiltered-by-status counts (still scoped to the same org / job / search context)
+    // so tab badges show exact numbers independent of the current tab selection.
+    const breakdownBase = this.jobApplicationRepository
+      .createQueryBuilder('ja')
+      .leftJoin('ja.job_posting', 'jp')
+      .where('jp.organization_id = :organizationId', { organizationId });
+    if (query.job_posting_id) {
+      breakdownBase.andWhere('ja.job_posting_id = :jobPostingId', {
+        jobPostingId: query.job_posting_id,
+      });
+    }
+    if (query.q && query.q.trim()) {
+      const needle = `%${query.q.trim().toLowerCase()}%`;
+      breakdownBase.andWhere(
+        '(LOWER(ja.applicant_name) LIKE :q OR LOWER(ja.applicant_email) LIKE :q OR LOWER(jp.title) LIKE :q)',
+        { q: needle },
+      );
+    }
+    const rawCounts: Array<{ status: string; count: string }> = await breakdownBase
+      .select('ja.status', 'status')
+      .addSelect('COUNT(ja.id)', 'count')
+      .groupBy('ja.status')
+      .getRawMany();
+    const totalByStatus: Record<string, number> = {
+      all: 0,
+      not_seen: 0,
+      interview: 0,
+      offer_sent: 0,
+      offer_accepted: 0,
+      offer_declined: 0,
+      rejected: 0,
+      offers: 0,
+    };
+    for (const row of rawCounts) {
+      const n = Number(row.count) || 0;
+      totalByStatus.all += n;
+      const normalized = this.normalizeStatusKey(row.status);
+      totalByStatus[normalized] = (totalByStatus[normalized] ?? 0) + n;
+      if (OFFER_STATES.includes(normalized)) totalByStatus.offers += n;
+    }
+
+    return {
+      applications,
+      page,
+      limit,
+      total,
+      has_more: page * limit < total,
+      total_by_status: totalByStatus,
+    };
+  }
+
+  /**
+   * Explode a `submitted_fields` JSONB blob into one `JobApplicationFieldValue` per top-level key.
+   * Plain strings go into `value_text`; every other shape goes into `value_json`.
+   * Empty / null values are skipped.
+   */
+  private buildFieldValueRows(
+    applicationId: string,
+    submittedFields: Record<string, unknown> | null | undefined,
+  ): Partial<JobApplicationFieldValue>[] {
+    if (!submittedFields || typeof submittedFields !== 'object' || Array.isArray(submittedFields)) {
+      return [];
+    }
+    const rows: Partial<JobApplicationFieldValue>[] = [];
+    for (const [key, raw] of Object.entries(submittedFields)) {
+      if (raw == null) continue;
+      if (typeof raw === 'string') {
+        if (raw.length === 0) continue;
+        rows.push({ application_id: applicationId, field_key: key, value_text: raw, value_json: null });
+      } else {
+        rows.push({ application_id: applicationId, field_key: key, value_text: null, value_json: raw });
+      }
+    }
+    return rows;
+  }
+
+  /**
+   * Re-assemble the legacy `submitted_fields` map from normalized rows so existing
+   * frontend consumers (that still read `submitted_fields`) keep working during the transition.
+   */
+  private projectFieldValuesToSubmittedFields(
+    values: JobApplicationFieldValue[] | undefined | null,
+  ): Record<string, unknown> | null {
+    if (!values || values.length === 0) return null;
+    const out: Record<string, unknown> = {};
+    for (const v of values) {
+      if (v.value_text !== null && v.value_text !== undefined) {
+        out[v.field_key] = v.value_text;
+      } else if (v.value_json !== null && v.value_json !== undefined) {
+        out[v.field_key] = v.value_json;
+      }
+    }
+    return out;
+  }
+
+  /** Collapse raw status strings into the normalized bucket keys the frontend uses. */
+  private normalizeStatusKey(raw: string | null | undefined): string {
+    const s = (raw ?? 'pending').toString().toLowerCase().trim().replace(/\s+/g, '_');
+    if (s === 'rejected') return 'rejected';
+    if (s === 'interview' || s === 'interview_scheduled') return 'interview';
+    if (s === 'offer_sent' || s === 'offer') return 'offer_sent';
+    if (s === 'offer_accepted') return 'offer_accepted';
+    if (s === 'offer_declined') return 'offer_declined';
+    return 'not_seen';
   }
 
   /**
@@ -419,6 +603,18 @@ export class JobManagementService {
     }
     if (dto.status !== undefined) {
       application.status = dto.status;
+    }
+    if (dto.interview_details !== undefined) {
+      // Full replace — the frontend sends the complete snapshot on schedule.
+      application.interview_details = dto.interview_details;
+    }
+    if (dto.offer_details !== undefined) {
+      // Merge so fields added later (e.g. signed_pdf_url after the candidate signs)
+      // aren't wiped by a subsequent HR update.
+      application.offer_details = {
+        ...(application.offer_details ?? {}),
+        ...dto.offer_details,
+      };
     }
     return this.jobApplicationRepository.save(application);
   }
