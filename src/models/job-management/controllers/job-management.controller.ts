@@ -31,7 +31,6 @@ import { QueryJobApplicationsDto } from '../dto/query-job-applications.dto';
 import { CreateJobApplicationDto } from '../dto/create-job-application.dto';
 import { UpdateJobApplicationDto } from '../dto/update-job-application.dto';
 import { SendInterviewInviteDto } from '../dto/send-interview-invite.dto';
-import { SendOfferLetterDto } from '../dto/send-offer-letter.dto';
 
 @Controller('v1/api/job-management')
 export class JobManagementController {
@@ -341,20 +340,4 @@ export class JobManagementController {
     return SuccessHelper.createSuccessResponse(result, result.message);
   }
 
-  /**
-   * Send offer letter email to applicant (Send Offer modal).
-   * POST organization/:organizationId/job-applications/:id/send-offer
-   */
-  @Post('organization/:organizationId/job-applications/:id/send-offer')
-  @UseGuards(JwtAuthGuard, OrganizationRoleGuard)
-  @Roles('OWNER', 'HR', 'ADMIN')
-  @HttpCode(HttpStatus.OK)
-  async sendOfferLetter(
-    @Param('organizationId') organizationId: string,
-    @Param('id') id: string,
-    @Body() dto: SendOfferLetterDto,
-  ): Promise<unknown> {
-    const result = await this.jobManagementService.sendOfferLetterEmail(organizationId, id, dto);
-    return SuccessHelper.createSuccessResponse(result, result.message);
-  }
 }

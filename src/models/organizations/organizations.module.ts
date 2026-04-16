@@ -320,6 +320,7 @@ import { FilledDocumentTemplatesController } from './document-workflow/controlle
     ShiftService,
     EmployeeShiftService,
     EmployeeAvailabilityService,
+    TemplatesService,
   ],
 })
 export class OrganizationsModule {}

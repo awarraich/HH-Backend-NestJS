@@ -1,9 +1,7 @@
-import { Injectable, NotFoundException, BadRequestException, Optional } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import type { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
-import { OfferLetterSigningService } from './offer-letter-signing.service';
 import { JobPosting } from '../entities/job-posting.entity';
 import { JobApplication } from '../entities/job-application.entity';
 import { JobApplicationFieldValue } from '../entities/job-application-field-value.entity';
@@ -17,7 +15,6 @@ import { UpdateJobPostingDto } from '../dto/update-job-posting.dto';
 import { QueryJobPostingDto } from '../dto/query-job-posting.dto';
 import { QueryJobApplicationsDto } from '../dto/query-job-applications.dto';
 import { SendInterviewInviteDto } from '../dto/send-interview-invite.dto';
-import { SendOfferLetterDto } from '../dto/send-offer-letter.dto';
 import { EmailService } from '../../../common/services/email/email.service';
 
 @Injectable()
@@ -36,9 +33,6 @@ export class JobManagementService {
     @InjectRepository(User)
     private userRepository: Repository<User>,
     private readonly emailService: EmailService,
-    private readonly configService: ConfigService,
-    @Optional()
-    private readonly offerLetterSigningService?: OfferLetterSigningService,
   ) {}
 
   private async resolveOrganizationName(
@@ -773,78 +767,6 @@ export class JobManagementService {
         );
       }
       throw new BadRequestException(`Failed to send interview invite email.`);
-    }
-  }
-
-  /**
-   * Send offer letter email to applicant. Application must belong to the organization.
-   * Fails with 400 if email service is not configured.
-   */
-  async sendOfferLetterEmail(
-    organizationId: string,
-    applicationId: string,
-    dto: SendOfferLetterDto,
-  ): Promise<{ message: string }> {
-    const application = await this.jobApplicationRepository.findOne({
-      where: { id: applicationId },
-      relations: ['job_posting'],
-    });
-    if (!application) {
-      throw new NotFoundException(`Job application ${applicationId} not found`);
-    }
-    if (application.job_posting?.organization_id !== organizationId) {
-      throw new NotFoundException(
-        `Job application not found for this organization`,
-      );
-    }
-    const organizationName =
-      dto.organizationName?.trim() ||
-      (await this.resolveOrganizationName(organizationId));
-
-    let signingUrl: string | undefined;
-    if (this.offerLetterSigningService && dto.attachmentUrl) {
-      const { token } = await this.offerLetterSigningService.createToken({
-        offerLetterApplicationId: application.id,
-        candidateEmail: dto.toEmail,
-        candidateName: dto.applicantName,
-        jobTitle: dto.jobTitle,
-        organizationId,
-        pdfUrl: dto.attachmentUrl,
-        signaturePosition: dto.signaturePosition,
-      });
-      const frontendBase = this.configService.get<string>('HOME_HEALTH_AI_URL')!;
-      signingUrl = `${frontendBase.replace(/\/$/, '')}/offer-letter/sign/${token}`;
-    }
-
-    try {
-      await this.emailService.sendOfferLetterEmail(dto.toEmail, {
-        applicantName: dto.applicantName,
-        jobTitle: dto.jobTitle,
-        salary: dto.salary,
-        startDate: dto.startDate,
-        offerContent: dto.offerContent,
-        attachmentUrl: dto.attachmentUrl,
-        benefits: dto.benefits,
-        responseDeadline: dto.responseDeadline,
-        employmentType: dto.employmentType,
-        message: dto.message,
-        jobLocation: dto.jobLocation,
-        jobDescription: dto.jobDescription,
-        organizationName,
-        contactName: dto.contactName,
-        contactEmail: dto.contactEmail,
-        contactPhone: dto.contactPhone,
-        signingUrl,
-      });
-      return { message: 'Offer letter email sent successfully' };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('not configured')) {
-        throw new BadRequestException(
-          'Email is not configured.',
-        );
-      }
-      throw new BadRequestException(`Failed to send offer letter email.`);
     }
   }
 

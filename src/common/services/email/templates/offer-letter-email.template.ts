@@ -1,10 +1,11 @@
+export type OfferRecipientKind = 'supervisor' | 'employee' | 'external_employee';
+
 export interface OfferLetterOptions {
   applicantName: string;
   jobTitle: string;
   salary: string;
   startDate: string;
   offerContent: string;
-  attachmentUrl?: string;
   benefits?: string;
   responseDeadline?: string;
   /** "full_time" | "part_time" | "contract" | "temporary" | "internship" */
@@ -16,8 +17,10 @@ export interface OfferLetterOptions {
   contactName?: string;
   contactEmail?: string;
   contactPhone?: string;
-  /** One-time secure link for the candidate to review and digitally sign the offer. */
-  signingUrl?: string;
+  /** URL where the recipient fills/reviews the offer letter document. */
+  fillUrl?: string;
+  /** Drives the instructional copy shown with the CTA. */
+  recipientType?: OfferRecipientKind;
 }
 
 export class OfferLetterEmailTemplate {
@@ -32,7 +35,6 @@ export class OfferLetterEmailTemplate {
       salary,
       startDate,
       offerContent,
-      attachmentUrl,
       benefits,
       responseDeadline,
       employmentType,
@@ -43,7 +45,8 @@ export class OfferLetterEmailTemplate {
       contactName,
       contactEmail,
       contactPhone,
-      signingUrl,
+      fillUrl,
+      recipientType,
     } = opts;
 
     const subject = organizationName
@@ -151,48 +154,31 @@ export class OfferLetterEmailTemplate {
                 </tr>`
       : '';
 
-    // ── Attachment CTA ───────────────────────────────────────────────────────
-    const attachmentBlock = attachmentUrl
-      ? `
-                <tr>
-                  <td align="center" style="padding: 16px 0 32px 0;">
-                    <table role="presentation" cellspacing="0" cellpadding="0" border="0">
-                      <tr>
-                        <td style="border-radius: 6px; background: #0f172a;">
-                          <a href="${escapeHtml(attachmentUrl)}" target="_blank" style="display: inline-block; padding: 14px 36px; color: #ffffff; font-size: 14px; font-weight: 600; text-decoration: none; border-radius: 6px; letter-spacing: 0.2px;">
-                            Download Offer Letter (PDF)
-                          </a>
-                        </td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>`
-      : '';
-
-    // ── Digital signing CTA ──────────────────────────────────────────────────
-    const signingBlock = signingUrl
+    // ── Fill-out CTA (replaces old signing CTA) ──────────────────────────────
+    const fillCopy = buildFillCopy(recipientType, fillUrl);
+    const fillBlock = fillUrl
       ? `
                 <tr>
                   <td style="padding: 8px 0 28px 0;">
                     <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;">
                       <tr>
                         <td style="padding: 24px 28px;">
-                          <p style="margin: 0 0 6px 0; font-size: 11px; font-weight: 700; color: #4338ca; letter-spacing: 0.8px; text-transform: uppercase;">Review &amp; Sign Digitally</p>
+                          <p style="margin: 0 0 6px 0; font-size: 11px; font-weight: 700; color: #4338ca; letter-spacing: 0.8px; text-transform: uppercase;">${fillCopy.heading}</p>
                           <p style="margin: 0 0 16px 0; color: #1e1b4b; font-size: 14px; line-height: 1.6;">
-                            Review the offer letter and apply your digital signature using the secure link below.
+                            ${escapeHtml(fillCopy.body)}
                           </p>
                           <table role="presentation" cellspacing="0" cellpadding="0" border="0">
                             <tr>
                               <td style="border-radius: 6px; background: #4f46e5;">
-                                <a href="${escapeHtml(signingUrl)}" target="_blank" style="display: inline-block; padding: 14px 32px; color: #ffffff; font-size: 14px; font-weight: 600; text-decoration: none; border-radius: 6px; letter-spacing: 0.2px;">
-                                  Review &amp; Sign Offer Letter
+                                <a href="${escapeHtml(fillUrl)}" target="_blank" style="display: inline-block; padding: 14px 32px; color: #ffffff; font-size: 14px; font-weight: 600; text-decoration: none; border-radius: 6px; letter-spacing: 0.2px;">
+                                  ${escapeHtml(fillCopy.cta)}
                                 </a>
                               </td>
                             </tr>
                           </table>
                           <p style="margin: 14px 0 0 0; color: #475569; font-size: 12px; line-height: 1.6;">
-                            This link is valid for 7 days and can only be used once. If the button doesn't work, copy and paste this URL into your browser:<br/>
-                            <span style="color:#4338ca;word-break:break-all;">${escapeHtml(signingUrl)}</span>
+                            ${escapeHtml(fillCopy.footer)}<br/>
+                            <span style="color:#4338ca;word-break:break-all;">${escapeHtml(fillUrl)}</span>
                           </p>
                         </td>
                       </tr>
@@ -369,8 +355,7 @@ export class OfferLetterEmailTemplate {
                 ${descriptionBlock}
                 ${contentBlock}
                 ${messageBlock}
-                ${attachmentBlock}
-                ${signingBlock}
+                ${fillBlock}
                 ${contactBlock}
 
                 <!-- Closing -->
@@ -453,13 +438,16 @@ export class OfferLetterEmailTemplate {
     if (jobDescription?.trim()) textLines.push('', 'ABOUT THE ROLE',       truncate(jobDescription, 600));
     if (offerContent?.trim())   textLines.push('', 'OFFER LETTER',         offerContent.trim());
     if (message?.trim())        textLines.push('', 'A NOTE FROM THE TEAM', message.trim());
-    if (attachmentUrl)          textLines.push('', `Download Offer Letter: ${attachmentUrl}`);
-    if (signingUrl)             textLines.push(
-      '',
-      'REVIEW & SIGN',
-      `  Review and sign your offer digitally: ${signingUrl}`,
-      '  This link is valid for 7 days and can only be used once.',
-    );
+    if (fillUrl) {
+      const fillCopyText = buildFillCopy(recipientType, fillUrl);
+      textLines.push(
+        '',
+        fillCopyText.heading.toUpperCase(),
+        `  ${fillCopyText.body}`,
+        `  ${fillCopyText.cta}: ${fillUrl}`,
+        `  ${fillCopyText.footer}`,
+      );
+    }
 
     if (contactName || contactEmail || contactPhone) {
       textLines.push('', 'YOUR CONTACT');
@@ -488,6 +476,59 @@ export class OfferLetterEmailTemplate {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+interface FillCopy {
+  heading: string;
+  body: string;
+  cta: string;
+  footer: string;
+}
+
+/**
+ * Role-conditional copy for the email's CTA block. Each recipient type lands
+ * somewhere different: supervisors in Document Workflow → Assignment tab,
+ * employees on the Offer Letter tab of their Job view, external employees on
+ * a token-gated public page.
+ */
+function buildFillCopy(
+  recipientType: OfferRecipientKind | undefined,
+  fillUrl: string | undefined,
+): FillCopy {
+  if (!fillUrl) {
+    return { heading: '', body: '', cta: '', footer: '' };
+  }
+  switch (recipientType) {
+    case 'supervisor':
+      return {
+        heading: 'Action required · Supervisor',
+        body: 'An offer letter has been routed to you for review and sign-off. Open Document Workflow → Assignment tab to fill in your part of the document.',
+        cta: 'Open Assignment Tab',
+        footer: 'If the button does not work, copy and paste this URL into your browser:',
+      };
+    case 'employee':
+      return {
+        heading: 'Fill out your offer letter',
+        body: 'Your offer letter is ready. Go to your Jobs page and open the Offer Letter tab to complete your information and signature.',
+        cta: 'Open Offer Letter',
+        footer: 'If the button does not work, copy and paste this URL into your browser:',
+      };
+    case 'external_employee':
+      return {
+        heading: 'Complete your offer letter',
+        body: 'Please open the secure link below to fill in your details and sign your offer letter. The link is specific to you and can only be used during its validity period.',
+        cta: 'Open Offer Letter',
+        footer: 'If the button does not work, copy and paste this secure URL into your browser:',
+      };
+    default:
+      return {
+        heading: 'Review your offer letter',
+        body: 'Your offer letter is ready to review. Use the link below to open the document and fill in any required fields.',
+        cta: 'Open Offer Letter',
+        footer: 'If the button does not work, copy and paste this URL into your browser:',
+      };
+  }
+}
+
 
 function tableRow(label: string, value: string, borderColor: string): string {
   return `
