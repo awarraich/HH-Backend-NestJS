@@ -6,11 +6,17 @@ import {
   ManyToOne,
   JoinColumn,
   Index,
+  OneToMany,
 } from 'typeorm';
 import { JobPosting } from './job-posting.entity';
+import { JobApplicationFieldValue } from './job-application-field-value.entity';
 
 @Entity('job_applications')
 @Index(['job_posting_id'])
+// Composite indexes to keep the paginated /organization/:id/job-applications list fast
+// even as the table grows (filters: status bucket, sort: created_at DESC).
+@Index(['job_posting_id', 'status', 'created_at'])
+@Index(['status', 'created_at'])
 export class JobApplication {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -40,6 +46,10 @@ export class JobApplication {
   @Column({ type: 'jsonb', nullable: true })
   offer_details: Record<string, unknown> | null;
 
+  /** Interview schedule captured when HR books the interview (date/time/mode/location/message). */
+  @Column({ type: 'jsonb', nullable: true })
+  interview_details: Record<string, unknown> | null;
+
   /** Reason the candidate gave when declining an offer. Populated when status = offer_declined. */
   @Column({ type: 'text', nullable: true })
   decline_reason: string | null;
@@ -50,4 +60,9 @@ export class JobApplication {
   @ManyToOne(() => JobPosting, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'job_posting_id' })
   job_posting: JobPosting;
+
+  /** Normalized per-field answers. The JSONB `submitted_fields` column stays populated for
+   *  backwards compatibility during the transition but is derived from these rows. */
+  @OneToMany(() => JobApplicationFieldValue, (v) => v.application, { cascade: true })
+  field_values: JobApplicationFieldValue[];
 }

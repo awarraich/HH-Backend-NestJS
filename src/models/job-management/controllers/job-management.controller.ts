@@ -27,6 +27,7 @@ import { JobApplicationDocumentStorageService } from '../services/job-applicatio
 import { CreateJobPostingDto } from '../dto/create-job-posting.dto';
 import { UpdateJobPostingDto } from '../dto/update-job-posting.dto';
 import { QueryJobPostingDto } from '../dto/query-job-posting.dto';
+import { QueryJobApplicationsDto } from '../dto/query-job-applications.dto';
 import { CreateJobApplicationDto } from '../dto/create-job-application.dto';
 import { UpdateJobApplicationDto } from '../dto/update-job-application.dto';
 import { SendInterviewInviteDto } from '../dto/send-interview-invite.dto';
@@ -279,17 +280,30 @@ export class JobManagementController {
     });
   }
 
-  /** List all applications for an organization (all jobs). */
+  /**
+   * List applications for an organization (all jobs) with pagination, search, and status filter.
+   *
+   * Query params (all optional):
+   *   - page (default 1), limit (default 25, max 100)
+   *   - status: concrete state | "offers" (any offer-lifecycle state)
+   *   - q: case-insensitive search on applicant name / email / job title
+   *   - job_posting_id: filter to a single job
+   *
+   * Response `data`: `{ applications, page, limit, total, has_more, total_by_status }`.
+   */
   @Get('organization/:organizationId/job-applications')
   @UseGuards(JwtAuthGuard, OrganizationRoleGuard)
   @Roles('OWNER', 'HR', 'ADMIN')
   @HttpCode(HttpStatus.OK)
   async findAllApplicationsByOrganization(
     @Param('organizationId') organizationId: string,
+    @Query() query: QueryJobApplicationsDto,
   ): Promise<unknown> {
-    const applications =
-      await this.jobManagementService.findAllApplicationsByOrganization(organizationId);
-    return SuccessHelper.createSuccessResponse({ applications });
+    const result = await this.jobManagementService.findAllApplicationsByOrganization(
+      organizationId,
+      query,
+    );
+    return SuccessHelper.createSuccessResponse(result);
   }
 
   /** Update job application (e.g. status: rejected | interview | offer_sent). Persists so reload keeps it. */
