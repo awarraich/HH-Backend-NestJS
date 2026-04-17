@@ -49,6 +49,31 @@ export class EmailService implements OnModuleInit {
     ];
   }
 
+  /**
+   * Build a logo attachment for a specific organization. When the org has its
+   * own logo uploaded, that image is attached inline under the same CID
+   * (`logo@homehealth.ai`) the templates reference, so the per-org image
+   * replaces the default without template changes. Falls back to the default
+   * homehealth logo otherwise. Inline attachment is used (rather than a URL)
+   * so the image renders reliably in Gmail/Outlook regardless of whether the
+   * backend is publicly reachable.
+   */
+  private buildLogoAttachment(
+    orgLogo?: { buffer: Buffer; contentType: string; file_name?: string } | null,
+  ): nodemailer.SendMailOptions['attachments'] {
+    if (orgLogo) {
+      return [
+        {
+          filename: orgLogo.file_name ?? 'logo',
+          content: orgLogo.buffer,
+          contentType: orgLogo.contentType || 'application/octet-stream',
+          cid: 'logo@homehealth.ai',
+        },
+      ];
+    }
+    return this.logoAttachment;
+  }
+
   async onModuleInit(): Promise<void> {
     await this.verifyConnection();
   }
@@ -382,6 +407,8 @@ export class EmailService implements OnModuleInit {
   /**
    * Send interview invite email to applicant (Schedule Interview modal content).
    * Used when org clicks "Schedule Interview" on job applications page.
+   * Pass `orgLogo` to override the default logo with the organization's own
+   * uploaded logo (sent as an inline CID attachment).
    */
   async sendInterviewInviteEmail(
     toEmail: string,
@@ -389,6 +416,7 @@ export class EmailService implements OnModuleInit {
       Parameters<typeof InterviewInviteEmailTemplate.generate>[0],
       never
     >,
+    orgLogo?: { buffer: Buffer; contentType: string; file_name?: string } | null,
   ): Promise<void> {
     const auth = this.emailConfigService.auth;
     if (!auth.user || !auth.pass) {
@@ -403,7 +431,7 @@ export class EmailService implements OnModuleInit {
       subject: template.subject,
       html: template.html,
       text: template.text,
-      attachments: this.logoAttachment,
+      attachments: this.buildLogoAttachment(orgLogo),
     };
     const info = await this.transporter.sendMail(mailOptions);
     this.logger.log(
@@ -414,6 +442,8 @@ export class EmailService implements OnModuleInit {
   /**
    * Send offer letter email to applicant (Send Offer modal content).
    * Used when org clicks "Send Offer" on job applications page.
+   * Pass `orgLogo` to override the default logo with the organization's own
+   * uploaded logo (sent as an inline CID attachment).
    */
   async sendOfferLetterEmail(
     toEmail: string,
@@ -421,6 +451,7 @@ export class EmailService implements OnModuleInit {
       Parameters<typeof OfferLetterEmailTemplate.generate>[0],
       never
     >,
+    orgLogo?: { buffer: Buffer; contentType: string; file_name?: string } | null,
   ): Promise<void> {
     const auth = this.emailConfigService.auth;
     if (!auth.user || !auth.pass) {
@@ -435,7 +466,7 @@ export class EmailService implements OnModuleInit {
       subject: template.subject,
       html: template.html,
       text: template.text,
-      attachments: this.logoAttachment,
+      attachments: this.buildLogoAttachment(orgLogo),
     };
     const info = await this.transporter.sendMail(mailOptions);
     this.logger.log(

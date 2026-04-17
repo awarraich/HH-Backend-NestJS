@@ -812,6 +812,103 @@ export class OrganizationCompanyProfileService {
     }
   }
 
+  /**
+   * Load the organization's logo file as a buffer, for use as an inline
+   * attachment (e.g. email templates). Returns null when the org has no
+   * uploaded logo or when the underlying file cannot be read.
+   *
+   * `profile.logo` is stored as a media URL such as
+   * `/v1/api/organizations/{orgId}/company-profile/media/gallery/{fileId}`.
+   * We parse the gallery file id out of it, look up the gallery entry to get
+   * the storage-relative path, then stream the bytes into memory.
+   */
+  async getOrganizationLogoBytes(
+    organizationId: string,
+  ): Promise<{ buffer: Buffer; contentType: string; file_name: string } | null> {
+    try {
+      let profile: OrganizationCompanyProfile | null = null;
+      try {
+        profile = await this.profileRepository.findOne({
+          where: { organization_id: organizationId },
+        });
+      } catch {
+        try {
+          profile = await this.getByOrganizationIdRaw(organizationId);
+        } catch {
+          profile = null;
+        }
+      }
+      if (!profile?.logo) {
+        this.logger.log(
+          `getOrganizationLogoBytes: org ${organizationId} has no logo configured; falling back to default.`,
+        );
+        return null;
+      }
+      const logo = profile.logo.trim();
+
+      // External logo (fully-qualified http/https URL): download the bytes.
+      if (/^https?:\/\//i.test(logo)) {
+        try {
+          const response = await fetch(logo);
+          if (!response.ok) {
+            this.logger.warn(
+              `getOrganizationLogoBytes: external logo fetch failed for org ${organizationId} (${response.status} ${response.statusText}).`,
+            );
+            return null;
+          }
+          const arrayBuf = await response.arrayBuffer();
+          const buffer = Buffer.from(arrayBuf);
+          const contentType =
+            response.headers.get('content-type') ?? 'application/octet-stream';
+          const fileName = logo.split('/').pop()?.split('?')[0] || 'logo';
+          return { buffer, contentType, file_name: fileName };
+        } catch (err) {
+          this.logger.warn(
+            `getOrganizationLogoBytes: external logo fetch threw for org ${organizationId}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+          return null;
+        }
+      }
+
+      // Internal gallery path: parse file id, find gallery item, read bytes.
+      const match = logo.match(/\/gallery\/([a-f0-9-]+)(?:$|[/?#])/i);
+      const fileId = match?.[1];
+      if (!fileId) {
+        this.logger.warn(
+          `getOrganizationLogoBytes: org ${organizationId} logo path does not contain a /gallery/{id} segment (value: ${logo}).`,
+        );
+        return null;
+      }
+      const gallery = Array.isArray(profile.gallery) ? profile.gallery : [];
+      const item = gallery.find((x) => x?.id === fileId);
+      if (!item?.file_path) {
+        this.logger.warn(
+          `getOrganizationLogoBytes: org ${organizationId} gallery has no item with id ${fileId} (or item missing file_path). Gallery size: ${gallery.length}.`,
+        );
+        return null;
+      }
+      const fileName = item.file_path.split('/').pop() ?? 'logo';
+      const { stream, contentType } = await this.storageService.getFileStream(
+        item.file_path,
+        fileName,
+      );
+      const chunks: Buffer[] = [];
+      for await (const chunk of stream as AsyncIterable<Buffer | string>) {
+        chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+      }
+      return { buffer: Buffer.concat(chunks), contentType, file_name: fileName };
+    } catch (error) {
+      this.logger.warn(
+        `getOrganizationLogoBytes failed for org ${organizationId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return null;
+    }
+  }
+
   /** Serve media for public view (e.g. embedded image/video); no auth. */
   async getMediaStreamPublic(
     organizationId: string,

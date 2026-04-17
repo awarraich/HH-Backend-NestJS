@@ -30,6 +30,16 @@ export class JobApplication {
   @Column({ type: 'varchar', length: 255 })
   applicant_email: string;
 
+  /**
+   * Link to the `users` table row when the application was submitted by an
+   * authenticated user (JWT present at apply time). Remains null for guest
+   * applications. Indexed so the Send Offer flow can pre-select the applicant
+   * as the default Employee assignee without a fuzzy email match.
+   */
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
+  applicant_user_id: string | null;
+
   @Column({ type: 'varchar', length: 50, nullable: true })
   applicant_phone: string | null;
 

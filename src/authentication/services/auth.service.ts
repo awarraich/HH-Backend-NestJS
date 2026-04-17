@@ -109,6 +109,14 @@ export class AuthService {
       const savedUserId = insertResult.identifiers?.[0]?.id;
       if (savedUserId) {
         this.logger.log(`User created: ${this.maskEmail(registerDto.email)} (id: ${savedUserId})`);
+        // Backfill: guests sometimes apply for jobs without an account, then
+        // sign up with the same email later. Link those rows to this user
+        // so the Send Offer flow can find them via `applicant_user_id`
+        // without relying on fuzzy email matching at read time.
+        await this.linkExistingJobApplicationsToUser(
+          savedUserId as string,
+          registerDto.email,
+        );
       }
 
       // Extract user name for email template
@@ -736,7 +744,15 @@ export class AuthService {
 
     // Update last login
     user.last_login = new Date();
-    await this.userRepository.save(user);
+    const savedUser = await this.userRepository.save(user);
+
+    // Link any guest-apply job applications submitted under this email to
+    // the (possibly new) user record, so applicants who used Google signup
+    // after applying as a guest still see their offers.
+    await this.linkExistingJobApplicationsToUser(
+      String(savedUser.id),
+      savedUser.email,
+    );
 
     // Get user roles
     const userWithRoles = await this.userRepository.findByIdWithRoles(user.id);
@@ -1866,6 +1882,53 @@ export class AuthService {
       },
       created_at: userRole.created_at,
     };
+  }
+
+  /**
+   * Link any `job_applications` rows that share the new user's email back to
+   * the freshly-created user row. Applies to guest applies + later signups,
+   * and to applicants who used a different email at apply time than they
+   * registered with (case-insensitive match). We never clobber an existing
+   * `applicant_user_id` — if a row is already linked it stays that way.
+   *
+   * Runs as raw SQL to avoid introducing a cyclic import between the auth
+   * module and the job-management module.
+   */
+  private async linkExistingJobApplicationsToUser(
+    userId: string,
+    email: string,
+  ): Promise<void> {
+    const trimmed = email?.trim();
+    if (!userId || !trimmed) return;
+    try {
+      const result = await this.dataSource.query(
+        `UPDATE job_applications
+            SET applicant_user_id = $1
+          WHERE applicant_user_id IS NULL
+            AND LOWER(applicant_email) = LOWER($2)`,
+        [userId, trimmed],
+      );
+      // Postgres returns [rows, affected] for parameterised updates; node-pg
+      // surfaces `rowCount` via the second tuple element in TypeORM's
+      // `query()` wrapper. We log conservatively either way.
+      const affected =
+        Array.isArray(result) && typeof result[1] === 'number'
+          ? result[1]
+          : undefined;
+      if (affected && affected > 0) {
+        this.logger.log(
+          `Linked ${affected} existing job application(s) to new user ${this.maskEmail(trimmed)}.`,
+        );
+      }
+    } catch (err) {
+      // Non-fatal — registration has already succeeded. Log so we notice if
+      // the query breaks after a schema change but never block signup.
+      this.logger.warn(
+        `linkExistingJobApplicationsToUser failed for ${this.maskEmail(trimmed)}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
 
   private maskEmail(email: string): string {

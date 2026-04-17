@@ -9,6 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { randomBytes } from 'crypto';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { OfferLetterAssignment } from '../entities/offer-letter-assignment.entity';
 import {
   OfferLetterAssignmentRole,
@@ -17,6 +18,8 @@ import {
 import { OfferLetterFieldValue } from '../entities/offer-letter-field-value.entity';
 import { CompetencyTemplate } from '../../organizations/document-workflow/entities/competency-template.entity';
 import { DocumentWorkflowRole } from '../../organizations/document-workflow/entities/document-workflow-role.entity';
+import { Organization } from '../../organizations/entities/organization.entity';
+import { OrganizationCompanyProfileService } from '../../organizations/company-profile-setup/services/organization-company-profile.service';
 import { JobApplication } from '../entities/job-application.entity';
 import { User } from '../../../authentication/entities/user.entity';
 import {
@@ -26,8 +29,27 @@ import {
 import { FillOfferLetterFieldsDto } from '../dto/fill-offer-letter-fields.dto';
 import { TemplatesService } from '../../organizations/document-workflow/services/templates.service';
 import { EmailService } from '../../../common/services/email/email.service';
+import { JobApplicationDocumentStorageService } from './job-application-document-storage.service';
 
 const FILL_TOKEN_TTL_DAYS = 30;
+
+/**
+ * Per-recipient outcome of the offer-letter emails fanned out when HR sends
+ * an offer. Returned from create() so the HR-facing response can say
+ * "offer created; 1 email failed to deliver" instead of pretending all went
+ * through just because the offer row was persisted.
+ */
+export interface OfferEmailRecipientResult {
+  kind: 'assignee' | 'applicant';
+  email: string | null;
+  status: 'sent' | 'failed' | 'skipped';
+  reason?: string;
+}
+export interface OfferEmailDeliveryReport {
+  sent: number;
+  failed: number;
+  recipients: OfferEmailRecipientResult[];
+}
 
 export interface TemplateFieldSnapshot {
   id: string;
@@ -74,9 +96,13 @@ export class OfferLetterAssignmentService {
     private readonly applicationRepo: Repository<JobApplication>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
+    @InjectRepository(Organization)
+    private readonly organizationRepo: Repository<Organization>,
     private readonly templatesService: TemplatesService,
     private readonly emailService: EmailService,
     private readonly configService: ConfigService,
+    private readonly companyProfileService: OrganizationCompanyProfileService,
+    private readonly jobApplicationDocumentStorage: JobApplicationDocumentStorageService,
   ) {}
 
   // ─── Creation ───────────────────────────────────────────────────────────
@@ -99,6 +125,16 @@ export class OfferLetterAssignmentService {
       relations: ['job_posting'],
     });
     if (!application) throw new NotFoundException('Job application not found');
+    // Closed applications can't receive a new offer — otherwise HR can
+    // accidentally "send offer" to someone they already rejected or who
+    // declined a previous offer, and the applicant then sees contradictory
+    // status + offer data.
+    const CLOSED_STATUSES = ['rejected', 'offer_declined', 'offer_accepted'];
+    if (CLOSED_STATUSES.includes((application.status ?? '').toLowerCase())) {
+      throw new BadRequestException(
+        `Cannot send an offer for an application in "${application.status}" state. Reopen the application first.`,
+      );
+    }
 
     const template = await this.templateRepo.findOne({
       where: { id: dto.templateId, organization_id: orgId },
@@ -183,22 +219,44 @@ export class OfferLetterAssignmentService {
       await this.applicationRepo.save(application);
     }
 
-    await this.notifyAssignees(application, template.name, savedRoles);
+    const emailDelivery = await this.notifyAssignees(
+      application,
+      template.name,
+      savedRoles,
+    );
 
-    return this.findOne(orgId, assignment.id);
+    const result = await this.findOne(orgId, assignment.id);
+    // Attach delivery results as a transient property so the controller can
+    // surface bounce / SMTP failures back to the HR user instead of the
+    // classic "everything looked fine but nobody got the email" trap.
+    (result as unknown as {
+      email_delivery?: typeof emailDelivery;
+    }).email_delivery = emailDelivery;
+    return result;
+  }
+
+  /** Per-recipient email delivery outcome reported back to HR. */
+  private buildFailureMessage(err: unknown): string {
+    return err instanceof Error ? err.message : String(err);
   }
 
   /**
-   * Send one email per assignee. Each recipient gets a link appropriate to
-   * their role: internal staff/employees land on an in-app view, external
-   * employees get a token-gated public URL.
+   * Send one email per assignee + one to the applicant. Returns a per-
+   * recipient delivery report so the HR-facing response can surface bounces
+   * (e.g. "Offer created; email to the candidate failed: SMTP unreachable")
+   * instead of silently pretending everything was sent.
    */
   private async notifyAssignees(
     application: JobApplication,
     templateName: string,
     roleRows: OfferLetterAssignmentRole[],
-  ): Promise<void> {
-    if (!roleRows.length) return;
+  ): Promise<OfferEmailDeliveryReport> {
+    const report: OfferEmailDeliveryReport = {
+      sent: 0,
+      failed: 0,
+      recipients: [],
+    };
+    if (!roleRows.length) return report;
 
     const frontendBase = (
       this.configService.get<string>('HOME_HEALTH_AI_URL') ?? ''
@@ -212,16 +270,175 @@ export class OfferLetterAssignmentService {
 
     const offerDetails = (application.offer_details ?? {}) as Record<string, unknown>;
 
+    const orgId = application.job_posting?.organization_id;
+    const [organizationName, orgLogo] = orgId
+      ? await Promise.all([
+          this.resolveOrganizationName(orgId),
+          this.companyProfileService.getOrganizationLogoBytes(orgId),
+        ])
+      : [undefined, null];
+
     for (const row of roleRows) {
       const user = userById.get(row.user_id);
-      if (!user?.email) continue;
+      if (!user?.email) {
+        report.recipients.push({
+          kind: 'assignee',
+          email: null,
+          status: 'skipped',
+          reason: 'No email on file for this assignee.',
+        });
+        continue;
+      }
 
       const fillUrl = this.buildFillUrl(frontendBase, row);
       const recipientName = this.fullName(user) || application.applicant_name || 'there';
 
       try {
-        await this.emailService.sendOfferLetterEmail(user.email, {
-          applicantName: recipientName,
+        await this.emailService.sendOfferLetterEmail(
+          user.email,
+          {
+            applicantName: recipientName,
+            // The template renders the signer email with candidate context
+            // ("sign the offer letter prepared for <candidate>"). Passing the
+            // candidate separately from the recipient keeps the greeting
+            // correct ("Dear <supervisor>") while letting the body name the
+            // person whose offer is being signed.
+            candidateName: application.applicant_name || undefined,
+            jobTitle: application.job_posting?.title ?? templateName,
+            salary: typeof offerDetails.salary === 'string' ? offerDetails.salary : '',
+            startDate:
+              typeof offerDetails.startDate === 'string' ? offerDetails.startDate : '',
+            offerContent: '',
+            benefits:
+              typeof offerDetails.benefits === 'string' ? offerDetails.benefits : undefined,
+            responseDeadline:
+              typeof offerDetails.responseDeadline === 'string'
+                ? offerDetails.responseDeadline
+                : undefined,
+            employmentType:
+              (offerDetails.employmentType as
+                | 'full_time'
+                | 'part_time'
+                | 'contract'
+                | 'temporary'
+                | 'internship'
+                | undefined) ?? undefined,
+            message:
+              typeof offerDetails.message === 'string' ? offerDetails.message : undefined,
+            jobLocation: application.job_posting?.location ?? undefined,
+            organizationName,
+            fillUrl,
+            recipientType: row.recipient_type,
+          },
+          orgLogo,
+        );
+        report.sent += 1;
+        report.recipients.push({
+          kind: 'assignee',
+          email: user.email,
+          status: 'sent',
+        });
+      } catch (err) {
+        report.failed += 1;
+        const reason = this.buildFailureMessage(err);
+        this.logger.warn(
+          `Offer letter email to user ${row.user_id} (${user.email}) failed: ${reason}`,
+        );
+        report.recipients.push({
+          kind: 'assignee',
+          email: user.email,
+          status: 'failed',
+          reason,
+        });
+      }
+    }
+
+    // Also notify the applicant themselves — the "employee to be".
+    const applicantResult = await this.notifyApplicant({
+      application,
+      templateName,
+      offerDetails,
+      organizationName,
+      orgLogo,
+      frontendBase,
+      assigneeEmails: new Set(
+        Array.from(userById.values())
+          .map((u) => u.email?.trim().toLowerCase())
+          .filter((e): e is string => !!e),
+      ),
+    });
+    if (applicantResult) {
+      if (applicantResult.status === 'sent') report.sent += 1;
+      if (applicantResult.status === 'failed') report.failed += 1;
+      report.recipients.push(applicantResult);
+    }
+    return report;
+  }
+
+  /**
+   * Send the offer letter email directly to the applicant. Unlike the
+   * assignee emails, the applicant's CTA points at their "My Applications"
+   * page where they can accept or decline. The link is only included when the
+   * applicant has a matching user account; external applicants with no user
+   * row get the email without a CTA button (they can still reply or contact
+   * the HR point of contact shown in the message).
+   */
+  private async notifyApplicant(args: {
+    application: JobApplication;
+    templateName: string;
+    offerDetails: Record<string, unknown>;
+    organizationName?: string;
+    orgLogo: Awaited<
+      ReturnType<OrganizationCompanyProfileService['getOrganizationLogoBytes']>
+    >;
+    frontendBase: string;
+    assigneeEmails: Set<string>;
+  }): Promise<OfferEmailRecipientResult | null> {
+    const {
+      application,
+      templateName,
+      offerDetails,
+      organizationName,
+      orgLogo,
+      frontendBase,
+      assigneeEmails,
+    } = args;
+
+    const applicantEmail = application.applicant_email?.trim();
+    if (!applicantEmail) {
+      return {
+        kind: 'applicant',
+        email: null,
+        status: 'skipped',
+        reason: 'Application has no applicant_email on file.',
+      };
+    }
+    if (assigneeEmails.has(applicantEmail.toLowerCase())) {
+      // Applicant is also a role assignee (e.g. added as external_employee) —
+      // they already got an email via the assignee loop. Dedup here rather
+      // than double-notify.
+      return null;
+    }
+
+    // Link straight to the applicant's My Applications view with the target
+    // application pre-expanded (via `app=<id>`). The expanded card shows the
+    // offer details inline — PDF link + accept/decline + continue-to-onboarding
+    // — so the applicant handles everything from a single surface. When the
+    // user is not authenticated yet, the 401 interceptor bounces them to
+    // /login?next=... and returns them here after login.
+    const reviewUrl = frontendBase
+      ? `${frontendBase}/employee/jobs?view=applications&app=${encodeURIComponent(application.id)}`
+      : undefined;
+
+    try {
+      await this.emailService.sendOfferLetterEmail(
+        applicantEmail,
+        {
+          applicantName: application.applicant_name || 'there',
+          // Recipient and candidate are the same person on the applicant
+          // email, but we set both explicitly so the template doesn't have
+          // to fall back silently.
+          candidateName: application.applicant_name || undefined,
           jobTitle: application.job_posting?.title ?? templateName,
           salary: typeof offerDetails.salary === 'string' ? offerDetails.salary : '',
           startDate:
@@ -244,17 +461,39 @@ export class OfferLetterAssignmentService {
           message:
             typeof offerDetails.message === 'string' ? offerDetails.message : undefined,
           jobLocation: application.job_posting?.location ?? undefined,
-          fillUrl,
-          recipientType: row.recipient_type,
-        });
-      } catch (err) {
-        this.logger.warn(
-          `Offer letter email to user ${row.user_id} failed: ${
-            err instanceof Error ? err.message : String(err)
-          }`,
-        );
-      }
+          organizationName,
+          fillUrl: reviewUrl,
+          recipientType: 'applicant',
+        },
+        orgLogo,
+      );
+      return { kind: 'applicant', email: applicantEmail, status: 'sent' };
+    } catch (err) {
+      const reason = this.buildFailureMessage(err);
+      this.logger.warn(
+        `Offer letter email to applicant ${applicantEmail} failed: ${reason}`,
+      );
+      return {
+        kind: 'applicant',
+        email: applicantEmail,
+        status: 'failed',
+        reason,
+      };
     }
+  }
+
+  /**
+   * Fetch the org's display name for email branding. Returns undefined when
+   * the org has no name set so the template falls back to the default.
+   */
+  private async resolveOrganizationName(
+    organizationId: string,
+  ): Promise<string | undefined> {
+    const org = await this.organizationRepo.findOne({
+      where: { id: organizationId },
+      select: ['id', 'organization_name'],
+    });
+    return org?.organization_name?.trim() || undefined;
   }
 
   private buildFillUrl(
@@ -347,22 +586,140 @@ export class OfferLetterAssignmentService {
       relations: ['roleAssignments', 'roleAssignments.role', 'fieldValues'],
       order: { created_at: 'DESC' },
     });
-    return assignments.map((a) => {
-      const decorated = this.decorate(a);
-      const myRoles = decorated.roleAssignments.filter(
-        (r) => r.user_id === userId,
-      );
-      // Rewrite pdfUrl to the assignee-scoped endpoint so the browser can
-      // fetch the PDF without hitting the HR-only template endpoint.
-      const snapshot = decorated.template_snapshot as unknown as TemplateSnapshot & {
-        pdfUrl?: string;
-      };
-      if (snapshot?.pdf_file_key) {
-        snapshot.pdfUrl = `/v1/api/me/offer-letter-assignments/${decorated.id}/pdf`;
-        decorated.template_snapshot = snapshot as unknown as Record<string, unknown>;
-      }
-      return Object.assign(decorated, { myRoles });
+
+    // The "Offer Letters to Fill" tab is for role-fillers acting on someone
+    // else's offer (HR signing, supervisor acknowledging, etc.). When the
+    // current user is the applicant on the underlying job application, the
+    // offer is already surfaced on My Applications with its own Sign /
+    // Upload UX — showing it here too is a confusing duplicate and inflates
+    // the badge count. Look up the owning applications and drop any
+    // assignment the caller owns as the applicant.
+    //
+    // We also drop voided assignments because a voided offer should never
+    // need action; they still show on the org-side assignments list where
+    // HR manages the lifecycle.
+    const applicationIds = [
+      ...new Set(
+        assignments
+          .map((a) => a.job_application_id)
+          .filter((id): id is string => !!id),
+      ),
+    ];
+    const [user, applications] = await Promise.all([
+      this.userRepo.findOne({ where: { id: userId } }),
+      applicationIds.length
+        ? this.applicationRepo.find({
+            where: { id: In(applicationIds) },
+            select: ['id', 'applicant_user_id', 'applicant_email'],
+          })
+        : Promise.resolve([] as JobApplication[]),
+    ]);
+    const userEmail = user?.email?.toLowerCase() ?? null;
+    const ownedApplicationIds = new Set(
+      applications
+        .filter((app) => {
+          if (app.applicant_user_id && app.applicant_user_id === userId) return true;
+          if (userEmail && app.applicant_email?.toLowerCase() === userEmail) {
+            return true;
+          }
+          return false;
+        })
+        .map((app) => app.id),
+    );
+
+    return assignments
+      .filter((a) => {
+        if (a.status === 'voided') return false;
+        if (
+          a.job_application_id &&
+          ownedApplicationIds.has(a.job_application_id)
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .map((a) => {
+        const decorated = this.decorate(a);
+        const myRoles = decorated.roleAssignments.filter(
+          (r) => r.user_id === userId,
+        );
+        // Rewrite pdfUrl to the assignee-scoped endpoint so the browser can
+        // fetch the PDF without hitting the HR-only template endpoint.
+        const snapshot = decorated.template_snapshot as unknown as TemplateSnapshot & {
+          pdfUrl?: string;
+        };
+        if (snapshot?.pdf_file_key) {
+          snapshot.pdfUrl = `/v1/api/me/offer-letter-assignments/${decorated.id}/pdf`;
+          decorated.template_snapshot = snapshot as unknown as Record<string, unknown>;
+        }
+        return Object.assign(decorated, { myRoles });
+      });
+  }
+
+  /**
+   * Fetch the offer letter assignment attached to a job application, scoped
+   * to the applicant of that application. Unlike `findForUser` (which filters
+   * by `offer_letter_assignment_roles.user_id`), the applicant is not one of
+   * the assignees — their authorisation is based on owning the job application.
+   *
+   * Returns the same shape as `findForUser` (single element) so the frontend
+   * can reuse the OfferLetterFiller component in read-only mode to render the
+   * template PDF with signature/field overlays. The `pdfUrl` is rewritten to
+   * the applicant-scoped endpoint so the browser fetches bytes authorised by
+   * the applicant's JWT.
+   */
+  async findForApplicant(
+    userId: string,
+    applicationId: string,
+  ): Promise<(OfferLetterAssignment & { myRoles: OfferLetterAssignmentRole[] }) | null> {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user?.email) {
+      throw new ForbiddenException('Unauthorized');
+    }
+    const application = await this.applicationRepo.findOne({
+      where: { id: applicationId },
     });
+    if (!application) throw new NotFoundException('Job application not found');
+    const owns =
+      (application.applicant_user_id &&
+        application.applicant_user_id === userId) ||
+      application.applicant_email?.toLowerCase() === user.email.toLowerCase();
+    if (!owns) {
+      throw new ForbiddenException(
+        'You can only view the offer letter for your own application.',
+      );
+    }
+    const offerDetails = (application.offer_details ?? {}) as Record<string, unknown>;
+    const assignmentId =
+      typeof offerDetails.offerLetterAssignmentId === 'string'
+        ? offerDetails.offerLetterAssignmentId
+        : null;
+    if (!assignmentId) return null;
+
+    const a = await this.assignmentRepo.findOne({
+      where: { id: assignmentId },
+      relations: ['roleAssignments', 'roleAssignments.role', 'fieldValues'],
+    });
+    if (!a) return null;
+
+    const decorated = this.decorate(a);
+    // Point the in-app viewer at the raw template bytes (`?format=raw`).
+    // OfferLetterFiller renders its own field overlays on top of the PDF,
+    // so we don't want the server-rendered variant here — that would draw
+    // every label twice. The Download / Open-in-browser buttons in the
+    // applicant modal hit this same endpoint without the query param and
+    // get the rendered version by default.
+    const snapshot = decorated.template_snapshot as unknown as TemplateSnapshot & {
+      pdfUrl?: string;
+    };
+    if (snapshot?.pdf_file_key) {
+      snapshot.pdfUrl = `/api/job-management/me/job-applications/${application.id}/offer-letter/pdf?format=raw`;
+      decorated.template_snapshot = snapshot as unknown as Record<string, unknown>;
+    }
+    // The applicant is not one of the role assignees, so `myRoles` is always
+    // empty. Returning an empty array keeps the response shape identical to
+    // `findForUser` so the frontend can reuse the same types.
+    return Object.assign(decorated, { myRoles: [] as OfferLetterAssignmentRole[] });
   }
 
   async findByFillToken(token: string): Promise<{
@@ -419,6 +776,633 @@ export class OfferLetterAssignmentService {
       throw new ForbiddenException('You are not assigned to this offer letter.');
     }
     return this.streamSnapshotPdf(a);
+  }
+
+  /**
+   * Return the offer letter PDF to the applicant **with field overlays baked
+   * in** — signature placeholders, labels and any values already filled by
+   * assignees are drawn directly into the PDF bytes via pdf-lib. This is
+   * necessary because the template PDF itself only carries the body text;
+   * field positions are metadata the frontend normally renders as HTML
+   * overlays on top of a react-pdf page. If we streamed raw bytes to the
+   * applicant, they'd see the text but no signature boxes — exactly the
+   * issue that surfaces when they open or download the file in a browser.
+   *
+   * Unlike `getPdfForAssignee` (which expects an assignee filling their role
+   * via the react-pdf editor), the applicant just views/downloads the file,
+   * so the rendered output is what they need.
+   *
+   * Authorisation: caller's email must match `applicant_email`, or the auth'd
+   * user id must match `applicant_user_id` on the application.
+   */
+  async getPdfForApplicant(
+    userId: string,
+    applicationId: string,
+    opts: { raw?: boolean } = {},
+  ): Promise<{ buffer: Buffer; contentType: string; fileName: string }> {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user?.email) {
+      throw new ForbiddenException('Unauthorized');
+    }
+    const application = await this.applicationRepo.findOne({
+      where: { id: applicationId },
+    });
+    if (!application) throw new NotFoundException('Job application not found');
+    const owns =
+      (application.applicant_user_id &&
+        application.applicant_user_id === userId) ||
+      application.applicant_email?.toLowerCase() === user.email.toLowerCase();
+    if (!owns) {
+      throw new ForbiddenException(
+        'You can only view the offer letter for your own application.',
+      );
+    }
+    const offerDetails = (application.offer_details ?? {}) as Record<string, unknown>;
+    const assignmentId =
+      typeof offerDetails.offerLetterAssignmentId === 'string'
+        ? offerDetails.offerLetterAssignmentId
+        : null;
+    if (!assignmentId) {
+      throw new NotFoundException('No offer letter attached to this application');
+    }
+    const a = await this.assignmentRepo.findOne({
+      where: { id: assignmentId },
+      relations: ['fieldValues'],
+    });
+    if (!a) throw new NotFoundException('Offer letter assignment not found');
+    if (opts.raw) {
+      // Raw template bytes — used by the in-app viewer, which layers its
+      // own react-pdf field overlays on top; baking them server-side too
+      // would duplicate every label.
+      const { stream, contentType, fileName } = await this.streamSnapshotPdf(a);
+      const buffer = await this.collectStreamToBuffer(stream);
+      return { buffer, contentType, fileName };
+    }
+    // Default: rendered bytes with field overlays baked in — what the user
+    // downloads or opens in their browser's native PDF viewer.
+    const applicantSignature = this.extractApplicantSignature(application);
+    return this.renderPdfWithFieldOverlays(a, { applicantSignature });
+  }
+
+  /**
+   * HR-side version of getPdfForApplicant: return the rendered offer letter
+   * PDF (signature + overlays baked in) for HR of the owning organization.
+   * Auth is scoped by the route guard; this method only enforces that the
+   * application actually belongs to the claimed org so HR of org A can't
+   * probe org B's offers.
+   */
+  async getPdfForOrgApplication(
+    orgId: string,
+    applicationId: string,
+  ): Promise<{ buffer: Buffer; contentType: string; fileName: string }> {
+    const application = await this.applicationRepo.findOne({
+      where: { id: applicationId },
+      relations: ['job_posting'],
+    });
+    if (!application) throw new NotFoundException('Job application not found');
+    if (application.job_posting?.organization_id !== orgId) {
+      throw new NotFoundException('Job application not found for this organization');
+    }
+    const offerDetails = (application.offer_details ?? {}) as Record<string, unknown>;
+    const assignmentId =
+      typeof offerDetails.offerLetterAssignmentId === 'string'
+        ? offerDetails.offerLetterAssignmentId
+        : null;
+    if (!assignmentId) {
+      throw new NotFoundException('No offer letter attached to this application');
+    }
+    const a = await this.assignmentRepo.findOne({
+      where: { id: assignmentId },
+      relations: ['fieldValues'],
+    });
+    if (!a) throw new NotFoundException('Offer letter assignment not found');
+    const applicantSignature = this.extractApplicantSignature(application);
+    return this.renderPdfWithFieldOverlays(a, { applicantSignature });
+  }
+
+  /**
+   * Pull the applicant's e-signed signature off the application's offer
+   * details JSON in a type-safe way. Returns null when missing or malformed.
+   */
+  private extractApplicantSignature(
+    application: JobApplication,
+  ): { dataUrl: string; signedAt?: string } | null {
+    const details = (application.offer_details ?? {}) as Record<string, unknown>;
+    const raw = details.applicantSignature as Record<string, unknown> | undefined;
+    const dataUrl = typeof raw?.dataUrl === 'string' ? raw.dataUrl : null;
+    if (!dataUrl || !/^data:image\/(png|jpeg|jpg);base64,/i.test(dataUrl)) {
+      return null;
+    }
+    const signedAt = typeof raw?.signedAt === 'string' ? raw.signedAt : undefined;
+    return { dataUrl, signedAt };
+  }
+
+  /**
+   * Bake the template's field overlays (labels, underlines, signature
+   * placeholders, filled values) directly into the PDF bytes so the file
+   * renders correctly anywhere — browser tab, OS PDF viewer, mobile mail
+   * attachment — without relying on the frontend's react-pdf overlay layer.
+   *
+   * Field coordinates on the snapshot are stored as percentages of the page
+   * dimensions with the origin at the top-left (matching react-pdf). pdf-lib
+   * uses a bottom-left origin, so we flip Y when computing draw positions.
+   * Signature values live in `value_text` as base64 data URLs (PNG); plain
+   * text values live in the same column as the raw string.
+   */
+  private async renderPdfWithFieldOverlays(
+    a: OfferLetterAssignment,
+    opts: {
+      applicantSignature?: { dataUrl: string; signedAt?: string } | null;
+    } = {},
+  ): Promise<{ buffer: Buffer; contentType: string; fileName: string }> {
+    const snapshot = a.template_snapshot as unknown as TemplateSnapshot;
+    if (!snapshot?.pdf_file_key) {
+      throw new NotFoundException('Offer letter has no PDF attached');
+    }
+
+    const { stream, contentType, fileName } =
+      await this.templatesService.getPdfStream(a.organization_id, snapshot.id);
+    const templateBytes = await this.collectStreamToBuffer(stream);
+
+    // If the PDF can't be loaded (corrupt / not a PDF), fall back to the raw
+    // bytes — the user at least gets the original document instead of an
+    // error page.
+    let pdfDoc: PDFDocument;
+    try {
+      pdfDoc = await PDFDocument.load(templateBytes);
+    } catch (err) {
+      this.logger.warn(
+        `renderPdfWithFieldOverlays: failed to load template pdf, streaming raw bytes. ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return { buffer: templateBytes, contentType, fileName };
+    }
+
+    const fields = Array.isArray(snapshot.document_fields)
+      ? snapshot.document_fields
+      : [];
+    if (fields.length === 0) {
+      return { buffer: templateBytes, contentType, fileName };
+    }
+
+    const valuesByFieldId = new Map<string, OfferLetterFieldValue>();
+    for (const fv of a.fieldValues ?? []) {
+      valuesByFieldId.set(fv.field_id, fv);
+    }
+
+    // Role-name lookup so the baked labels match the editor UI, which shows
+    // "Signature (Employee)" / "Signature (Supervisor)" etc. A field's raw
+    // `label` is often just "Signature"; the role name is part of the
+    // contextual chrome the editor adds at display time.
+    const roleNameById = new Map<string, string>();
+    for (const role of snapshot.roles ?? []) {
+      if (role?.id && typeof role.name === 'string') {
+        roleNameById.set(role.id, role.name);
+      }
+    }
+
+    // Identify the signature field the applicant's e-signature should land in.
+    // Templates typically have "Signature (Employee)" and "Signature
+    // (Supervisor)" fields — the applicant *is* the future employee, so
+    // mapping their e-signature to the Employee signature field reads the
+    // way HR expects on the rendered PDF instead of a floating box at the
+    // page bottom. We match by role name (case-insensitive) against a
+    // small allow-list, preferring `employee` first and falling back to
+    // similar concepts.
+    const APPLICANT_ROLE_ALIASES = ['employee', 'applicant', 'candidate', 'new hire'];
+    const applicantTargetFieldId = (() => {
+      if (!opts.applicantSignature?.dataUrl) return null;
+      const isSignatureField = (f: TemplateFieldSnapshot): boolean => {
+        const t = (f.type ?? '').toString().toLowerCase();
+        if (t === 'signature') return true;
+        // Fallback: some templates label the field "Signature" without the
+        // explicit type set on the snapshot. Treat those as signature fields
+        // too so older data still resolves.
+        const label = (f.label ?? '').toString().toLowerCase();
+        return label.startsWith('signature');
+      };
+      for (const alias of APPLICANT_ROLE_ALIASES) {
+        const match = fields.find((f) => {
+          if (!isSignatureField(f)) return false;
+          const roleName = f.assignedRoleId
+            ? (roleNameById.get(f.assignedRoleId) ?? '').toLowerCase().trim()
+            : '';
+          return roleName === alias;
+        });
+        if (match) return match.id;
+      }
+      return null;
+    })();
+    let applicantSignatureDrawn = false;
+
+    const pages = pdfDoc.getPages();
+    const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const labelColor = rgb(0.58, 0.64, 0.72); // slate-400-ish
+    const lineColor = rgb(0.28, 0.33, 0.41); // slate-700-ish
+    const valueColor = rgb(0.06, 0.09, 0.16); // slate-900-ish
+
+    for (const field of fields) {
+      const pageIndex = Math.max(0, (field.page ?? 1) - 1);
+      const page = pages[pageIndex];
+      if (!page) continue;
+      const pageWidth = page.getWidth();
+      const pageHeight = page.getHeight();
+      const xPct = field.xPct ?? 0;
+      const yPct = field.yPct ?? 0;
+      const wPct = field.wPct ?? 0;
+      const hPct = field.hPct ?? 0;
+      const boxX = xPct * pageWidth;
+      const boxW = wPct * pageWidth;
+      const boxH = hPct * pageHeight;
+      // Flip Y: react-pdf draws from top, pdf-lib from bottom.
+      const boxYTop = yPct * pageHeight;
+      const boxBottomFromPdfOrigin = pageHeight - boxYTop - boxH;
+
+      // Draw a thin underline along the bottom of the box — this is what the
+      // user sees as "signature line" or "value line" in the template editor.
+      page.drawLine({
+        start: { x: boxX, y: boxBottomFromPdfOrigin },
+        end: { x: boxX + boxW, y: boxBottomFromPdfOrigin },
+        thickness: 0.75,
+        color: lineColor,
+      });
+
+      // Label sits just below the line, small and muted. When a role owns
+      // the field, append its name in parentheses (unless the label already
+      // contains it) so "Signature (Employee)" reads the same way the editor
+      // shows it.
+      const rawLabel = (field.label ?? '').toString().trim();
+      const roleName = field.assignedRoleId
+        ? (roleNameById.get(field.assignedRoleId) ?? '').trim()
+        : '';
+      const labelText =
+        roleName && !rawLabel.toLowerCase().includes(roleName.toLowerCase())
+          ? rawLabel
+            ? `${rawLabel} (${roleName})`
+            : `(${roleName})`
+          : rawLabel;
+      if (labelText) {
+        const labelSize = 7;
+        page.drawText(labelText, {
+          x: boxX,
+          y: Math.max(0, boxBottomFromPdfOrigin - labelSize - 1),
+          size: labelSize,
+          font: helvetica,
+          color: labelColor,
+        });
+      }
+
+      // Fill the value, if any, above the underline.
+      // Priority: the applicant's own e-signature goes in the employee /
+      // applicant signature field when we identified one above. That wins
+      // over any `fieldValues` row for the same field (e.g. an HR stand-in
+      // signature left over from testing) — the applicant's signature is
+      // the canonical "employee signed" value.
+      const isApplicantTargetField =
+        !!applicantTargetFieldId && field.id === applicantTargetFieldId;
+      const applicantSigDataUrl = opts.applicantSignature?.dataUrl ?? null;
+      if (isApplicantTargetField && applicantSigDataUrl) {
+        try {
+          const match = applicantSigDataUrl.match(
+            /^data:image\/(png|jpeg|jpg);base64,(.+)$/i,
+          );
+          if (match) {
+            const mime = match[1].toLowerCase();
+            const imgBytes = Buffer.from(match[2], 'base64');
+            const image =
+              mime === 'png'
+                ? await pdfDoc.embedPng(imgBytes)
+                : await pdfDoc.embedJpg(imgBytes);
+            const dims = image.scale(1);
+            const scale = Math.min(boxW / dims.width, boxH / dims.height, 1);
+            const drawW = dims.width * scale;
+            const drawH = dims.height * scale;
+            page.drawImage(image, {
+              x: boxX,
+              y: boxBottomFromPdfOrigin,
+              width: drawW,
+              height: drawH,
+            });
+            applicantSignatureDrawn = true;
+            continue;
+          }
+        } catch (err) {
+          this.logger.warn(
+            `renderPdfWithFieldOverlays: failed to embed applicant signature in employee field. ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
+      }
+      const fv = valuesByFieldId.get(field.id);
+      if (!fv) continue;
+      const text = typeof fv.value_text === 'string' ? fv.value_text : '';
+      const isSignatureDataUrl = /^data:image\/(png|jpeg|jpg);base64,/i.test(text);
+
+      if (isSignatureDataUrl) {
+        try {
+          const match = text.match(/^data:image\/(png|jpeg|jpg);base64,(.+)$/i);
+          if (match) {
+            const mime = match[1].toLowerCase();
+            const b64 = match[2];
+            const imgBytes = Buffer.from(b64, 'base64');
+            const image = mime === 'png'
+              ? await pdfDoc.embedPng(imgBytes)
+              : await pdfDoc.embedJpg(imgBytes);
+            // Fit the image inside the box while keeping aspect ratio.
+            const dims = image.scale(1);
+            const scale = Math.min(boxW / dims.width, boxH / dims.height, 1);
+            const drawW = dims.width * scale;
+            const drawH = dims.height * scale;
+            page.drawImage(image, {
+              x: boxX,
+              y: boxBottomFromPdfOrigin,
+              width: drawW,
+              height: drawH,
+            });
+          }
+        } catch (err) {
+          this.logger.warn(
+            `renderPdfWithFieldOverlays: failed to embed signature image. ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
+      } else if (text.trim()) {
+        // Plain text / date / name — draw just above the line. Clip long
+        // strings with an ellipsis so they never spill into neighbouring
+        // fields; pdf-lib has no native clipping so we measure ourselves.
+        const fontSize = Math.min(11, Math.max(8, boxH * 0.55));
+        const displayed = this.truncateToWidth(
+          text,
+          boxW,
+          fontSize,
+          helvetica,
+        );
+        page.drawText(displayed, {
+          x: boxX,
+          y: boxBottomFromPdfOrigin + 1.5,
+          size: fontSize,
+          font: helvetica,
+          color: valueColor,
+        });
+      }
+    }
+
+    // Applicant's e-signed signature (captured via the "Sign Offer Letter"
+    // modal). Preferred placement was handled inside the field loop — their
+    // signature drops into the Employee/Applicant-role signature field. If
+    // no such field exists on the template, fall back to stamping the
+    // signature at the bottom of the last page so it's still visible.
+    const applicantSig = opts.applicantSignature;
+    if (applicantSig?.dataUrl && pages.length > 0 && !applicantSignatureDrawn) {
+      try {
+        const match = applicantSig.dataUrl.match(
+          /^data:image\/(png|jpeg|jpg);base64,(.+)$/i,
+        );
+        if (match) {
+          const mime = match[1].toLowerCase();
+          const imgBytes = Buffer.from(match[2], 'base64');
+          const image =
+            mime === 'png'
+              ? await pdfDoc.embedPng(imgBytes)
+              : await pdfDoc.embedJpg(imgBytes);
+          const lastPage = pages[pages.length - 1];
+          const pageWidth = lastPage.getWidth();
+          const pageHeight = lastPage.getHeight();
+          // Box sits in the left margin, 40pt above the page bottom, 40%
+          // wide / 6% tall of the page — big enough to read, small enough
+          // not to collide with other content.
+          const margin = pageWidth * 0.08;
+          const boxWidth = pageWidth * 0.4;
+          const boxHeight = pageHeight * 0.06;
+          const boxX = margin;
+          const boxY = 40;
+          const dims = image.scale(1);
+          const scale = Math.min(
+            boxWidth / dims.width,
+            boxHeight / dims.height,
+            1,
+          );
+          const drawW = dims.width * scale;
+          const drawH = dims.height * scale;
+          lastPage.drawLine({
+            start: { x: boxX, y: boxY },
+            end: { x: boxX + boxWidth, y: boxY },
+            thickness: 0.75,
+            color: lineColor,
+          });
+          lastPage.drawImage(image, {
+            x: boxX,
+            y: boxY,
+            width: drawW,
+            height: drawH,
+          });
+          const labelSuffix = applicantSig.signedAt
+            ? ` — signed ${applicantSig.signedAt.slice(0, 10)}`
+            : '';
+          lastPage.drawText(`Applicant Signature${labelSuffix}`, {
+            x: boxX,
+            y: Math.max(0, boxY - 8),
+            size: 7,
+            font: helvetica,
+            color: labelColor,
+          });
+        }
+      } catch (err) {
+        this.logger.warn(
+          `renderPdfWithFieldOverlays: failed to embed applicant signature. ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+
+    const bytes = await pdfDoc.save();
+    return {
+      buffer: Buffer.from(bytes),
+      contentType,
+      fileName,
+    };
+  }
+
+  /**
+   * Record the applicant's own signature (e-sign via canvas) on the offer
+   * letter. Stored on `application.offer_details.applicantSignature` as a
+   * base64 data URL + ISO timestamp. Later baked into the rendered PDF.
+   */
+  async saveApplicantSignature(
+    userId: string,
+    applicationId: string,
+    signatureDataUrl: string,
+  ): Promise<{ signedAt: string }> {
+    if (!/^data:image\/(png|jpeg|jpg);base64,/i.test(signatureDataUrl)) {
+      throw new BadRequestException(
+        'signatureDataUrl must be a base64 image data URL (png or jpeg).',
+      );
+    }
+    const application = await this.assertApplicantOwnsApplication(userId, applicationId);
+    const existing = (application.offer_details ?? {}) as Record<string, unknown>;
+    // Enforce single-method response: if the applicant already uploaded a
+    // signed copy they must clear it first before e-signing, so we never end
+    // up with two "I accepted" artefacts that could disagree.
+    const uploaded = existing.uploadedSignedOfferLetter as
+      | Record<string, unknown>
+      | undefined;
+    if (uploaded && typeof uploaded.fileUrl === 'string' && uploaded.fileUrl) {
+      throw new BadRequestException(
+        'Remove your uploaded signed copy before e-signing the offer letter.',
+      );
+    }
+    const signedAt = new Date().toISOString();
+    application.offer_details = {
+      ...existing,
+      applicantSignature: {
+        dataUrl: signatureDataUrl,
+        signedAt,
+      },
+    };
+    await this.applicationRepo.save(application);
+    return { signedAt };
+  }
+
+  /**
+   * Delete the applicant's e-signature so they can switch to uploading a
+   * signed copy (or just clear it). Leaves the rest of `offer_details`
+   * untouched — we don't want to wipe out HR-set fields like `salary`.
+   */
+  async clearApplicantSignature(
+    userId: string,
+    applicationId: string,
+  ): Promise<void> {
+    const application = await this.assertApplicantOwnsApplication(userId, applicationId);
+    const existing = (application.offer_details ?? {}) as Record<string, unknown>;
+    if (!existing.applicantSignature) return;
+    const { applicantSignature: _removed, ...rest } = existing;
+    application.offer_details = rest;
+    await this.applicationRepo.save(application);
+  }
+
+  /**
+   * Record an applicant-uploaded signed offer letter PDF. The file itself is
+   * persisted via the shared job-application document storage; its public
+   * URL + filename + upload timestamp live on
+   * `application.offer_details.uploadedSignedOfferLetter`. The applicant can
+   * later view/download their uploaded copy from the same place the org can.
+   */
+  async saveApplicantUploadedSignedOfferLetter(
+    userId: string,
+    applicationId: string,
+    buffer: Buffer,
+    originalFilename: string,
+  ): Promise<{ file_name: string; file_url: string; uploadedAt: string }> {
+    const application = await this.assertApplicantOwnsApplication(userId, applicationId);
+    const existing = (application.offer_details ?? {}) as Record<string, unknown>;
+    // Mirror of saveApplicantSignature — only one response method at a time.
+    const esig = existing.applicantSignature as
+      | Record<string, unknown>
+      | undefined;
+    if (esig && typeof esig.dataUrl === 'string' && esig.dataUrl) {
+      throw new BadRequestException(
+        'Remove your e-signature before uploading a signed copy.',
+      );
+    }
+    const saved = await this.jobApplicationDocumentStorage.saveDocument(
+      buffer,
+      originalFilename,
+    );
+    const uploadedAt = new Date().toISOString();
+    application.offer_details = {
+      ...existing,
+      uploadedSignedOfferLetter: {
+        fileName: saved.file_name,
+        fileUrl: saved.file_url,
+        uploadedAt,
+      },
+    };
+    await this.applicationRepo.save(application);
+    return { ...saved, uploadedAt };
+  }
+
+  /**
+   * Delete the applicant's uploaded signed copy. Mirrors
+   * `clearApplicantSignature` — lets them swap to e-signing.
+   */
+  async clearApplicantUploadedSignedOfferLetter(
+    userId: string,
+    applicationId: string,
+  ): Promise<void> {
+    const application = await this.assertApplicantOwnsApplication(userId, applicationId);
+    const existing = (application.offer_details ?? {}) as Record<string, unknown>;
+    if (!existing.uploadedSignedOfferLetter) return;
+    const { uploadedSignedOfferLetter: _removed, ...rest } = existing;
+    application.offer_details = rest;
+    await this.applicationRepo.save(application);
+  }
+
+  /**
+   * Resolve the auth'd user, load the application, and confirm the caller
+   * owns it — either by `applicant_user_id` match (preferred) or falling
+   * back to `applicant_email`. Throws 403/404 as appropriate.
+   */
+  private async assertApplicantOwnsApplication(
+    userId: string,
+    applicationId: string,
+  ): Promise<JobApplication> {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user?.email) {
+      throw new ForbiddenException('Unauthorized');
+    }
+    const application = await this.applicationRepo.findOne({
+      where: { id: applicationId },
+    });
+    if (!application) throw new NotFoundException('Job application not found');
+    const owns =
+      (application.applicant_user_id &&
+        application.applicant_user_id === userId) ||
+      application.applicant_email?.toLowerCase() === user.email.toLowerCase();
+    if (!owns) {
+      throw new ForbiddenException(
+        'You can only act on your own job application.',
+      );
+    }
+    return application;
+  }
+
+  /** Read a Node readable stream into a Buffer in memory. */
+  private async collectStreamToBuffer(
+    stream: NodeJS.ReadableStream,
+  ): Promise<Buffer> {
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream as AsyncIterable<Buffer | string>) {
+      chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+    }
+    return Buffer.concat(chunks);
+  }
+
+  /**
+   * Trim `text` so it fits in `maxWidth` points at `fontSize`, appending an
+   * ellipsis when it overflows. Uses pdf-lib's font width calculation; that's
+   * the same font we draw with, so what we measure matches what's drawn.
+   */
+  private truncateToWidth(
+    text: string,
+    maxWidth: number,
+    fontSize: number,
+    font: Awaited<ReturnType<PDFDocument['embedFont']>>,
+  ): string {
+    if (font.widthOfTextAtSize(text, fontSize) <= maxWidth) return text;
+    const ellipsis = '…';
+    let lo = 0;
+    let hi = text.length;
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2);
+      const candidate = text.slice(0, mid) + ellipsis;
+      if (font.widthOfTextAtSize(candidate, fontSize) <= maxWidth) lo = mid;
+      else hi = mid - 1;
+    }
+    return text.slice(0, lo) + ellipsis;
   }
 
   /**

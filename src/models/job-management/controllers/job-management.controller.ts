@@ -19,11 +19,13 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import * as fs from 'fs';
 import * as path from 'path';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../../../common/guards/optional-jwt-auth.guard';
 import { OrganizationRoleGuard } from '../../../common/guards/organization-role.guard';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { SuccessHelper } from '../../../common/helpers/responses/success.helper';
 import { JobManagementService } from '../services/job-management.service';
 import { JobApplicationDocumentStorageService } from '../services/job-application-document-storage.service';
+import { OfferLetterAssignmentService } from '../services/offer-letter-assignment.service';
 import { CreateJobPostingDto } from '../dto/create-job-posting.dto';
 import { UpdateJobPostingDto } from '../dto/update-job-posting.dto';
 import { QueryJobPostingDto } from '../dto/query-job-posting.dto';
@@ -31,12 +33,14 @@ import { QueryJobApplicationsDto } from '../dto/query-job-applications.dto';
 import { CreateJobApplicationDto } from '../dto/create-job-application.dto';
 import { UpdateJobApplicationDto } from '../dto/update-job-application.dto';
 import { SendInterviewInviteDto } from '../dto/send-interview-invite.dto';
+import { SetApplicationFormFieldsDto } from '../dto/set-application-form-fields.dto';
 
 @Controller('v1/api/job-management')
 export class JobManagementController {
   constructor(
     private readonly jobManagementService: JobManagementService,
     private readonly jobApplicationDocumentStorage: JobApplicationDocumentStorageService,
+    private readonly offerLetterAssignmentService: OfferLetterAssignmentService,
   ) {}
 
   @Post('organization/:organizationId/job-postings')
@@ -86,7 +90,8 @@ export class JobManagementController {
   }
 
   @Patch('organization/:organizationId/job-postings/:id')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, OrganizationRoleGuard)
+  @Roles('OWNER', 'HR', 'ADMIN')
   @HttpCode(HttpStatus.OK)
   async update(
     @Param('organizationId') organizationId: string,
@@ -98,7 +103,8 @@ export class JobManagementController {
   }
 
   @Delete('organization/:organizationId/job-postings/:id')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, OrganizationRoleGuard)
+  @Roles('OWNER', 'HR', 'ADMIN')
   @HttpCode(HttpStatus.NO_CONTENT)
   async remove(
     @Param('organizationId') organizationId: string,
@@ -129,11 +135,13 @@ export class JobManagementController {
   @HttpCode(HttpStatus.OK)
   async setApplicationFormFields(
     @Param('organizationId') organizationId: string,
-    @Body() body: { fields: Record<string, unknown>[] },
+    @Body() body: SetApplicationFormFieldsDto,
   ): Promise<unknown> {
+    // The service still uses the loose `Record<string, unknown>[]` shape for
+    // storage — the DTO does validation only, so we widen once here.
     const fields = await this.jobManagementService.setApplicationFormFields(
       organizationId,
-      body.fields ?? [],
+      (body.fields ?? []) as unknown as Record<string, unknown>[],
     );
     return SuccessHelper.createSuccessResponse(fields, 'Application form fields saved');
   }
@@ -217,11 +225,24 @@ export class JobManagementController {
       .send(fs.createReadStream(filePath));
   }
 
-  /** Public: submit job application (apply form). Single route; Fastify treats job-applications and job-applications/ as duplicate. */
+  /**
+   * Public: submit job application (apply form). Optionally JWT-gated — the
+   * endpoint still accepts guest applies, but when the caller is logged in we
+   * link the row to their user id so the Send Offer flow can find them later
+   * without fuzzy email matching.
+   */
   @Post('job-applications')
+  @UseGuards(OptionalJwtAuthGuard)
   @HttpCode(HttpStatus.CREATED)
-  async createApplication(@Body() dto: CreateJobApplicationDto): Promise<unknown> {
-    const result = await this.jobManagementService.createApplication(dto);
+  async createApplication(
+    @Body() dto: CreateJobApplicationDto,
+    @Req() req: FastifyRequest,
+  ): Promise<unknown> {
+    const userId = (req as unknown as { user?: { userId?: string } }).user?.userId;
+    const result = await this.jobManagementService.createApplication(
+      dto,
+      userId ? String(userId) : null,
+    );
     return SuccessHelper.createSuccessResponse(result, 'Application submitted');
   }
 
@@ -234,22 +255,42 @@ export class JobManagementController {
     return SuccessHelper.createSuccessResponse(applications);
   }
 
-  /** Candidate: accept or decline an offer on their own application. */
+  /**
+   * Candidate: accept or decline an offer on their own application.
+   *
+   * The `:userId` path parameter is kept for URL readability but the
+   * authenticated user id from the JWT is the one we trust — otherwise an
+   * authenticated user could PATCH /users/<someone-else>/.../offer-decision
+   * and flip another candidate's offer state. When the path id doesn't
+   * match the JWT id we throw 403 instead of silently ignoring, so bugs or
+   * stale frontend state surface loudly.
+   */
   @Patch('users/:userId/job-applications/:applicationId/offer-decision')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   async respondToOfferAsCandidate(
+    @Req() req: FastifyRequest,
     @Param('userId') userId: string,
     @Param('applicationId') applicationId: string,
     @Body() body: { decision: 'accept' | 'decline'; reason?: string | null },
   ): Promise<unknown> {
+    const authUserId =
+      (req as unknown as { user?: { userId?: string; sub?: string } }).user?.userId ??
+      (req as unknown as { user?: { userId?: string; sub?: string } }).user?.sub;
+    if (!authUserId) {
+      throw new NotFoundException('Authenticated user not found');
+    }
+    if (String(authUserId) !== String(userId)) {
+      // Deliberately 404 (not 403) to avoid leaking whether the id exists.
+      throw new NotFoundException('Job application not found');
+    }
     const decision = body?.decision === 'decline' ? 'decline' : 'accept';
     const reason =
       decision === 'decline' && typeof body?.reason === 'string'
         ? body.reason
         : null;
     const result = await this.jobManagementService.acceptOfferAsCandidate(
-      userId,
+      String(authUserId),
       applicationId,
       decision,
       reason,
@@ -338,6 +379,36 @@ export class JobManagementController {
       dto,
     );
     return SuccessHelper.createSuccessResponse(result, result.message);
+  }
+
+  /**
+   * HR-side rendered offer letter PDF — includes the applicant's e-signature
+   * and any filled role-field values baked into the bytes. Used by the org's
+   * applications list to surface the signed copy once the candidate has
+   * e-signed (the upload flow records its own PDF URL under
+   * `offer_details.uploadedSignedOfferLetter.fileUrl` and is fetched
+   * directly, skipping this route).
+   */
+  @Get('organization/:organizationId/job-applications/:id/offer-letter/pdf')
+  @UseGuards(JwtAuthGuard, OrganizationRoleGuard)
+  @Roles('OWNER', 'HR', 'ADMIN')
+  async viewApplicationOfferLetterPdf(
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @Query('disposition') disposition: string | undefined,
+    @Res() reply: FastifyReply,
+  ) {
+    const { buffer, contentType, fileName } =
+      await this.offerLetterAssignmentService.getPdfForOrgApplication(
+        organizationId,
+        id,
+      );
+    const safeName = encodeURIComponent(fileName).replace(/%20/g, '+');
+    const mode = disposition === 'attachment' ? 'attachment' : 'inline';
+    return reply
+      .header('Content-Type', contentType)
+      .header('Content-Disposition', `${mode}; filename="${safeName}"`)
+      .send(buffer);
   }
 
 }

@@ -317,6 +317,7 @@ import { FilledDocumentTemplatesController } from './document-workflow/controlle
     EmployeeRequirementTagService,
     OrganizationDocumentsService,
     OrganizationDocumentsChatService,
+    OrganizationCompanyProfileService,
     ShiftService,
     EmployeeShiftService,
     EmployeeAvailabilityService,
