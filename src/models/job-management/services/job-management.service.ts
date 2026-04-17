@@ -6,6 +6,7 @@ import { JobPosting } from '../entities/job-posting.entity';
 import { JobApplication } from '../entities/job-application.entity';
 import { JobApplicationFieldValue } from '../entities/job-application-field-value.entity';
 import { Organization } from '../../organizations/entities/organization.entity';
+import { OrganizationCompanyProfileService } from '../../organizations/company-profile-setup/services/organization-company-profile.service';
 import { Employee } from '../../employees/entities/employee.entity';
 import { User } from '../../../authentication/entities/user.entity';
 import { CreateJobPostingDto } from '../dto/create-job-posting.dto';
@@ -33,6 +34,7 @@ export class JobManagementService {
     @InjectRepository(User)
     private userRepository: Repository<User>,
     private readonly emailService: EmailService,
+    private readonly companyProfileService: OrganizationCompanyProfileService,
   ) {}
 
   private async resolveOrganizationName(
@@ -271,8 +273,14 @@ export class JobManagementService {
 
   /**
    * Public: create a job application (apply form submit). Job must exist and be active.
+   * `authUserId` is the caller's user id when a valid JWT was present; null
+   * for guest applies. When set it's persisted on `applicant_user_id`, giving
+   * the Send Offer flow a durable link to the candidate's account.
    */
-  async createApplication(dto: CreateJobApplicationDto): Promise<JobApplication> {
+  async createApplication(
+    dto: CreateJobApplicationDto,
+    authUserId: string | null = null,
+  ): Promise<JobApplication> {
     const job = await this.jobPostingRepository.findOne({
       where: { id: dto.job_posting_id, status: 'active' },
     });
@@ -289,6 +297,7 @@ export class JobManagementService {
       job_posting_id: dto.job_posting_id,
       applicant_name: String(dto.applicant_name).trim(),
       applicant_email: String(dto.applicant_email).trim(),
+      applicant_user_id: authUserId,
       applicant_phone: dto.applicant_phone ? String(dto.applicant_phone).trim() : null,
       notes: dto.notes != null ? String(dto.notes) : null,
       // Keep populating the legacy JSONB column during the transition so older reads still work.
@@ -412,6 +421,38 @@ export class JobManagementService {
     for (const app of applications) {
       const projected = this.projectFieldValuesToSubmittedFields(app.field_values);
       if (projected) app.submitted_fields = projected;
+    }
+
+    // Ensure every row surfaces an `applicant_user_id` for the Send Offer
+    // flow. The column is populated at apply time when a JWT is present and
+    // by the migration backfill for historical rows; anything still null here
+    // means the applicant genuinely has no matching user account yet (guest
+    // apply + never signed up). We still attempt one more email → User match
+    // as a cheap defensive fallback in case a user signed up after applying.
+    const unlinked = applications.filter((a) => !a.applicant_user_id);
+    if (unlinked.length > 0) {
+      const emails = Array.from(
+        new Set(
+          unlinked
+            .map((a) => a.applicant_email?.trim().toLowerCase())
+            .filter((e): e is string => !!e),
+        ),
+      );
+      if (emails.length > 0) {
+        const users = await this.userRepository
+          .createQueryBuilder('u')
+          .where('LOWER(u.email) IN (:...emails)', { emails })
+          .select(['u.id', 'u.email'])
+          .getMany();
+        const userIdByEmail = new Map<string, string>();
+        for (const u of users) {
+          if (u.email) userIdByEmail.set(u.email.toLowerCase(), u.id);
+        }
+        for (const app of unlinked) {
+          const email = app.applicant_email?.trim().toLowerCase();
+          if (email) app.applicant_user_id = userIdByEmail.get(email) ?? null;
+        }
+      }
     }
 
     // Unfiltered-by-status counts (still scoped to the same org / job / search context)
@@ -639,7 +680,29 @@ export class JobManagementService {
   }
 
   /**
-   * Update a job application (e.g. status). Application must belong to a job posting of the organization.
+   * Allowed status transitions. Kept explicit so "mark rejected" or
+   * "accidentally set back to pending" can't nuke a live offer's state.
+   * Each key is a current status; each value is the set of statuses HR is
+   * allowed to move to from there. The candidate-side endpoint
+   * (acceptOfferAsCandidate) has its own narrower rules below.
+   */
+  private static readonly STATUS_TRANSITIONS: Readonly<Record<string, readonly string[]>> = {
+    pending: ['interview', 'offer_sent', 'offer_pending', 'rejected'],
+    not_seen: ['interview', 'offer_sent', 'offer_pending', 'rejected'],
+    interview: ['offer_sent', 'offer_pending', 'rejected', 'pending'],
+    offer_sent: ['offer_pending', 'offer_accepted', 'offer_declined', 'rejected'],
+    offer_pending: ['offer_sent', 'offer_signed', 'offer_accepted', 'offer_declined', 'rejected'],
+    offer_signed: ['offer_accepted', 'offer_declined', 'rejected'],
+    // Terminal states — HR can only "unreject" back to pending or nothing.
+    offer_accepted: [],
+    offer_declined: ['pending'],
+    rejected: ['pending'],
+  };
+
+  /**
+   * Update a job application (status, interview_details, offer_details).
+   * Application must belong to a job posting of the organization. Status
+   * transitions are validated against the STATUS_TRANSITIONS table above.
    */
   async updateApplicationStatus(
     organizationId: string,
@@ -658,8 +721,16 @@ export class JobManagementService {
         `Job application ${applicationId} not found for this organization`,
       );
     }
-    if (dto.status !== undefined) {
-      application.status = dto.status;
+    if (dto.status !== undefined && dto.status !== application.status) {
+      const current = (application.status ?? 'pending').toLowerCase();
+      const next = String(dto.status).toLowerCase();
+      const allowed = JobManagementService.STATUS_TRANSITIONS[current] ?? [];
+      if (!allowed.includes(next)) {
+        throw new BadRequestException(
+          `Cannot change application status from "${current}" to "${next}".`,
+        );
+      }
+      application.status = next;
     }
     if (dto.interview_details !== undefined) {
       // Full replace — the frontend sends the complete snapshot on schedule.
@@ -677,8 +748,18 @@ export class JobManagementService {
   }
 
   /**
-   * Candidate accepts the offer on their own application. Verifies the application's
-   * applicant_email matches the authenticated user's email and that an offer was sent.
+   * Candidate accepts or declines the offer on their own application.
+   *
+   * Two things worth highlighting:
+   *   1. **Ownership**: we verify via `applicant_user_id` when set (durable
+   *      link from the apply-time JWT); otherwise we fall back to matching
+   *      the auth'd user's email against `applicant_email` so guest-applies
+   *      that later signed up still work.
+   *   2. **Race-safe state change**: concurrent requests (double-click,
+   *      browser retry) could both read `offer_sent` and both write. We use
+   *      a conditional UPDATE that only transitions from an allowed "active
+   *      offer" status, check `affected === 1`, and bail out loudly when
+   *      the row has already moved on.
    */
   async acceptOfferAsCandidate(
     userId: string,
@@ -686,8 +767,6 @@ export class JobManagementService {
     decision: 'accept' | 'decline',
     declineReason?: string | null,
   ): Promise<JobApplication> {
-    // Look up email from users directly so applicants (no employee row) can
-    // still accept or decline offers on their own applications.
     const user = await this.userRepository.findOne({ where: { id: userId } });
     const email = user?.email;
     if (!email) {
@@ -699,20 +778,53 @@ export class JobManagementService {
     if (!application) {
       throw new NotFoundException(`Job application not found`);
     }
-    if (application.applicant_email.toLowerCase() !== email.toLowerCase()) {
+    const owns =
+      (application.applicant_user_id &&
+        application.applicant_user_id === userId) ||
+      application.applicant_email?.toLowerCase() === email.toLowerCase();
+    if (!owns) {
       throw new NotFoundException(`Job application not found`);
     }
-    if (application.status !== 'offer_sent' && application.status !== 'offer_signed') {
+    const ACTIVE_OFFER_STATUSES = ['offer_sent', 'offer_signed', 'offer_pending'];
+    if (!ACTIVE_OFFER_STATUSES.includes(application.status)) {
       throw new BadRequestException('No active offer to act on for this application');
     }
-    application.status = decision === 'accept' ? 'offer_accepted' : 'offer_declined';
-    if (decision === 'decline') {
-      const trimmed = declineReason?.toString().trim() ?? '';
-      application.decline_reason = trimmed.length > 0 ? trimmed : null;
-    } else {
-      application.decline_reason = null;
+    const nextStatus = decision === 'accept' ? 'offer_accepted' : 'offer_declined';
+    const trimmedReason =
+      decision === 'decline'
+        ? (declineReason?.toString().trim() ?? '')
+        : '';
+    // Atomic conditional write: only succeeds if the row is still in an
+    // active-offer state. If a concurrent decision already happened, the
+    // update affects 0 rows and we surface a conflict error instead of
+    // silently overwriting the other decision.
+    const result = await this.jobApplicationRepository
+      .createQueryBuilder()
+      .update(JobApplication)
+      .set({
+        status: nextStatus,
+        decline_reason:
+          decision === 'decline'
+            ? trimmedReason.length > 0
+              ? trimmedReason
+              : null
+            : null,
+      })
+      .where('id = :id', { id: applicationId })
+      .andWhere('status IN (:...active)', { active: ACTIVE_OFFER_STATUSES })
+      .execute();
+    if ((result.affected ?? 0) === 0) {
+      throw new BadRequestException(
+        'This offer has already been acted on — refresh the page to see the current state.',
+      );
     }
-    return this.jobApplicationRepository.save(application);
+    const fresh = await this.jobApplicationRepository.findOne({
+      where: { id: applicationId },
+    });
+    if (!fresh) {
+      throw new NotFoundException('Job application not found');
+    }
+    return fresh;
   }
 
   /**
@@ -739,25 +851,32 @@ export class JobManagementService {
     const organizationName =
       dto.organizationName?.trim() ||
       (await this.resolveOrganizationName(organizationId));
+    const orgLogo = await this.companyProfileService.getOrganizationLogoBytes(
+      organizationId,
+    );
     try {
-      await this.emailService.sendInterviewInviteEmail(dto.toEmail, {
-        applicantName: dto.applicantName,
-        jobTitle: dto.jobTitle,
-        interviewDate: dto.interviewDate,
-        interviewTime: dto.interviewTime,
-        interviewMode: dto.interviewMode,
-        interviewLocation: dto.interviewLocation,
-        interviewDuration: dto.interviewDuration,
-        message: dto.message,
-        jobLocation: dto.jobLocation,
-        jobType: dto.jobType,
-        salaryRange: dto.salaryRange,
-        jobDescription: dto.jobDescription,
-        organizationName,
-        contactName: dto.contactName,
-        contactEmail: dto.contactEmail,
-        contactPhone: dto.contactPhone,
-      });
+      await this.emailService.sendInterviewInviteEmail(
+        dto.toEmail,
+        {
+          applicantName: dto.applicantName,
+          jobTitle: dto.jobTitle,
+          interviewDate: dto.interviewDate,
+          interviewTime: dto.interviewTime,
+          interviewMode: dto.interviewMode,
+          interviewLocation: dto.interviewLocation,
+          interviewDuration: dto.interviewDuration,
+          message: dto.message,
+          jobLocation: dto.jobLocation,
+          jobType: dto.jobType,
+          salaryRange: dto.salaryRange,
+          jobDescription: dto.jobDescription,
+          organizationName,
+          contactName: dto.contactName,
+          contactEmail: dto.contactEmail,
+          contactPhone: dto.contactPhone,
+        },
+        orgLogo,
+      );
       return { message: 'Interview invite email sent successfully' };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

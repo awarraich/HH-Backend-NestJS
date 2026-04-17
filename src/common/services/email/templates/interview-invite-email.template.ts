@@ -44,6 +44,9 @@ export class InterviewInviteEmailTemplate {
       contactPhone,
     } = opts;
 
+    const brandName = organizationName?.trim() || 'homehealth.ai';
+    const logoAlt = escapeHtml(brandName);
+
     const subject = organizationName
       ? `Interview Invitation – ${jobTitle} at ${organizationName}`
       : `Interview Invitation – ${jobTitle}`;
@@ -76,8 +79,8 @@ export class InterviewInviteEmailTemplate {
                       <tr>
                         <td width="64" height="64"
                             style="width:64px;height:64px;background:linear-gradient(135deg,#7c3aed 0%,#ec4899 100%);border-radius:14px;text-align:center;vertical-align:middle;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;font-size:28px;font-weight:700;color:#ffffff;line-height:64px;">
-                          <img src="cid:logo@homehealth.ai" alt="H" width="64" height="64"
-                               style="display:block;width:64px;height:64px;border-radius:14px;"
+                          <img src="cid:logo@homehealth.ai" alt="${logoAlt}" width="64" height="64"
+                               style="display:block;width:64px;height:64px;border-radius:14px;object-fit:cover;"
                                onerror="this.style.display='none'" />
                         </td>
                       </tr>
@@ -176,7 +179,7 @@ export class InterviewInviteEmailTemplate {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <title>Interview Invitation – ${escapeHtml(jobTitle)} – homehealth.ai</title>
+  <title>Interview Invitation – ${escapeHtml(jobTitle)} – ${escapeHtml(brandName)}</title>
   <!--[if mso]>
   <style type="text/css">
     body, table, td {font-family: Arial, sans-serif !important;}
@@ -187,7 +190,7 @@ export class InterviewInviteEmailTemplate {
 
   <!-- Preheader Text (Hidden) -->
   <div style="display: none; max-height: 0; overflow: hidden;">
-    You have been invited to interview for ${escapeHtml(jobTitle)}${organizationName ? ` at ${escapeHtml(organizationName)}` : ''} – homehealth.ai.
+    You have been invited to interview for ${escapeHtml(jobTitle)}${organizationName ? ` at ${escapeHtml(organizationName)}` : ''} – ${escapeHtml(brandName)}.
   </div>
 
   <!-- Wrapper Table -->
@@ -312,13 +315,13 @@ export class InterviewInviteEmailTemplate {
                 <tr>
                   <td align="center">
                     <p style="margin: 0 0 4px 0; color: #0f172a; font-size: 13px; font-weight: 600; letter-spacing: -0.1px;">
-                      homehealth.ai
+                      ${escapeHtml(brandName)}
                     </p>
                     <p style="margin: 0 0 10px 0; color: #94a3b8; font-size: 12px;">
                       AI-Powered Healthcare Management Platform
                     </p>
                     <p style="margin: 0; color: #94a3b8; font-size: 11px;">
-                      &copy; 2026 homehealth.ai &nbsp;·&nbsp;
+                      &copy; 2026 ${escapeHtml(brandName)} &nbsp;·&nbsp;
                       <a href="#" style="color: #94a3b8; text-decoration: underline;">Privacy</a> &nbsp;·&nbsp;
                       <a href="#" style="color: #94a3b8; text-decoration: underline;">Terms</a>
                     </p>
@@ -374,9 +377,9 @@ export class InterviewInviteEmailTemplate {
       'We look forward to speaking with you.',
       '',
       '---',
-      `${organizationName ? `${organizationName} – ` : ''}homehealth.ai`,
+      brandName,
       'AI-Powered Healthcare Management Platform',
-      '© 2026 homehealth.ai. All rights reserved.',
+      `© 2026 ${brandName}. All rights reserved.`,
     );
 
     const text = textLines.filter((l) => l !== undefined && l !== null).join('\n');
