@@ -11,6 +11,7 @@ import { OrganizationStaffCreatedEmailTemplate } from './templates/organization-
 import { GoogleSignInInviteEmailTemplate } from './templates/google-sign-in-invite-email.template';
 import { InterviewInviteEmailTemplate } from './templates/interview-invite-email.template';
 import { OfferLetterEmailTemplate } from './templates/offer-letter-email.template';
+import { HireWelcomeEmailTemplate } from './templates/hire-welcome-email.template';
 
 @Injectable()
 export class EmailService implements OnModuleInit {
@@ -471,6 +472,40 @@ export class EmailService implements OnModuleInit {
     const info = await this.transporter.sendMail(mailOptions);
     this.logger.log(
       `Offer letter email sent to: ${this.maskEmail(toEmail)}. MessageId: ${info.messageId}`,
+    );
+  }
+
+  /**
+   * Send welcome-aboard email after HR clicks "Hire as Employee" on an
+   * accepted offer. Idempotent callers should guard before firing (the
+   * template itself has no side-effects beyond SMTP delivery).
+   */
+  async sendHireWelcomeEmail(
+    toEmail: string,
+    options: Omit<
+      Parameters<typeof HireWelcomeEmailTemplate.generate>[0],
+      never
+    >,
+    orgLogo?: { buffer: Buffer; contentType: string; file_name?: string } | null,
+  ): Promise<void> {
+    const auth = this.emailConfigService.auth;
+    if (!auth.user || !auth.pass) {
+      throw new Error(
+        'Email service not configured. Set EMAIL_USER and EMAIL_PASSWORD (e.g. in production) to send welcome emails.',
+      );
+    }
+    const template = HireWelcomeEmailTemplate.generate(options);
+    const mailOptions = {
+      from: `"${this.emailConfigService.fromName}" <${this.emailConfigService.from}>`,
+      to: toEmail,
+      subject: template.subject,
+      html: template.html,
+      text: template.text,
+      attachments: this.buildLogoAttachment(orgLogo),
+    };
+    const info = await this.transporter.sendMail(mailOptions);
+    this.logger.log(
+      `Hire welcome email sent to: ${this.maskEmail(toEmail)}. MessageId: ${info.messageId}`,
     );
   }
 
