@@ -97,6 +97,10 @@ import { RoomShiftAssignment } from './scheduling/entities/room-shift-assignment
 import { ZoneShiftAssignment } from './scheduling/entities/zone-shift-assignment.entity';
 import { VehicleShiftAssignment } from './scheduling/entities/vehicle-shift-assignment.entity';
 import { WorkstationShiftAssignment } from './scheduling/entities/workstation-shift-assignment.entity';
+import { SchedulingTaskType } from './scheduling/entities/scheduling-task-type.entity';
+import { ScheduledTask } from './scheduling/entities/scheduled-task.entity';
+import { ScheduledTaskAssignment } from './scheduling/entities/scheduled-task-assignment.entity';
+import { ScheduledTaskStatusHistory } from './scheduling/entities/scheduled-task-status-history.entity';
 import { ProviderRole } from '../employees/entities/provider-role.entity';
 import { DepartmentService } from './scheduling/services/department.service';
 import { StationService } from './scheduling/services/station.service';
@@ -111,6 +115,7 @@ import { ZoneService } from './scheduling/services/zone.service';
 import { FleetVehicleService } from './scheduling/services/fleet-vehicle.service';
 import { LabWorkstationService } from './scheduling/services/lab-workstation.service';
 import { DepartmentStaffService } from './scheduling/services/department-staff.service';
+import { ScheduledTaskService } from './scheduling/services/scheduled-task.service';
 import { DepartmentsController } from './scheduling/controllers/departments.controller';
 import { StationsController } from './scheduling/controllers/stations.controller';
 import { RoomsController } from './scheduling/controllers/rooms.controller';
@@ -124,6 +129,10 @@ import { ZonesController } from './scheduling/controllers/zones.controller';
 import { FleetVehiclesController } from './scheduling/controllers/fleet-vehicles.controller';
 import { LabWorkstationsController } from './scheduling/controllers/lab-workstations.controller';
 import { DepartmentStaffController } from './scheduling/controllers/department-staff.controller';
+import { ClinicAppointmentsController } from './scheduling/controllers/clinic-appointments.controller';
+import { TransportTripsController } from './scheduling/controllers/transport-trips.controller';
+import { PharmacyPrescriptionsController } from './scheduling/controllers/pharmacy-prescriptions.controller';
+import { FieldVisitsController } from './scheduling/controllers/field-visits.controller';
 import { OrganizationDocumentCategory } from './compliance-documents/entities/organization-document-category.entity';
 import { OrganizationDocument } from './compliance-documents/entities/organization-document.entity';
 import { OrganizationDocumentChunk } from './compliance-documents/entities/organization-document-chunk.entity';
@@ -172,6 +181,10 @@ import { FilledDocumentTemplatesController } from './document-workflow/controlle
       ZoneShiftAssignment,
       VehicleShiftAssignment,
       WorkstationShiftAssignment,
+      SchedulingTaskType,
+      ScheduledTask,
+      ScheduledTaskAssignment,
+      ScheduledTaskStatusHistory,
       ProviderRole,
       Organization,
       OrganizationType,
@@ -249,6 +262,10 @@ import { FilledDocumentTemplatesController } from './document-workflow/controlle
     FleetVehiclesController,
     LabWorkstationsController,
     DepartmentStaffController,
+    ClinicAppointmentsController,
+    TransportTripsController,
+    PharmacyPrescriptionsController,
+    FieldVisitsController,
     OrganizationDocumentCategoriesController,
     OrganizationDocumentsController,
     TemplatesController,
@@ -270,6 +287,7 @@ import { FilledDocumentTemplatesController } from './document-workflow/controlle
     FleetVehicleService,
     LabWorkstationService,
     DepartmentStaffService,
+    ScheduledTaskService,
     OrganizationsService,
     OrganizationRoleService,
     OrganizationPermissionService,
