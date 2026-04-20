@@ -10,6 +10,7 @@ import { CompetencyTemplate } from '../organizations/document-workflow/entities/
 import { DocumentWorkflowRole } from '../organizations/document-workflow/entities/document-workflow-role.entity';
 import { Organization } from '../organizations/entities/organization.entity';
 import { Employee } from '../employees/entities/employee.entity';
+import { EmployeeProfile } from '../employees/entities/employee-profile.entity';
 import { User } from '../../authentication/entities/user.entity';
 import { JobManagementController } from './controllers/job-management.controller';
 import { JobApplicationsController } from './controllers/job-applications.controller';
@@ -33,6 +34,7 @@ import { EmailModule } from '../../common/services/email/email.module';
       JobApplicationFieldValue,
       Organization,
       Employee,
+      EmployeeProfile,
       User,
       OfferLetterAssignment,
       OfferLetterAssignmentRole,

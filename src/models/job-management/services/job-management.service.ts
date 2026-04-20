@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { DataSource, Repository, In } from 'typeorm';
 import type { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity';
 import { JobPosting } from '../entities/job-posting.entity';
 import { JobApplication } from '../entities/job-application.entity';
@@ -8,6 +8,7 @@ import { JobApplicationFieldValue } from '../entities/job-application-field-valu
 import { Organization } from '../../organizations/entities/organization.entity';
 import { OrganizationCompanyProfileService } from '../../organizations/company-profile-setup/services/organization-company-profile.service';
 import { Employee } from '../../employees/entities/employee.entity';
+import { EmployeeProfile } from '../../employees/entities/employee-profile.entity';
 import { User } from '../../../authentication/entities/user.entity';
 import { CreateJobPostingDto } from '../dto/create-job-posting.dto';
 import { CreateJobApplicationDto } from '../dto/create-job-application.dto';
@@ -31,10 +32,13 @@ export class JobManagementService {
     private organizationRepository: Repository<Organization>,
     @InjectRepository(Employee)
     private employeeRepository: Repository<Employee>,
+    @InjectRepository(EmployeeProfile)
+    private employeeProfileRepository: Repository<EmployeeProfile>,
     @InjectRepository(User)
     private userRepository: Repository<User>,
     private readonly emailService: EmailService,
     private readonly companyProfileService: OrganizationCompanyProfileService,
+    private readonly dataSource: DataSource,
   ) {}
 
   private async resolveOrganizationName(
@@ -558,6 +562,9 @@ export class JobManagementService {
     if (s === 'offer_sent' || s === 'offer') return 'offer_sent';
     if (s === 'offer_accepted') return 'offer_accepted';
     if (s === 'offer_declined') return 'offer_declined';
+    if (s === 'offer_pending') return 'offer_pending';
+    if (s === 'offer_signed') return 'offer_signed';
+    if (s === 'hired') return 'hired';
     return 'not_seen';
   }
 
@@ -687,16 +694,23 @@ export class JobManagementService {
    * (acceptOfferAsCandidate) has its own narrower rules below.
    */
   private static readonly STATUS_TRANSITIONS: Readonly<Record<string, readonly string[]>> = {
-    pending: ['interview', 'offer_sent', 'offer_pending', 'rejected'],
-    not_seen: ['interview', 'offer_sent', 'offer_pending', 'rejected'],
+    // Offer can only be sent after an interview has been scheduled — HR must
+    // move the candidate through `interview` first. Direct pending→offer
+    // shortcuts are blocked so the audit trail always shows an interview step.
+    pending: ['interview', 'rejected'],
+    not_seen: ['interview', 'rejected'],
     interview: ['offer_sent', 'offer_pending', 'rejected', 'pending'],
     offer_sent: ['offer_pending', 'offer_accepted', 'offer_declined', 'rejected'],
     offer_pending: ['offer_sent', 'offer_signed', 'offer_accepted', 'offer_declined', 'rejected'],
     offer_signed: ['offer_accepted', 'offer_declined', 'rejected'],
-    // Terminal states — HR can only "unreject" back to pending or nothing.
-    offer_accepted: [],
+    // From offer_accepted HR can move the candidate to `hired` (close the
+    // loop by creating an Employee record) via the dedicated hire endpoint.
+    offer_accepted: ['hired'],
     offer_declined: ['pending'],
     rejected: ['pending'],
+    // `hired` is terminal — ending employment happens on the Employee row,
+    // not by flipping the application backwards.
+    hired: [],
   };
 
   /**
@@ -785,7 +799,17 @@ export class JobManagementService {
     if (!owns) {
       throw new NotFoundException(`Job application not found`);
     }
-    const ACTIVE_OFFER_STATUSES = ['offer_sent', 'offer_signed', 'offer_pending'];
+    // Sequential-signing gate: `offer_pending` means internal signers (HR /
+    // supervisor) haven't finished. Applicant can't accept yet — the
+    // backend flips to `offer_sent` automatically once the last internal
+    // signature lands. We surface a clear error instead of the generic
+    // "no active offer" so the UI (and curl) knows exactly what's wrong.
+    if (application.status === 'offer_pending') {
+      throw new BadRequestException(
+        'This offer is still being finalized by the organization. You will be notified once it is ready for your response.',
+      );
+    }
+    const ACTIVE_OFFER_STATUSES = ['offer_sent', 'offer_signed'];
     if (!ACTIVE_OFFER_STATUSES.includes(application.status)) {
       throw new BadRequestException('No active offer to act on for this application');
     }
@@ -825,6 +849,276 @@ export class JobManagementService {
       throw new NotFoundException('Job application not found');
     }
     return fresh;
+  }
+
+  /**
+   * HR-triggered hire. Creates an Employee row for the applicant and
+   * transitions the application to `hired`. Idempotent: calling again
+   * after the application is already `hired` is a no-op that returns the
+   * existing employee. Gated by:
+   *   1. Application must belong to `organizationId`.
+   *   2. Application status must be `offer_accepted` (or already `hired` for idempotency).
+   *   3. Internal signing must be complete (offer_details.internalSigningComplete === true
+   *      OR no internal signers were ever required — flag absent).
+   *   4. Applicant must have a resolved `applicant_user_id`.
+   */
+  async hireApplicant(
+    organizationId: string,
+    applicationId: string,
+    overrides?: {
+      employmentType?: string | null;
+      startDate?: string | null;
+      department?: string | null;
+      positionTitle?: string | null;
+      providerRoleId?: string | null;
+      notes?: string | null;
+    },
+  ): Promise<{
+    application: JobApplication;
+    employee: Employee;
+    alreadyHired: boolean;
+  }> {
+    const application = await this.jobApplicationRepository.findOne({
+      where: { id: applicationId },
+      relations: ['job_posting'],
+    });
+    if (!application) {
+      throw new NotFoundException('Job application not found');
+    }
+    if (application.job_posting?.organization_id !== organizationId) {
+      throw new NotFoundException(
+        'Job application not found for this organization',
+      );
+    }
+    if (!application.applicant_user_id) {
+      throw new BadRequestException(
+        'Applicant has not yet created a user account — they must sign in or sign up with the email used to apply before they can be hired.',
+      );
+    }
+
+    const offer = (application.offer_details ?? {}) as Record<string, unknown>;
+    const internalSigningComplete = offer.internalSigningComplete;
+    // Flag only exists when the offer had internal signers. If it's
+    // explicitly `false`, block the hire. `true` or `null`/absent is fine.
+    if (internalSigningComplete === false) {
+      throw new BadRequestException(
+        'Offer letter is still awaiting internal signatures. Complete all internal signers before hiring.',
+      );
+    }
+
+    // Idempotent path: already hired → return the existing employee.
+    if (application.status === 'hired') {
+      const existing = await this.employeeRepository.findOne({
+        where: {
+          user_id: application.applicant_user_id,
+          organization_id: organizationId,
+        },
+      });
+      if (existing) {
+        return { application, employee: existing, alreadyHired: true };
+      }
+      // Fall through to re-create if the row was deleted out of band.
+    } else if (application.status !== 'offer_accepted') {
+      throw new BadRequestException(
+        `Cannot hire from status "${application.status}". Offer must be accepted first.`,
+      );
+    }
+
+    // Resolve employment fields with precedence:
+    //   1. explicit override from the hire button payload,
+    //   2. value stored on offer_details,
+    //   3. null.
+    const coerceStr = (v: unknown): string | null => {
+      if (typeof v !== 'string') return null;
+      const t = v.trim();
+      return t.length > 0 ? t : null;
+    };
+    const employmentType =
+      overrides?.employmentType ?? coerceStr(offer.employmentType);
+    const startDateStr = overrides?.startDate ?? coerceStr(offer.startDate);
+    const startDate = startDateStr ? new Date(startDateStr) : null;
+    const department = overrides?.department ?? null;
+    const positionTitle =
+      overrides?.positionTitle ?? coerceStr(application.job_posting?.title);
+    const providerRoleId = overrides?.providerRoleId ?? null;
+    const notes = overrides?.notes ?? null;
+
+    // All writes go through a single transaction so a partial failure
+    // (e.g. status UPDATE succeeds but EmployeeProfile insert crashes)
+    // rolls the whole thing back — no half-hired employees with a
+    // `offer_accepted` application, no Employee rows without a profile
+    // stub.
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    let employee: Employee;
+    let alreadyHired = application.status === 'hired';
+    try {
+      const employeeRepo = queryRunner.manager.getRepository(Employee);
+      const profileRepo = queryRunner.manager.getRepository(EmployeeProfile);
+      const applicationRepo = queryRunner.manager.getRepository(JobApplication);
+      const userRepo = queryRunner.manager.getRepository(User);
+
+      // Idempotent create: upsert-on-unique(user_id, organization_id).
+      let existingEmployee = await employeeRepo.findOne({
+        where: {
+          user_id: application.applicant_user_id,
+          organization_id: organizationId,
+        },
+      });
+      if (!existingEmployee) {
+        const newEmployee = employeeRepo.create({
+          user_id: application.applicant_user_id,
+          organization_id: organizationId,
+          status: 'active',
+          employment_type: employmentType,
+          start_date: startDate,
+          end_date: null,
+          department,
+          position_title: positionTitle,
+          notes,
+          provider_role_id: providerRoleId,
+        });
+        try {
+          existingEmployee = await employeeRepo.save(newEmployee);
+        } catch (err) {
+          // Concurrent hire — unique violation. Re-read the row.
+          const msg = err instanceof Error ? err.message : String(err);
+          if (/duplicate|unique/i.test(msg)) {
+            const raced = await employeeRepo.findOne({
+              where: {
+                user_id: application.applicant_user_id,
+                organization_id: organizationId,
+              },
+            });
+            if (raced) {
+              existingEmployee = raced;
+            } else {
+              throw err;
+            }
+          } else {
+            throw err;
+          }
+        }
+      }
+      employee = existingEmployee;
+
+      // Minimal EmployeeProfile stub so the row exists for the employee to
+      // edit. `name` is required; the rest is filled in by the employee on
+      // their own profile page.
+      const existingProfile = await profileRepo.findOne({
+        where: { employee_id: employee.id },
+      });
+      if (!existingProfile) {
+        let seedName = coerceStr(application.applicant_name);
+        if (!seedName) {
+          const user = await userRepo.findOne({
+            where: { id: application.applicant_user_id },
+          });
+          seedName =
+            [user?.firstName, user?.lastName]
+              .filter(Boolean)
+              .join(' ')
+              .trim() ||
+            user?.email ||
+            'New Employee';
+        }
+        const profile = profileRepo.create({
+          employee_id: employee.id,
+          name: seedName,
+          phone_number: coerceStr(application.applicant_phone),
+        });
+        try {
+          await profileRepo.save(profile);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          // Unique (employee_id) — another request raced us. Safe to ignore.
+          if (!/duplicate|unique/i.test(msg)) {
+            throw err;
+          }
+        }
+      }
+
+      // Race-safe conditional UPDATE: only transitions from offer_accepted.
+      // Skip the update if the row is already hired (idempotent path).
+      if (!alreadyHired) {
+        const result = await applicationRepo
+          .createQueryBuilder()
+          .update(JobApplication)
+          .set({ status: 'hired' })
+          .where('id = :id', { id: applicationId })
+          .andWhere('status = :expected', { expected: 'offer_accepted' })
+          .execute();
+        if ((result.affected ?? 0) === 0) {
+          // Re-read inside the transaction — a concurrent writer may have
+          // flipped the row to `hired` already.
+          const fresh = await applicationRepo.findOne({
+            where: { id: applicationId },
+          });
+          if (fresh?.status === 'hired') {
+            alreadyHired = true;
+          } else {
+            throw new BadRequestException(
+              'This application has moved to a different state — refresh the page to see the current status.',
+            );
+          }
+        }
+      }
+
+      await queryRunner.commitTransaction();
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
+
+    const freshApp = await this.jobApplicationRepository.findOne({
+      where: { id: applicationId },
+    });
+    if (!freshApp) {
+      throw new NotFoundException('Job application not found after hire');
+    }
+
+    // Fire welcome email (best-effort — failure should not roll back the hire).
+    if (!alreadyHired) {
+      try {
+        const user = await this.userRepository.findOne({
+          where: { id: application.applicant_user_id },
+        });
+        const toEmail = user?.email || application.applicant_email;
+        if (toEmail) {
+          const organizationName =
+            await this.resolveOrganizationName(organizationId);
+          const orgLogo =
+            await this.companyProfileService.getOrganizationLogoBytes(
+              organizationId,
+            );
+          await this.emailService.sendHireWelcomeEmail(
+            toEmail,
+            {
+              applicantName:
+                application.applicant_name ||
+                [user?.firstName, user?.lastName]
+                  .filter(Boolean)
+                  .join(' ')
+                  .trim() ||
+                'there',
+              jobTitle:
+                application.job_posting?.title || positionTitle || 'your role',
+              startDate: startDateStr ?? undefined,
+              employmentType: employmentType ?? undefined,
+              organizationName,
+            },
+            orgLogo,
+          );
+        }
+      } catch {
+        // Swallow — welcome email is a nice-to-have, not a blocker.
+      }
+    }
+
+    return { application: freshApp, employee, alreadyHired };
   }
 
   /**

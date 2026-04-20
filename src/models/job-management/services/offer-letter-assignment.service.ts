@@ -201,29 +201,59 @@ export class OfferLetterAssignmentService {
     const roleRows = dto.assignees.map((a) => this.buildRoleRow(assignment.id, a));
     const savedRoles = await this.roleRepo.save(roleRows);
 
+    // Partition role-fill rows up front — the split drives both the
+    // persistent state (stay in offer_pending while internal signing
+    // pending) and which emails go out now vs. later.
+    const { internalRows, applicantRows, userById } =
+      await this.partitionRolesByApplicant(savedRoles, application);
+
     // Persist offer metadata on the job application so downstream views (e.g.
     // SignedOfferViewerModal, status badges) continue to work.
-    if (dto.offerDetails) {
-      const existing = (application.offer_details ?? {}) as Record<string, unknown>;
-      application.offer_details = {
-        ...existing,
-        ...dto.offerDetails,
-        templateId: template.id,
-        templateName: template.name,
-        offerLetterAssignmentId: assignment.id,
-        sentAt: new Date().toISOString(),
-      };
-      if (application.status === 'pending' || application.status === 'interview') {
-        application.status = 'offer_pending';
-      }
-      await this.applicationRepo.save(application);
+    //
+    // Sequential signing (Option B): if at least one internal role-filler
+    // exists we park the application in `offer_pending` until they all
+    // sign. When there are ZERO internal rows (e.g. template has no role
+    // fields, or HR assigned only the applicant themselves) there's
+    // nothing to wait for — transition directly to `offer_sent` so the
+    // applicant can accept immediately.
+    const existing = (application.offer_details ?? {}) as Record<string, unknown>;
+    application.offer_details = {
+      ...existing,
+      ...(dto.offerDetails ?? {}),
+      templateId: template.id,
+      templateName: template.name,
+      offerLetterAssignmentId: assignment.id,
+      sentAt: new Date().toISOString(),
+      internalSigningComplete: internalRows.length === 0,
+    };
+    const hasInternalSigners = internalRows.length > 0;
+    if (
+      application.status === 'pending' ||
+      application.status === 'interview'
+    ) {
+      application.status = hasInternalSigners ? 'offer_pending' : 'offer_sent';
     }
+    await this.applicationRepo.save(application);
 
-    const emailDelivery = await this.notifyAssignees(
+    const emailDelivery: OfferEmailDeliveryReport = await this.notifyInternalSigners(
       application,
       template.name,
-      savedRoles,
+      internalRows,
+      userById,
     );
+
+    // When no internal signing is required, hand off to the applicant
+    // straight away. Otherwise the handoff fires later from
+    // `reconcileCompletion` once the last internal signature lands.
+    if (!hasInternalSigners) {
+      await this.fireApplicantHandoff(
+        application,
+        template.name,
+        applicantRows,
+        userById,
+        emailDelivery,
+      );
+    }
 
     const result = await this.findOne(orgId, assignment.id);
     // Attach delivery results as a transient property so the controller can
@@ -241,15 +271,70 @@ export class OfferLetterAssignmentService {
   }
 
   /**
-   * Send one email per assignee + one to the applicant. Returns a per-
-   * recipient delivery report so the HR-facing response can surface bounces
-   * (e.g. "Offer created; email to the candidate failed: SMTP unreachable")
-   * instead of silently pretending everything was sent.
+   * Split role-fill rows into "internal signers" (HR / supervisor / CEO /
+   * external-signer) and "applicant rows" (the candidate's own row when HR
+   * pre-selected them on the Employee role). The split drives the sequential
+   * signing flow: internal signers are notified at offer creation, and the
+   * applicant — along with any applicant role-fill row — is notified only
+   * after every internal row is completed.
+   *
+   * A row is considered an applicant row when either the row's `user_id`
+   * matches `application.applicant_user_id` (durable link set at apply
+   * time) or the row-user's email matches `application.applicant_email`
+   * case-insensitively (fallback for guest-applies linked later).
    */
-  private async notifyAssignees(
+  private async partitionRolesByApplicant(
+    roleRows: OfferLetterAssignmentRole[],
+    application: JobApplication,
+  ): Promise<{
+    internalRows: OfferLetterAssignmentRole[];
+    applicantRows: OfferLetterAssignmentRole[];
+    userById: Map<string, User>;
+  }> {
+    const userIds = [...new Set(roleRows.map((r) => r.user_id))];
+    const users = userIds.length
+      ? await this.userRepo.find({ where: { id: In(userIds) } })
+      : [];
+    const userById = new Map(users.map((u) => [u.id, u]));
+    const applicantEmail = application.applicant_email?.trim().toLowerCase();
+    const applicantUserId = application.applicant_user_id;
+    const internalRows: OfferLetterAssignmentRole[] = [];
+    const applicantRows: OfferLetterAssignmentRole[] = [];
+    for (const row of roleRows) {
+      const isApplicant = (() => {
+        if (applicantUserId && row.user_id === applicantUserId) return true;
+        const user = userById.get(row.user_id);
+        if (
+          applicantEmail &&
+          user?.email?.toLowerCase() === applicantEmail
+        ) {
+          return true;
+        }
+        return false;
+      })();
+      if (isApplicant) applicantRows.push(row);
+      else internalRows.push(row);
+    }
+    return { internalRows, applicantRows, userById };
+  }
+
+  /**
+   * Send an offer letter "please sign" email to each internal role-filler
+   * (HR / supervisor / CEO / external-signer). Intentionally does NOT notify
+   * the applicant — Option B's sequential flow notifies them separately,
+   * only after every internal signature is in. Returns a per-recipient
+   * delivery report so the HR-facing create response can surface SMTP
+   * bounces instead of pretending all mail went through.
+   *
+   * `roleRows` should contain only internal rows (applicant rows filtered
+   * out by `partitionRolesByApplicant`). `userByIdCache` is passed in from
+   * the partition call to avoid a redundant users lookup.
+   */
+  private async notifyInternalSigners(
     application: JobApplication,
     templateName: string,
     roleRows: OfferLetterAssignmentRole[],
+    userByIdCache: Map<string, User>,
   ): Promise<OfferEmailDeliveryReport> {
     const report: OfferEmailDeliveryReport = {
       sent: 0,
@@ -262,11 +347,7 @@ export class OfferLetterAssignmentService {
       this.configService.get<string>('HOME_HEALTH_AI_URL') ?? ''
     ).replace(/\/$/, '');
 
-    const userIds = [...new Set(roleRows.map((r) => r.user_id))];
-    const users = userIds.length
-      ? await this.userRepo.find({ where: { id: In(userIds) } })
-      : [];
-    const userById = new Map(users.map((u) => [u.id, u]));
+    const userById = userByIdCache;
 
     const offerDetails = (application.offer_details ?? {}) as Record<string, unknown>;
 
@@ -353,7 +434,46 @@ export class OfferLetterAssignmentService {
       }
     }
 
-    // Also notify the applicant themselves — the "employee to be".
+    // Note: applicant notifications are intentionally NOT fired here. Option
+    // B's sequential flow sends the applicant's "review and accept" email
+    // only after every internal row completes — see
+    // `fireApplicantHandoffIfReady()` which is called from `create()` when
+    // there are zero internal signers and from `reconcileCompletion()` when
+    // the last internal signature lands.
+    return report;
+  }
+
+  /**
+   * Fire the applicant-facing notifications once internal signing is done:
+   *   1. `notifyApplicant` — the "review and accept" email the candidate
+   *      uses to enter the accept/decline flow on My Applications.
+   *   2. The regular role-fill email(s) to any applicant row on the
+   *      assignment (when HR pre-selected the applicant on the Employee
+   *      role in the Role Assignment modal) — delayed so the applicant
+   *      isn't asked to sign before the org has authorized the document.
+   *
+   * Results are appended to the caller's delivery report.
+   */
+  private async fireApplicantHandoff(
+    application: JobApplication,
+    templateName: string,
+    applicantRows: OfferLetterAssignmentRole[],
+    userByIdCache: Map<string, User>,
+    report: OfferEmailDeliveryReport,
+  ): Promise<void> {
+    const frontendBase = (
+      this.configService.get<string>('HOME_HEALTH_AI_URL') ?? ''
+    ).replace(/\/$/, '');
+    const offerDetails = (application.offer_details ?? {}) as Record<string, unknown>;
+    const orgId = application.job_posting?.organization_id;
+    const [organizationName, orgLogo] = orgId
+      ? await Promise.all([
+          this.resolveOrganizationName(orgId),
+          this.companyProfileService.getOrganizationLogoBytes(orgId),
+        ])
+      : [undefined, null];
+
+    // 1. "Review and accept your offer" email to the applicant.
     const applicantResult = await this.notifyApplicant({
       application,
       templateName,
@@ -361,18 +481,83 @@ export class OfferLetterAssignmentService {
       organizationName,
       orgLogo,
       frontendBase,
-      assigneeEmails: new Set(
-        Array.from(userById.values())
-          .map((u) => u.email?.trim().toLowerCase())
-          .filter((e): e is string => !!e),
-      ),
+      assigneeEmails: new Set<string>(),
     });
     if (applicantResult) {
       if (applicantResult.status === 'sent') report.sent += 1;
       if (applicantResult.status === 'failed') report.failed += 1;
       report.recipients.push(applicantResult);
     }
-    return report;
+
+    // 2. Role-fill email to the applicant's role row (they need to sign
+    //    their portion too). The role-fill link flows through the normal
+    //    assignee routing so the applicant lands on the Offer Letter tab.
+    for (const row of applicantRows) {
+      const user = userByIdCache.get(row.user_id);
+      if (!user?.email) continue;
+      const fillUrl = this.buildFillUrl(frontendBase, row);
+      const recipientName =
+        this.fullName(user) || application.applicant_name || 'there';
+      try {
+        await this.emailService.sendOfferLetterEmail(
+          user.email,
+          {
+            applicantName: recipientName,
+            candidateName: application.applicant_name || undefined,
+            jobTitle: application.job_posting?.title ?? templateName,
+            salary: typeof offerDetails.salary === 'string' ? offerDetails.salary : '',
+            startDate:
+              typeof offerDetails.startDate === 'string'
+                ? offerDetails.startDate
+                : '',
+            offerContent: '',
+            benefits:
+              typeof offerDetails.benefits === 'string'
+                ? offerDetails.benefits
+                : undefined,
+            responseDeadline:
+              typeof offerDetails.responseDeadline === 'string'
+                ? offerDetails.responseDeadline
+                : undefined,
+            employmentType:
+              (offerDetails.employmentType as
+                | 'full_time'
+                | 'part_time'
+                | 'contract'
+                | 'temporary'
+                | 'internship'
+                | undefined) ?? undefined,
+            message:
+              typeof offerDetails.message === 'string'
+                ? offerDetails.message
+                : undefined,
+            jobLocation: application.job_posting?.location ?? undefined,
+            organizationName,
+            fillUrl,
+            recipientType: row.recipient_type,
+          },
+          orgLogo,
+        );
+        report.sent += 1;
+        report.recipients.push({
+          kind: 'assignee',
+          email: user.email,
+          status: 'sent',
+        });
+      } catch (err) {
+        report.failed += 1;
+        const reason = this.buildFailureMessage(err);
+        this.logger.warn(
+          `Applicant role-fill email to user ${row.user_id} (${user.email}) failed: ${reason}`,
+        );
+        report.recipients.push({
+          kind: 'assignee',
+          email: user.email,
+          status: 'failed',
+          reason,
+        });
+      }
+    }
   }
 
   /**
@@ -680,11 +865,11 @@ export class OfferLetterAssignmentService {
       where: { id: applicationId },
     });
     if (!application) throw new NotFoundException('Job application not found');
-    const owns =
-      (application.applicant_user_id &&
-        application.applicant_user_id === userId) ||
-      application.applicant_email?.toLowerCase() === user.email.toLowerCase();
-    if (!owns) {
+    if (!this.applicantOwnsApplication(userId, user.email, application)) {
+      this.logger.warn(
+        `findForApplicant ownership check failed: userId=${userId}, user.email=${this.redactEmail(user.email)}, ` +
+          `applicant_user_id=${application.applicant_user_id ?? 'null'}, applicant_email=${this.redactEmail(application.applicant_email ?? '')}`,
+      );
       throw new ForbiddenException(
         'You can only view the offer letter for your own application.',
       );
@@ -808,11 +993,11 @@ export class OfferLetterAssignmentService {
       where: { id: applicationId },
     });
     if (!application) throw new NotFoundException('Job application not found');
-    const owns =
-      (application.applicant_user_id &&
-        application.applicant_user_id === userId) ||
-      application.applicant_email?.toLowerCase() === user.email.toLowerCase();
-    if (!owns) {
+    if (!this.applicantOwnsApplication(userId, user.email, application)) {
+      this.logger.warn(
+        `getPdfForApplicant ownership check failed: userId=${userId}, user.email=${this.redactEmail(user.email)}, ` +
+          `applicant_user_id=${application.applicant_user_id ?? 'null'}, applicant_email=${this.redactEmail(application.applicant_email ?? '')}`,
+      );
       throw new ForbiddenException(
         'You can only view the offer letter for your own application.',
       );
@@ -1344,7 +1529,14 @@ export class OfferLetterAssignmentService {
   /**
    * Resolve the auth'd user, load the application, and confirm the caller
    * owns it — either by `applicant_user_id` match (preferred) or falling
-   * back to `applicant_email`. Throws 403/404 as appropriate.
+   * back to case-insensitive `applicant_email` match. Throws 403/404 as
+   * appropriate.
+   *
+   * Both comparison keys are trimmed + lowercased: historically we've seen
+   * mismatches caused by trailing whitespace on `applicant_email` from old
+   * apply submissions. When the check fails we also opportunistically
+   * backfill `applicant_user_id` if the email matches — so future reads
+   * take the fast path even if nobody re-runs the signup backfill.
    */
   private async assertApplicantOwnsApplication(
     userId: string,
@@ -1358,16 +1550,58 @@ export class OfferLetterAssignmentService {
       where: { id: applicationId },
     });
     if (!application) throw new NotFoundException('Job application not found');
-    const owns =
-      (application.applicant_user_id &&
-        application.applicant_user_id === userId) ||
-      application.applicant_email?.toLowerCase() === user.email.toLowerCase();
+    const owns = this.applicantOwnsApplication(userId, user.email, application);
     if (!owns) {
+      this.logger.warn(
+        `Applicant ownership check failed: userId=${userId}, user.email=${this.redactEmail(user.email)}, ` +
+          `applicant_user_id=${application.applicant_user_id ?? 'null'}, ` +
+          `applicant_email=${this.redactEmail(application.applicant_email ?? '')}`,
+      );
       throw new ForbiddenException(
         'You can only act on your own job application.',
       );
     }
+    // Opportunistic backfill: we owned via email but the durable link was
+    // missing. Fill it in so subsequent reads short-circuit at the first
+    // branch without hitting email normalisation again.
+    if (!application.applicant_user_id) {
+      application.applicant_user_id = userId;
+      try {
+        await this.applicationRepo.save(application);
+      } catch (err) {
+        this.logger.warn(
+          `Backfill of applicant_user_id failed (non-fatal): ${this.buildFailureMessage(err)}`,
+        );
+      }
+    }
     return application;
+  }
+
+  /** Shared ownership predicate — trims + lowercases emails on both sides. */
+  private applicantOwnsApplication(
+    userId: string,
+    userEmail: string,
+    application: JobApplication,
+  ): boolean {
+    if (application.applicant_user_id && application.applicant_user_id === userId) {
+      return true;
+    }
+    const userEmailNorm = userEmail.trim().toLowerCase();
+    const applicantEmailNorm = application.applicant_email?.trim().toLowerCase();
+    return (
+      !!userEmailNorm &&
+      !!applicantEmailNorm &&
+      userEmailNorm === applicantEmailNorm
+    );
+  }
+
+  /** HIPAA-safe email masking for log output — preserves diagnostic value without leaking PII. */
+  private redactEmail(email: string): string {
+    if (!email || !email.includes('@')) return email || '(empty)';
+    const [local, domain] = email.split('@');
+    if (!local) return `*@${domain}`;
+    const shown = local.length > 1 ? `${local[0]}***` : `*`;
+    return `${shown}@${domain}`;
   }
 
   /** Read a Node readable stream into a Buffer in memory. */
@@ -1587,6 +1821,87 @@ export class OfferLetterAssignmentService {
       a.status = 'in_progress';
       a.completed_at = null;
       await this.assignmentRepo.save(a);
+    }
+
+    // Sequential-signing handoff: once the last internal row lands, hand
+    // the offer off to the applicant. Self-guards against double-firing by
+    // only running while the application is still `offer_pending`.
+    await this.fireApplicantHandoffIfReady(a);
+  }
+
+  /**
+   * If every internal (non-applicant) role row on an assignment is now
+   * complete and the parent application is still parked in
+   * `offer_pending`, transition the application to `offer_sent`, mark
+   * `internalSigningComplete: true` on `offer_details`, and fire the
+   * applicant-facing emails (review email + applicant role-fill emails
+   * for any rows the applicant was pre-selected on).
+   *
+   * Idempotent — a re-entry (e.g. another field save after completion)
+   * short-circuits at the status guard.
+   */
+  private async fireApplicantHandoffIfReady(
+    assignment: OfferLetterAssignment,
+  ): Promise<void> {
+    if (!assignment.job_application_id) return;
+    const application = await this.applicationRepo.findOne({
+      where: { id: assignment.job_application_id },
+      relations: ['job_posting'],
+    });
+    if (!application) return;
+    if (application.status !== 'offer_pending') return;
+
+    // Pull the freshest role rows — `assignment.roleAssignments` from the
+    // caller may reflect pre-save state depending on where we were
+    // invoked from.
+    const latestRoles = await this.roleRepo.find({
+      where: { assignment_id: assignment.id },
+    });
+    const { internalRows, applicantRows, userById } =
+      await this.partitionRolesByApplicant(latestRoles, application);
+
+    // Zero internal rows should have transitioned at create time — this is
+    // defensive so a template edited after offer creation still advances.
+    const allInternalDone =
+      internalRows.length === 0 ||
+      internalRows.every((r) => r.completed_at != null);
+    if (!allInternalDone) return;
+
+    const existingOfferDetails = (application.offer_details ?? {}) as Record<
+      string,
+      unknown
+    >;
+    application.status = 'offer_sent';
+    application.offer_details = {
+      ...existingOfferDetails,
+      internalSigningComplete: true,
+      internalSigningCompletedAt: new Date().toISOString(),
+    };
+    await this.applicationRepo.save(application);
+
+    const templateName =
+      (assignment.template_snapshot as unknown as { name?: string })?.name ??
+      'Offer Letter';
+    const report: OfferEmailDeliveryReport = {
+      sent: 0,
+      failed: 0,
+      recipients: [],
+    };
+    try {
+      await this.fireApplicantHandoff(
+        application,
+        templateName,
+        applicantRows,
+        userById,
+        report,
+      );
+    } catch (err) {
+      // Handoff email failures are non-fatal — status has already
+      // transitioned, the applicant can still see the offer in-app. Log so
+      // SMTP outages are visible in ops dashboards.
+      this.logger.warn(
+        `Applicant handoff email batch failed for assignment ${assignment.id}: ${this.buildFailureMessage(err)}`,
+      );
     }
   }
 

@@ -81,6 +81,7 @@ import { AddInterviewDetailsAndIndexesToJobApplications20260416100000 } from './
 import { CreateJobApplicationFieldValues20260416110000 } from './20260416110000-create-job-application-field-values.js';
 import { CreateOfferLetterAssignmentTables20260416200000 } from './20260416200000-create-offer-letter-assignment-tables.js';
 import { AddApplicantUserIdToJobApplications20260417100000 } from './20260417100000-add-applicant-user-id-to-job-applications.js';
+import { AddUserFksForOrphanSafety20260418100000 } from './20260418100000-add-user-fks-for-orphan-safety.js';
 
 type MigrationConstructor = new () => MigrationInterface;
 
@@ -167,4 +168,5 @@ export const migrations: MigrationConstructor[] = [
   CreateJobApplicationFieldValues20260416110000,
   CreateOfferLetterAssignmentTables20260416200000,
   AddApplicantUserIdToJobApplications20260417100000,
+  AddUserFksForOrphanSafety20260418100000,
 ];

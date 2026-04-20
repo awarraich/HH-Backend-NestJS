@@ -1784,6 +1784,77 @@ export class AuthService {
     try {
       const userEmail = user.email;
 
+      // ── Cleanup of related rows that don't have a FK+cascade relation
+      // back to users. Most of these columns were added as plain UUIDs
+      // (no foreign key) so a straight User delete leaves dangling ids or,
+      // worse, would fail for the handful that DO have FKs without an
+      // ON DELETE rule (competency_assignments.*). We run all of these
+      // inside the same transaction as the final User.remove() so a
+      // mid-cleanup failure rolls the whole thing back.
+      //
+      // Strategy: delete for rows owned by the user (their job
+      // applications, their role-fill assignments), null for audit
+      // columns on rows owned by someone else (who created/uploaded a
+      // record). Cascading FKs already handle: employees (+ profile),
+      // user_roles, organizations/providers/patients row, availability
+      // tables, blog comments/likes, patient chat messages.
+
+      // Job applications submitted by this user. Deleting these cascades
+      // to offer_letter_assignments → offer_letter_assignment_roles and
+      // offer_letter_field_values via existing FKs.
+      await queryRunner.query(
+        `DELETE FROM job_applications WHERE applicant_user_id = $1`,
+        [userId],
+      );
+
+      // Offer-letter role assignments (signer / filler) pointing at this
+      // user on OTHER people's offer letters. Column is NOT NULL so we
+      // delete the row; the remaining offer letter will be missing a
+      // signer and HR will need to reassign.
+      await queryRunner.query(
+        `DELETE FROM offer_letter_assignment_roles WHERE user_id = $1`,
+        [userId],
+      );
+
+      // Audit/creator columns — nullable, so null them out to preserve
+      // the parent row without leaving a dead UUID pointer.
+      await queryRunner.query(
+        `UPDATE offer_letter_assignments SET created_by = NULL WHERE created_by = $1`,
+        [userId],
+      );
+      await queryRunner.query(
+        `UPDATE offer_letter_field_values SET filled_by_user_id = NULL WHERE filled_by_user_id = $1`,
+        [userId],
+      );
+
+      // organization_staff created_by / updated_by audit columns.
+      await queryRunner.query(
+        `UPDATE organization_staff SET created_by = NULL WHERE created_by = $1`,
+        [userId],
+      );
+      await queryRunner.query(
+        `UPDATE organization_staff SET updated_by = NULL WHERE updated_by = $1`,
+        [userId],
+      );
+
+      // Competency / document-workflow assignments. `supervisor_id` is
+      // NOT NULL with no ON DELETE rule — if any rows exist for this
+      // user, a straight User delete would fail. Drop those rows
+      // outright; if they were partway through, the org recreates them.
+      // `created_by` is nullable → null it.
+      await queryRunner.query(
+        `DELETE FROM competency_assignments WHERE supervisor_id = $1`,
+        [userId],
+      );
+      await queryRunner.query(
+        `UPDATE competency_assignments SET created_by = NULL WHERE created_by = $1`,
+        [userId],
+      );
+      await queryRunner.query(
+        `UPDATE competency_templates SET created_by = NULL WHERE created_by = $1`,
+        [userId],
+      );
+
       // Delete user (cascade will handle user_roles deletion automatically)
       await queryRunner.manager.remove(User, user);
 

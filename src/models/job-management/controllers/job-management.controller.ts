@@ -34,6 +34,7 @@ import { CreateJobApplicationDto } from '../dto/create-job-application.dto';
 import { UpdateJobApplicationDto } from '../dto/update-job-application.dto';
 import { SendInterviewInviteDto } from '../dto/send-interview-invite.dto';
 import { SetApplicationFormFieldsDto } from '../dto/set-application-form-fields.dto';
+import { extractUserId } from '../../../common/utils/extract-user-id';
 
 @Controller('v1/api/job-management')
 export class JobManagementController {
@@ -246,12 +247,28 @@ export class JobManagementController {
     return SuccessHelper.createSuccessResponse(result, 'Application submitted');
   }
 
-  /** Employee: list applications submitted by a given auth user id (frontend: `/users/:userId/job-applications`). */
+  /**
+   * Employee / applicant: list applications submitted by the caller.
+   *
+   * The `:userId` path param is kept for URL readability but the
+   * authoritative id is the JWT subject — otherwise any authenticated user
+   * could enumerate another person's applications by substituting their
+   * UUID into the URL. When the path id doesn't match the JWT we 404
+   * (rather than 403) to avoid leaking whether an account exists.
+   */
   @Get('users/:userId/job-applications')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
-  async findMyJobApplicationsByUserId(@Param('userId') userId: string): Promise<unknown> {
-    const applications = await this.jobManagementService.findMyJobApplicationsByUserId(userId);
+  async findMyJobApplicationsByUserId(
+    @Req() req: FastifyRequest,
+    @Param('userId') userId: string,
+  ): Promise<unknown> {
+    const authUserId = extractUserId(req);
+    if (String(authUserId) !== String(userId)) {
+      throw new NotFoundException('Job applications not found');
+    }
+    const applications =
+      await this.jobManagementService.findMyJobApplicationsByUserId(authUserId);
     return SuccessHelper.createSuccessResponse(applications);
   }
 
@@ -379,6 +396,48 @@ export class JobManagementController {
       dto,
     );
     return SuccessHelper.createSuccessResponse(result, result.message);
+  }
+
+  /**
+   * Hire an accepted applicant as an Employee in the organization.
+   * Idempotent: calling again after the application is already `hired`
+   * returns the existing Employee row without side-effects.
+   *
+   * POST organization/:organizationId/job-applications/:id/hire
+   */
+  @Post('organization/:organizationId/job-applications/:id/hire')
+  @UseGuards(JwtAuthGuard, OrganizationRoleGuard)
+  @Roles('OWNER', 'HR', 'ADMIN')
+  @HttpCode(HttpStatus.OK)
+  async hireApplicant(
+    @Param('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @Body()
+    body: {
+      employmentType?: string | null;
+      startDate?: string | null;
+      department?: string | null;
+      positionTitle?: string | null;
+      providerRoleId?: string | null;
+      notes?: string | null;
+    },
+  ): Promise<unknown> {
+    const result = await this.jobManagementService.hireApplicant(
+      organizationId,
+      id,
+      body ?? undefined,
+    );
+    const message = result.alreadyHired
+      ? 'Applicant is already hired.'
+      : 'Applicant hired successfully.';
+    return SuccessHelper.createSuccessResponse(
+      {
+        application: result.application,
+        employee: result.employee,
+        already_hired: result.alreadyHired,
+      },
+      message,
+    );
   }
 
   /**
