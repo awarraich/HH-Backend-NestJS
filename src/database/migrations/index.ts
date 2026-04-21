@@ -83,6 +83,7 @@ import { CreateOfferLetterAssignmentTables20260416200000 } from './2026041620000
 import { AddApplicantUserIdToJobApplications20260417100000 } from './20260417100000-add-applicant-user-id-to-job-applications.js';
 import { AddUserFksForOrphanSafety20260418100000 } from './20260418100000-add-user-fks-for-orphan-safety.js';
 import { CreateScheduledTaskTables20260420100000 } from './20260420100000-create-scheduled-task-tables.js';
+import { AddSignatureAuditToOfferLetterFieldValues20260421100000 } from './20260421100000-add-signature-audit-to-offer-letter-field-values.js';
 
 type MigrationConstructor = new () => MigrationInterface;
 
@@ -171,4 +172,5 @@ export const migrations: MigrationConstructor[] = [
   AddApplicantUserIdToJobApplications20260417100000,
   AddUserFksForOrphanSafety20260418100000,
   CreateScheduledTaskTables20260420100000,
+  AddSignatureAuditToOfferLetterFieldValues20260421100000,
 ];

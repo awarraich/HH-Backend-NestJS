@@ -14,6 +14,7 @@ import {
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { SuccessHelper } from '../../../common/helpers/responses/success.helper';
+import { extractRequestSignatureMetadata } from '../../../common/utils/extract-request-metadata';
 import { OfferLetterAssignmentService } from '../services/offer-letter-assignment.service';
 import { FillOfferLetterFieldsDto } from '../dto/fill-offer-letter-fields.dto';
 
@@ -48,7 +49,10 @@ export class OfferLetterMyAssignmentsController {
   ) {
     const userId = req.user?.userId ?? req.user?.sub;
     if (!userId) throw new UnauthorizedException('User ID not found');
-    const data = await this.service.fillFields(id, userId, dto);
+    const { ip, userAgent } = extractRequestSignatureMetadata(req);
+    const data = await this.service.fillFields(id, userId, dto, {
+      requestMetadata: { ip, userAgent },
+    });
     return SuccessHelper.createSuccessResponse(data, 'Fields saved.');
   }
 

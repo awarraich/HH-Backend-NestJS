@@ -1,5 +1,6 @@
 import {
   IsArray,
+  IsBoolean,
   IsOptional,
   IsString,
   IsUUID,
@@ -30,4 +31,19 @@ export class FillOfferLetterFieldsDto {
   @ValidateNested({ each: true })
   @Type(() => OfferLetterFieldUpsertDto)
   fields: OfferLetterFieldUpsertDto[];
+
+  /**
+   * ESIGN consent version (e.g. "role-filler-offer-v1"). Required when
+   * any of the fields being written is a signature/initials field. The
+   * backend rejects the call if the version is missing or unknown, or if
+   * `consentAccepted` is not true.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  consentVersion?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  consentAccepted?: boolean;
 }

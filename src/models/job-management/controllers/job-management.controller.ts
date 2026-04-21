@@ -318,6 +318,53 @@ export class JobManagementController {
     );
   }
 
+  /**
+   * Candidate: confirm (or flag unavailable for) a scheduled interview and
+   * optionally provide alternative availability. Writes into
+   * `interview_details.applicantResponse` so HR sees the response on their
+   * side. JWT user id must match the path `:userId`.
+   */
+  @Patch('users/:userId/job-applications/:applicationId/interview-response')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async respondToInterviewAsCandidate(
+    @Req() req: FastifyRequest,
+    @Param('userId') userId: string,
+    @Param('applicationId') applicationId: string,
+    @Body()
+    body: {
+      response: 'confirmed' | 'unavailable';
+      availability?: string | null;
+    },
+  ): Promise<unknown> {
+    const authUserId =
+      (req as unknown as { user?: { userId?: string; sub?: string } }).user?.userId ??
+      (req as unknown as { user?: { userId?: string; sub?: string } }).user?.sub;
+    if (!authUserId) {
+      throw new NotFoundException('Authenticated user not found');
+    }
+    if (String(authUserId) !== String(userId)) {
+      throw new NotFoundException('Job application not found');
+    }
+    const response =
+      body?.response === 'unavailable' ? 'unavailable' : 'confirmed';
+    const availability =
+      typeof body?.availability === 'string' ? body.availability : null;
+    const result =
+      await this.jobManagementService.respondToInterviewAsCandidate(
+        String(authUserId),
+        applicationId,
+        response,
+        availability,
+      );
+    return SuccessHelper.createSuccessResponse(
+      { id: result.id, interview_details: result.interview_details },
+      response === 'confirmed'
+        ? 'Interview attendance confirmed'
+        : 'Availability updated',
+    );
+  }
+
   /** List applications for a job posting (organization). */
   @Get('organization/:organizationId/job-postings/:jobId/applications')
   @UseGuards(JwtAuthGuard, OrganizationRoleGuard)

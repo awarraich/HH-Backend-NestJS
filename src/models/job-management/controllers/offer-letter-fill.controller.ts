@@ -6,10 +6,12 @@ import {
   HttpStatus,
   Param,
   Post,
+  Req,
   Res,
 } from '@nestjs/common';
-import type { FastifyReply } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import { SuccessHelper } from '../../../common/helpers/responses/success.helper';
+import { extractRequestSignatureMetadata } from '../../../common/utils/extract-request-metadata';
 import { OfferLetterAssignmentService } from '../services/offer-letter-assignment.service';
 import { FillOfferLetterByTokenDto } from '../dto/fill-offer-letter-by-token.dto';
 
@@ -39,15 +41,25 @@ export class OfferLetterFillController {
   @Post(':token')
   @HttpCode(HttpStatus.OK)
   async submit(
+    @Req() req: FastifyRequest,
     @Param('token') token: string,
     @Body() dto: FillOfferLetterByTokenDto,
   ) {
     const { assignment, roleAssignment } = await this.service.findByFillToken(token);
+    const { ip, userAgent } = extractRequestSignatureMetadata(req);
     const updated = await this.service.fillFields(
       assignment.id,
       roleAssignment.user_id,
-      { roleId: roleAssignment.role_id, fields: dto.fields },
-      { bypassRoleCheck: true },
+      {
+        roleId: roleAssignment.role_id,
+        fields: dto.fields,
+        consentVersion: dto.consentVersion,
+        consentAccepted: dto.consentAccepted,
+      },
+      {
+        bypassRoleCheck: true,
+        requestMetadata: { ip, userAgent },
+      },
     );
     return SuccessHelper.createSuccessResponse(updated, 'Fields saved.');
   }

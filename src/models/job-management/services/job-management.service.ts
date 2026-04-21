@@ -402,14 +402,32 @@ export class JobManagementService {
       );
     }
 
-    // Status filter — supports the special "offers" bucket which maps to any offer state
-    const OFFER_STATES = ['offer_sent', 'offer_accepted', 'offer_declined'];
+    // Status filter — supports the special "offers" bucket which maps to any
+    // offer state. Former employees (status=terminated) live in their own
+    // tab and are excluded from the "all" view so HR isn't greeted by a
+    // list full of ex-staff; filtering explicitly by `status=terminated`
+    // still returns them.
+    // `offer_pending` (internal signers still working) and `offer_signed`
+    // (internals done, awaiting applicant response) count as offer-lifecycle
+    // rows too — leaving them out hides freshly-sent offers from the Offer
+    // Letters tab while HR waits for signatures to wrap.
+    const OFFER_STATES = [
+      'offer_sent',
+      'offer_pending',
+      'offer_signed',
+      'offer_accepted',
+      'offer_declined',
+    ];
     if (query.status && query.status !== 'all') {
       if (query.status === 'offers') {
         base.andWhere('ja.status IN (:...offerStates)', { offerStates: OFFER_STATES });
       } else {
         base.andWhere('ja.status = :status', { status: query.status });
       }
+    } else {
+      base.andWhere('ja.status <> :terminatedStatus', {
+        terminatedStatus: 'terminated',
+      });
     }
 
     // Compute the paginated slice + total in one round-trip
@@ -490,13 +508,17 @@ export class JobManagementService {
       offer_accepted: 0,
       offer_declined: 0,
       rejected: 0,
+      hired: 0,
+      terminated: 0,
       offers: 0,
     };
     for (const row of rawCounts) {
       const n = Number(row.count) || 0;
-      totalByStatus.all += n;
       const normalized = this.normalizeStatusKey(row.status);
       totalByStatus[normalized] = (totalByStatus[normalized] ?? 0) + n;
+      // `all` mirrors the list endpoint — former employees live in their own
+      // bucket and don't inflate the active pipeline count.
+      if (normalized !== 'terminated') totalByStatus.all += n;
       if (OFFER_STATES.includes(normalized)) totalByStatus.offers += n;
     }
 
@@ -565,6 +587,7 @@ export class JobManagementService {
     if (s === 'offer_pending') return 'offer_pending';
     if (s === 'offer_signed') return 'offer_signed';
     if (s === 'hired') return 'hired';
+    if (s === 'terminated') return 'terminated';
     return 'not_seen';
   }
 
@@ -579,6 +602,7 @@ export class JobManagementService {
       applicant_name: string;
       created_at: Date;
       offer_details?: Record<string, unknown> | null;
+      interview_details?: Record<string, unknown> | null;
       decline_reason?: string | null;
       job_posting?: { id: string; title: string };
       organization?: { id: string; organization_name: string };
@@ -608,6 +632,7 @@ export class JobManagementService {
       applicant_name: ja.applicant_name,
       created_at: ja.created_at,
       offer_details: ja.offer_details ?? null,
+      interview_details: ja.interview_details ?? null,
       decline_reason: ja.decline_reason ?? null,
       ...(ja.job_posting
         ? { job_posting: { id: ja.job_posting.id, title: ja.job_posting.title } }
@@ -708,9 +733,11 @@ export class JobManagementService {
     offer_accepted: ['hired'],
     offer_declined: ['pending'],
     rejected: ['pending'],
-    // `hired` is terminal — ending employment happens on the Employee row,
-    // not by flipping the application backwards.
-    hired: [],
+    // When the Employee row is later deleted, the delete-employee flow
+    // flips the linked application from `hired` to `terminated` so the
+    // applications list stops showing a stale Hired badge.
+    hired: ['terminated'],
+    terminated: [],
   };
 
   /**
@@ -849,6 +876,64 @@ export class JobManagementService {
       throw new NotFoundException('Job application not found');
     }
     return fresh;
+  }
+
+  /**
+   * Applicant-self response to a scheduled interview. Writes an
+   * `applicantResponse` block into `interview_details` so the org-facing
+   * list sees whether the candidate confirmed or flagged a conflict (and
+   * the free-text availability they offered). Does not change the
+   * application status — HR still owns the scheduling workflow.
+   */
+  async respondToInterviewAsCandidate(
+    userId: string,
+    applicationId: string,
+    response: 'confirmed' | 'unavailable',
+    availability?: string | null,
+  ): Promise<JobApplication> {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    const email = user?.email;
+    if (!email) {
+      throw new NotFoundException('User email not found');
+    }
+    const application = await this.jobApplicationRepository.findOne({
+      where: { id: applicationId },
+    });
+    if (!application) {
+      throw new NotFoundException('Job application not found');
+    }
+    const owns =
+      (application.applicant_user_id &&
+        application.applicant_user_id === userId) ||
+      application.applicant_email?.toLowerCase() === email.toLowerCase();
+    if (!owns) {
+      throw new NotFoundException('Job application not found');
+    }
+    if ((application.status ?? '').toLowerCase() !== 'interview') {
+      throw new BadRequestException(
+        'No scheduled interview to respond to for this application.',
+      );
+    }
+    const existing =
+      application.interview_details &&
+      typeof application.interview_details === 'object'
+        ? (application.interview_details as Record<string, unknown>)
+        : {};
+    const trimmedAvailability =
+      typeof availability === 'string' ? availability.trim() : '';
+    const nextInterviewDetails: Record<string, unknown> = {
+      ...existing,
+      applicantResponse: {
+        status: response,
+        ...(trimmedAvailability.length > 0
+          ? { availability: trimmedAvailability }
+          : {}),
+        respondedAt: new Date().toISOString(),
+      },
+    };
+    application.interview_details = nextInterviewDetails;
+    await this.jobApplicationRepository.save(application);
+    return application;
   }
 
   /**

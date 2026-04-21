@@ -8,7 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { OfferLetterAssignment } from '../entities/offer-letter-assignment.entity';
 import {
@@ -30,6 +30,10 @@ import { FillOfferLetterFieldsDto } from '../dto/fill-offer-letter-fields.dto';
 import { TemplatesService } from '../../organizations/document-workflow/services/templates.service';
 import { EmailService } from '../../../common/services/email/email.service';
 import { JobApplicationDocumentStorageService } from './job-application-document-storage.service';
+import {
+  findApplicantOfferLetterConsent,
+  findRoleFillerOfferLetterConsent,
+} from '../constants/esign-consent';
 
 const FILL_TOKEN_TTL_DAYS = 30;
 
@@ -1421,10 +1425,21 @@ export class OfferLetterAssignmentService {
     userId: string,
     applicationId: string,
     signatureDataUrl: string,
+    audit: {
+      consentVersion: string;
+      ip: string | null;
+      userAgent: string | null;
+    },
   ): Promise<{ signedAt: string }> {
     if (!/^data:image\/(png|jpeg|jpg);base64,/i.test(signatureDataUrl)) {
       throw new BadRequestException(
         'signatureDataUrl must be a base64 image data URL (png or jpeg).',
+      );
+    }
+    const consent = findApplicantOfferLetterConsent(audit.consentVersion);
+    if (!consent) {
+      throw new BadRequestException(
+        `Unknown consent version "${audit.consentVersion}".`,
       );
     }
     const application = await this.assertApplicantOwnsApplication(userId, applicationId);
@@ -1440,16 +1455,56 @@ export class OfferLetterAssignmentService {
         'Remove your uploaded signed copy before e-signing the offer letter.',
       );
     }
+    // Hash the template PDF bytes the applicant is signing. Stored with the
+    // signature so we can later prove the document wasn't altered post-sign
+    // (tamper detection for the ESIGN/UETA audit trail). Best-effort — a
+    // missing/corrupt template shouldn't block the sign flow.
+    const documentHash = await this.hashOfferLetterTemplate(existing).catch(
+      (err) => {
+        this.logger.warn(
+          `saveApplicantSignature: could not hash template pdf. ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+        return null;
+      },
+    );
     const signedAt = new Date().toISOString();
     application.offer_details = {
       ...existing,
       applicantSignature: {
         dataUrl: signatureDataUrl,
         signedAt,
+        consentVersion: consent.version,
+        consentText: consent.text,
+        ip: audit.ip,
+        userAgent: audit.userAgent,
+        documentHash,
       },
     };
     await this.applicationRepo.save(application);
     return { signedAt };
+  }
+
+  /**
+   * Compute a SHA-256 hex digest of the template PDF bytes referenced by
+   * the offer letter assignment currently attached to the application.
+   * Returns null when no assignment is attached. Used as part of the
+   * e-signature audit trail (tamper detection).
+   */
+  private async hashOfferLetterTemplate(
+    offerDetails: Record<string, unknown>,
+  ): Promise<string | null> {
+    const assignmentId =
+      typeof offerDetails.offerLetterAssignmentId === 'string'
+        ? offerDetails.offerLetterAssignmentId
+        : null;
+    if (!assignmentId) return null;
+    const a = await this.assignmentRepo.findOne({ where: { id: assignmentId } });
+    if (!a) return null;
+    const { stream } = await this.streamSnapshotPdf(a);
+    const buffer = await this.collectStreamToBuffer(stream);
+    return createHash('sha256').update(buffer).digest('hex');
   }
 
   /**
@@ -1684,7 +1739,10 @@ export class OfferLetterAssignmentService {
     assignmentId: string,
     fillerUserId: string,
     dto: FillOfferLetterFieldsDto,
-    opts: { bypassRoleCheck?: boolean } = {},
+    opts: {
+      bypassRoleCheck?: boolean;
+      requestMetadata?: { ip: string | null; userAgent: string | null };
+    } = {},
   ): Promise<OfferLetterAssignment> {
     const a = await this.assignmentRepo.findOne({
       where: { id: assignmentId },
@@ -1719,7 +1777,71 @@ export class OfferLetterAssignmentService {
       );
     }
 
+    // Audit-trail gate: if any field being written is a signature or
+    // initials, require an accepted consent version. Non-signature fields
+    // (text, date, etc.) save without a consent check so the form still
+    // works for casual edits.
+    const isSignatureField = (fieldId: string): boolean => {
+      const f = snapshotFields.find((x) => x.id === fieldId);
+      if (!f) return false;
+      const t = (f.type ?? '').toString().toLowerCase();
+      if (t === 'signature' || t === 'initials') return true;
+      const label = (f.label ?? '').toString().toLowerCase();
+      return label.startsWith('signature') || label.startsWith('initials');
+    };
+    const touchesSignatureField = dto.fields.some((f) =>
+      isSignatureField(f.fieldId),
+    );
+    let consent: { version: string; text: string } | null = null;
+    let documentHash: string | null = null;
+    if (touchesSignatureField) {
+      if (dto.consentAccepted !== true) {
+        throw new BadRequestException(
+          'You must accept the electronic signature consent before signing.',
+        );
+      }
+      const version = (dto.consentVersion ?? '').trim();
+      if (!version) {
+        throw new BadRequestException('consentVersion is required.');
+      }
+      const found = findRoleFillerOfferLetterConsent(version);
+      if (!found) {
+        throw new BadRequestException(
+          `Unknown consent version "${version}".`,
+        );
+      }
+      consent = { version: found.version, text: found.text };
+      // Hash the template PDF bytes so we can later prove the document the
+      // role-filler signed wasn't altered post-sign. Best-effort — a
+      // missing/corrupt template shouldn't block the sign flow.
+      try {
+        const { stream } = await this.streamSnapshotPdf(a);
+        const buffer = await this.collectStreamToBuffer(stream);
+        documentHash = createHash('sha256').update(buffer).digest('hex');
+      } catch (err) {
+        this.logger.warn(
+          `fillFields: could not hash template pdf. ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+    const requestIp = opts.requestMetadata?.ip ?? null;
+    const requestUA = opts.requestMetadata?.userAgent ?? null;
+    const buildSignatureAudit = (fieldId: string) => {
+      if (!consent || !isSignatureField(fieldId)) return null;
+      return {
+        consentVersion: consent.version,
+        consentText: consent.text,
+        ip: requestIp,
+        userAgent: requestUA,
+        documentHash,
+        signedAt: new Date().toISOString(),
+      };
+    };
+
     for (const f of dto.fields) {
+      const audit = buildSignatureAudit(f.fieldId);
       const existing = await this.valueRepo.findOne({
         where: { assignment_id: assignmentId, field_id: f.fieldId },
       });
@@ -1728,6 +1850,7 @@ export class OfferLetterAssignmentService {
         existing.value_json = f.valueJson ?? null;
         existing.filled_by_user_id = fillerUserId;
         existing.filled_by_role_id = dto.roleId;
+        if (audit) existing.signature_audit = audit;
         await this.valueRepo.save(existing);
       } else {
         await this.valueRepo.save(
@@ -1738,6 +1861,7 @@ export class OfferLetterAssignmentService {
             value_json: f.valueJson ?? null,
             filled_by_user_id: fillerUserId,
             filled_by_role_id: dto.roleId,
+            signature_audit: audit,
           }),
         );
       }
