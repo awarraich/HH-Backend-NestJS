@@ -9,39 +9,12 @@ import { migrations } from '../../../database/migrations/index.js';
     TypeOrmModule.forRootAsync({
       imports: [PostgresConfigModule],
       useFactory: (postgresConfigService: PostgresConfigService) => {
-        const isProduction = process.env.NODE_ENV === 'production';
         const host = postgresConfigService.host;
         const isLocalhost = host === 'localhost' || host === '127.0.0.1';
 
-        let sslConfig: boolean | object = false;
-
-        if (isProduction && !isLocalhost) {
-          // Remote database - check if SSL certificates are provided
-          const sslCa = process.env.DB_SSL_CA;
-          const sslCert = process.env.DB_SSL_CERT;
-          const sslKey = process.env.DB_SSL_KEY;
-
-          if (sslCa || sslCert || sslKey) {
-            // SSL certificates provided - use them
-            sslConfig = {
-              rejectUnauthorized: true,
-              ...(sslCa && { ca: sslCa }),
-              ...(sslCert && { cert: sslCert }),
-              ...(sslKey && { key: sslKey }),
-            };
-          }
-          // If no certificates, SSL remains false (connection will use non-SSL)
-        }
-
-        // Allow explicit SSL override via environment variable
-        if (process.env.DB_USE_SSL === 'true' && process.env.DB_SSL_CA) {
-          sslConfig = {
-            rejectUnauthorized: true,
-            ca: process.env.DB_SSL_CA,
-            ...(process.env.DB_SSL_CERT && { cert: process.env.DB_SSL_CERT }),
-            ...(process.env.DB_SSL_KEY && { key: process.env.DB_SSL_KEY }),
-          };
-        }
+        const sslConfig = process.env.DATABASE_SSL === 'true' && !isLocalhost
+          ? { rejectUnauthorized: false }
+          : false;
 
         return {
           type: 'postgres',
