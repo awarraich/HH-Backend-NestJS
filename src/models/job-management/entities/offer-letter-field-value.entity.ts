@@ -44,6 +44,23 @@ export class OfferLetterFieldValue {
   @Column({ type: 'jsonb', nullable: true })
   value_json: Record<string, unknown> | null;
 
+  /**
+   * E-signature audit trail for signature/initials fields. Populated when
+   * the filler agreed to an ESIGN consent before submitting. Shape:
+   *   {
+   *     consentVersion: string,
+   *     consentText: string,
+   *     ip: string | null,
+   *     userAgent: string | null,
+   *     documentHash: string | null,  // sha256 hex of the template bytes
+   *     signedAt: string,             // ISO timestamp
+   *   }
+   * Null for non-signature fields or legacy rows written before consent
+   * capture was enforced.
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  signature_audit: Record<string, unknown> | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   created_at: Date;
 

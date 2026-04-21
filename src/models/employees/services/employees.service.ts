@@ -1051,6 +1051,26 @@ export class EmployeesService {
       // Delete related data first: profile (FK from profile to employee)
       await queryRunner.manager.delete(EmployeeProfile, { employee_id: employeeId });
       await queryRunner.manager.delete(Employee, { id: employeeId });
+
+      // Flip the linked job_application from "hired" to "terminated" so the
+      // HR-facing applications list stops showing a green Hired badge for a
+      // user who no longer exists as an employee. Scoped to this org's job
+      // postings and the user's own applications so we never flip a row
+      // outside the caller's reach. Best-effort: if there's no matching
+      // hired application, skip silently (e.g. pre-hire-flow employees).
+      if (employee.user_id) {
+        await queryRunner.manager.query(
+          `UPDATE job_applications ja
+             SET status = 'terminated'
+            FROM job_postings jp
+           WHERE ja.job_posting_id = jp.id
+             AND ja.applicant_user_id = $1
+             AND jp.organization_id = $2
+             AND ja.status = 'hired'`,
+          [employee.user_id, organizationId],
+        );
+      }
+
       await queryRunner.commitTransaction();
 
       // HIPAA Compliance: Log operation

@@ -17,6 +17,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { SuccessHelper } from '../../../common/helpers/responses/success.helper';
 import { extractUserId } from '../../../common/utils/extract-user-id';
+import { extractRequestSignatureMetadata } from '../../../common/utils/extract-request-metadata';
 import { JobManagementService } from '../services/job-management.service';
 import { OfferLetterAssignmentService } from '../services/offer-letter-assignment.service';
 
@@ -134,17 +135,37 @@ export class ApplicantJobManagementController {
   async signMyOfferLetter(
     @Req() req: FastifyRequest,
     @Param('applicationId') applicationId: string,
-    @Body() body: { signatureDataUrl?: string },
+    @Body()
+    body: {
+      signatureDataUrl?: string;
+      consentVersion?: string;
+      consentAccepted?: boolean;
+    },
   ): Promise<unknown> {
     const userId = extractUserId(req);
     const signatureDataUrl = (body?.signatureDataUrl ?? '').trim();
     if (!signatureDataUrl) {
       throw new BadRequestException('signatureDataUrl is required.');
     }
+    if (body?.consentAccepted !== true) {
+      throw new BadRequestException(
+        'You must accept the electronic signature consent before signing.',
+      );
+    }
+    const consentVersion = (body?.consentVersion ?? '').trim();
+    if (!consentVersion) {
+      throw new BadRequestException('consentVersion is required.');
+    }
+    const { ip, userAgent } = extractRequestSignatureMetadata(req);
     const result = await this.offerLetterAssignmentService.saveApplicantSignature(
       String(userId),
       applicationId,
       signatureDataUrl,
+      {
+        consentVersion,
+        ip,
+        userAgent,
+      },
     );
     return SuccessHelper.createSuccessResponse(result, 'Signature saved.');
   }
