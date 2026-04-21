@@ -29,7 +29,16 @@ const assignSchema = {
       'For ONE_TIME shifts, omit this and it will be derived from the shift start_at.',
     ),
   department_id: z.string().uuid().optional(),
-  station_id: z.string().uuid().optional(),
+  station_id: z
+    .string()
+    .uuid()
+    .optional()
+    .describe(
+      'Station this assignment belongs to. If the shift is offered at exactly ' +
+      'one station the backend auto-fills this; if multiple, it is required and ' +
+      'the tool will return an error listing the valid stations. Department is ' +
+      'derived from the station.',
+    ),
   room_id: z.string().uuid().optional(),
   bed_id: z.string().uuid().optional(),
   chair_id: z.string().uuid().optional(),
@@ -38,6 +47,15 @@ const assignSchema = {
     .max(20)
     .optional()
     .describe('Default SCHEDULED. Other examples: CONFIRMED, CANCELLED.'),
+  role: z
+    .string()
+    .max(50)
+    .optional()
+    .describe(
+      "First-class role column (e.g. 'LN', 'RC', 'CHARGE NURSE'). Prefer " +
+      "this over embedding role in notes. If omitted, the backend falls back " +
+      "to the employee's provider role.",
+    ),
   notes: z.string().optional(),
 };
 
@@ -57,9 +75,29 @@ export function buildAssignmentTools(
     bed_id?: string;
     chair_id?: string;
     status?: string;
+    role?: string;
     notes?: string;
   }): SchedulingToolResult => {
     try {
+      // The LLM sometimes passes a user_id (from the nested user.id field
+      // in employee tool responses) instead of the top-level employee id.
+      // Resolve ambiguity up-front so the rest of the handler always uses
+      // the canonical employee.id.
+      const resolvedId = await employeesService.resolveEmployeeId(
+        ctx.organizationId,
+        args.employee_id,
+      );
+      if (!resolvedId) {
+        return jsonResult({
+          success: false,
+          error:
+            `employee_id ${args.employee_id} does not exist in this organization. ` +
+            `Do NOT retry with a fabricated UUID. Call search_available_employees or ` +
+            `get_employee_availability to get real employee_ids, then retry.`,
+        });
+      }
+      const employeeId = resolvedId;
+
       // Reject scheduled_date values where the employee has no matching
       // availability rule. Without this guard, the agent can (and has)
       // pick a weekday the employee isn't available on — e.g. assigning a
@@ -67,7 +105,7 @@ export function buildAssignmentTools(
       // error message so the agent can correct itself.
       if (args.scheduled_date) {
         const availability = await availabilityService.findAvailability({
-          employeeId: args.employee_id,
+          employeeId,
           organizationId: ctx.organizationId,
           status: 'available',
         });
@@ -104,9 +142,9 @@ export function buildAssignmentTools(
       // axis is wrong even if station_id is populated.
       const displayMap = await employeesService.findDisplayInfoByIds(
         ctx.organizationId,
-        [args.employee_id],
+        [employeeId],
       );
-      const display = displayMap.get(args.employee_id);
+      const display = displayMap.get(employeeId);
 
       const department_id = args.department_id ?? ctx.departmentId;
       const station_id = args.station_id ?? ctx.stationId;
@@ -114,12 +152,16 @@ export function buildAssignmentTools(
       const bed_id = args.bed_id ?? ctx.bedId;
       const chair_id = args.chair_id ?? ctx.chairId;
 
-      // The frontend grid is keyed by notes.role × date. LLM callers tend
-      // to guess a role from the shift's eligible roles list, which lands
-      // the row in the wrong column — so always override `role` with the
-      // employee's real providerRole, preserving any other caller fields
-      // (e.g. `rooms`). Also guard against `null` — zod allows only string
-      // | undefined, but callers occasionally send literal null.
+      // The effective role is: caller-supplied > employee's provider role.
+      // We always prefer the real provider role over a caller guess because
+      // LLMs tend to pick from the shift's eligible-roles list, which can
+      // land the row in the wrong column on any grid keyed by role.
+      const effectiveRole = display?.role_code ?? args.role;
+
+      // Dual-write notes for FE backward compatibility: the current grid
+      // reads `notes.role`. Once the frontend migrates to the new `role`
+      // column this block can be deleted. Guard against `null` — zod allows
+      // only string | undefined, but callers occasionally send literal null.
       let notes = args.notes;
       let notesObj: Record<string, unknown> | null = null;
       if (notes != null && notes.trim() !== '') {
@@ -134,9 +176,9 @@ export function buildAssignmentTools(
           notesObj = { text: notes };
         }
       }
-      if (display?.role_code) {
+      if (effectiveRole) {
         const merged: Record<string, unknown> = { ...(notesObj ?? {}) };
-        merged.role = display.role_code;
+        merged.role = effectiveRole;
         if (!Array.isArray(merged.rooms)) merged.rooms = [];
         notes = JSON.stringify(merged);
       } else if (notes == null) {
@@ -147,7 +189,7 @@ export function buildAssignmentTools(
         ctx.organizationId,
         args.shift_id,
         {
-          employee_id: args.employee_id,
+          employee_id: employeeId,
           scheduled_date: args.scheduled_date,
           department_id,
           station_id,
@@ -155,6 +197,7 @@ export function buildAssignmentTools(
           bed_id,
           chair_id,
           status: args.status,
+          role: effectiveRole,
           notes,
         },
         ctx.userId,

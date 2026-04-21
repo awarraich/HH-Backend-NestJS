@@ -37,5 +37,10 @@ export class CreateEmployeeShiftDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(50)
+  role?: string;
+
+  @IsOptional()
+  @IsString()
   notes?: string;
 }

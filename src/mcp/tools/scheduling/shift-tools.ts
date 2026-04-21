@@ -11,7 +11,14 @@ import {
 import { enrichShiftWithLocalTime } from './format-shift-times';
 
 const listShiftsSchema = {
-  shift_type: z.string().optional().describe('Filter by shift type, e.g. "morning", "night"'),
+  shift_type: z
+    .string()
+    .optional()
+    .describe(
+      'Filter by shift type ("DAY", "NIGHT", "EVE"). ONLY pass this when the user ' +
+      'explicitly asked for a specific type — many shifts store shift_type as NULL, ' +
+      'and filtering will silently exclude them. If unsure, omit this field.',
+    ),
   status: z.string().optional().describe('Filter by status (default ACTIVE)'),
   from_date: z.string().optional().describe('ISO date — only shifts starting on/after this date'),
   to_date: z.string().optional().describe('ISO date — only shifts ending on/before this date'),

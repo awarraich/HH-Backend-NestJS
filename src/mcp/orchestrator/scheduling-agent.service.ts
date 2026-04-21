@@ -3,6 +3,7 @@ import type { ChatCompletionMessageParam } from 'openai/resources/chat/completio
 import { McpServerFactory } from '../server/mcp-server.factory';
 import { OpenAiClient } from './openai.client';
 import { toOpenAiTools } from './tool-bridge';
+import { FALLBACK_TIMEZONE } from '../tools/scheduling/timezone';
 
 const SYSTEM_PROMPT = `You are a scheduling assistant for a home-health platform.
 You have read tools for shifts, employee shift assignments, roles, and employee availability, plus ONE write tool: assign_employee_to_shift.
@@ -28,15 +29,17 @@ RULE: any assistant response that ends by asking the user to confirm an assignme
 One object per planned assignment. Real UUIDs only — never placeholders like "<uuid-for-…>". This applies to SLOW PATH (single employee), BULK PATH (many employees), and any ad-hoc confirmation you invent.
 On the next turn, if the user confirms ("yes", "go ahead", "proceed", "confirm"), parse the ASSIGNMENTS block from your most recent assistant message in the history and call assign_employee_to_shift with those exact UUIDs and scheduled_dates. Do NOT re-run search_shifts / get_employee_availability / list_employees — the block is authoritative. Do NOT ask the user for names or IDs.
 If a prior assistant turn asked for confirmation WITHOUT an ASSIGNMENTS block, you have no UUIDs to use. Do not fabricate them. Apologise briefly and re-run the discovery tools to rebuild the plan, then emit a fresh ASSIGNMENTS block and ask for confirmation again.
+CRITICAL — on a confirmation turn (user says "yes", "go ahead", "proceed"): before calling assign_employee_to_shift, verify that every shift_id and employee_id you are about to pass appears VERBATIM in either (a) an ASSIGNMENTS block in your own prior turn, or (b) the "Prior-turn tool results" system block. If a UUID is not in one of those two sources, you are fabricating — STOP, run search_shifts / search_available_employees first, and only then call assign_employee_to_shift. Well-formed UUID shape is NOT evidence that a UUID is real.
 
 Assignment workflow (follow strictly when the user asks to "schedule", "assign", "book", or "put X on Y shift"):
 
   FAST PATH — if the user already provides BOTH a shift_id (UUID) AND an employee_id (UUID) AND a scheduled_date in the request:
-    a. Call assign_employee_to_shift directly with the provided shift_id, employee_id, and scheduled_date, plus any optional fields they mention (department_id, station_id, room_id, bed_id, chair_id, notes, status).
-    b. If the user mentions a role like "CHARGE NURSE", encode it into the notes field as JSON: notes='{"role":"CHARGE NURSE","rooms":[]}'.
-    c. Report the tool's result. On 'success: false', surface the error verbatim.
-    d. DO NOT call get_employee_shifts, get_shift_details, or any other read tool first. DO NOT report on the employee's prior assignments to other shifts — they are irrelevant.
-    e. If the user provides shift_id and employee_id but NOT a scheduled_date and the shift is recurring, you MUST check the shift details and follow the SLOW PATH recurring-shift logic to determine which dates to assign.
+    a. Call assign_employee_to_shift directly with the provided shift_id, employee_id, and scheduled_date, plus any optional fields they mention (department_id, station_id, room_id, bed_id, chair_id, role, notes, status).
+    b. If the user mentions a role like "CHARGE NURSE", pass it as the top-level 'role' argument — do NOT bury it in notes. The backend mirrors role into notes for frontend compatibility automatically.
+    c. station_id: the backend auto-resolves it when the shift has exactly one linked station. If the tool returns an error listing multiple valid stations, ask the user which one, then retry with station_id set. Never invent a station_id.
+    d. Report the tool's result. On 'success: false', surface the error verbatim.
+    e. DO NOT call get_employee_shifts, get_shift_details, or any other read tool first. DO NOT report on the employee's prior assignments to other shifts — they are irrelevant.
+    f. If the user provides shift_id and employee_id but NOT a scheduled_date and the shift is recurring, you MUST check the shift details and follow the SLOW PATH recurring-shift logic to determine which dates to assign.
 
   SLOW PATH — if the user gives a shift name (e.g. "NOC", "morning") instead of a shift_id:
   1. Resolve the Shift: call search_shifts with the keyword (e.g. "NOC", "morning"). If multiple matches, ask the user which one. If none, tell the user the shift doesn't exist. From the chosen shift, extract: shift_id, start_at, end_at, recurrence_type. Convert start_at/end_at to local time strings (HH:MM) and the local start date. Call this the SHIFT WINDOW.
@@ -72,9 +75,12 @@ Assignment workflow (follow strictly when the user asks to "schedule", "assign",
 
 When refusing or confirming, always state the shift's ACTUAL hours from start_at/end_at — never echo the user's typed hours as if they were the shift's hours.
 
+list_shifts caveats:
+- Many shifts have shift_type stored as NULL in the database (it is an optional column). Filtering list_shifts by shift_type will silently hide those rows. DO NOT pass shift_type to list_shifts unless the user explicitly named a type (e.g. "show me the NIGHT shifts"). Inferring the type from the shift's start/end times (e.g. 7-15 → DAY) is WRONG — leave shift_type unset and filter in your head from the results instead.
+
 Enum values (use these EXACTLY — they are case-sensitive in some places):
 - shift status: ACTIVE, INACTIVE, ARCHIVED (uppercase)
-- shift_type: DAY, NIGHT, EVE (uppercase)
+- shift_type: DAY, NIGHT, EVE (uppercase, OFTEN NULL — see caveat above)
 - recurrence_type: ONE_TIME, FULL_WEEK, WEEKDAYS, WEEKENDS, CUSTOM (uppercase)
 - employee shift status: SCHEDULED, CONFIRMED, CANCELLED, COMPLETED (uppercase)
 - availability status: available, unavailable, tentative, booked (lowercase, fixture-only)
@@ -91,6 +97,11 @@ Availability queries (CRITICAL — pick the right tool):
   WRONG: inventing an employee_id like "ahmad_khan_id" — NEVER guess or fabricate UUIDs. Always resolve names to real UUIDs via search_employees first.
 
   CRITICAL: NEVER invent or fabricate employee_id values. Strings like "uuid-for-lvn-ahmad-khan" or "ahmad_khan_rn_id" are NOT valid UUIDs. If you need an employee_id, call search_employees or list_employees to get the real UUID.
+
+Timezone handling:
+- All shift times in tool results include a \`local_time\` object with times rendered in the user's timezone. ALWAYS use the \`local_time.local_start\`, \`local_time.local_end\`, and \`local_time.local_time_display\` fields when presenting times to the user — never show raw UTC ISO strings.
+- The user's timezone is provided in the "Today's date" block below. If no timezone was provided, the system defaults to US Pacific (America/Los_Angeles).
+- When referring to times in your replies, always include the timezone abbreviation (e.g. "2:00 PM PDT", "7:00 AM PST").
 
 Rules:
 - Always prefer calling a tool over guessing.
@@ -172,7 +183,7 @@ Cross-checking with prior turns:
   inconsistency rather than confidently denying yourself.`;
 
 const MAX_STEPS = 12;
-const MODEL = 'gpt-4o-mini';
+const MODEL = 'gpt-4o';
 
 /**
  * Render the optional UI context object as a system-prompt block. The agent
@@ -188,7 +199,7 @@ const MODEL = 'gpt-4o-mini';
  * check in assign_employee_to_shift.
  */
 function buildTodayBlock(timezone?: string): string {
-  const tz = timezone && timezone.trim() ? timezone : 'UTC';
+  const tz = timezone && timezone.trim() ? timezone : FALLBACK_TIMEZONE;
   let today: string;
   let weekday: string;
   try {
@@ -287,6 +298,256 @@ function buildPriorToolCallsBlock(
   return lines.join('\n');
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Post-process the agent's final answer to fix the ASSIGNMENTS HTML comment.
+ *
+ * GPT-4o-mini sometimes emits placeholder strings like `<uuid_for_AM1>` or
+ * `<uuid_for_Employee_1>` instead of real UUIDs. When that happens, the next
+ * confirmation turn has no usable IDs and the assignment fails.
+ *
+ * This function:
+ *  1. Parses the ASSIGNMENTS block from the answer.
+ *  2. Checks each shift_id / employee_id for valid UUID format.
+ *  3. If any are placeholders, attempts to resolve them from the tool-call
+ *     trace (shift names → shift_id, employee names → employee_id).
+ *  4. If resolution succeeds, rewrites the block with real UUIDs.
+ *  5. If resolution fails, strips the block entirely so the agent's own
+ *     fallback protocol (re-run discovery) can kick in cleanly.
+ */
+function fixAssignmentsBlock(
+  answer: string,
+  trace: SchedulingAgentToolCall[],
+): string {
+  const blockRe = /<!--\s*ASSIGNMENTS:\s*(\[[\s\S]*?\])\s*-->/;
+  const match = answer.match(blockRe);
+  if (!match) return answer;
+
+  let assignments: Array<{
+    shift_id: string;
+    employee_id: string;
+    scheduled_date?: string;
+    role?: string;
+    [key: string]: unknown;
+  }>;
+  try {
+    assignments = JSON.parse(match[1]);
+    if (!Array.isArray(assignments)) return answer;
+  } catch {
+    // Malformed JSON — strip the block so the fallback protocol works.
+    return answer.replace(blockRe, '');
+  }
+
+  // Check if any IDs are placeholders (not valid UUID format).
+  const needsFix = assignments.some(
+    (a) => !UUID_RE.test(a.shift_id) || !UUID_RE.test(a.employee_id),
+  );
+  if (!needsFix) return answer;
+
+  // Build lookup maps from tool-call trace results.
+  const shiftsByName = new Map<string, string>(); // lowercase name → shift_id
+  const employeesByName = new Map<string, string>(); // lowercase name → employee_id
+
+  for (const call of trace) {
+    const result = call.result as Record<string, unknown> | undefined;
+    if (!result || typeof result !== 'object') continue;
+
+    // Extract shifts from list_shifts / search_shifts results.
+    const shifts = (result as any).shifts ?? (result as any).data;
+    if (Array.isArray(shifts)) {
+      for (const s of shifts) {
+        if (s?.id && s?.name && UUID_RE.test(s.id)) {
+          shiftsByName.set(String(s.name).toLowerCase(), s.id);
+        }
+      }
+    }
+
+    // Extract employees from availability results.
+    const availability = (result as any).availability;
+    if (Array.isArray(availability)) {
+      for (const slot of availability) {
+        if (slot?.employee_id && UUID_RE.test(slot.employee_id)) {
+          if (slot.employee_name) {
+            employeesByName.set(
+              String(slot.employee_name).toLowerCase(),
+              slot.employee_id,
+            );
+          }
+        }
+      }
+    }
+
+    // Extract employees from list_employees / search_employees results.
+    const employees = (result as any).employees ?? (result as any).data;
+    if (Array.isArray(employees)) {
+      for (const e of employees) {
+        const id = e?.id;
+        if (!id || !UUID_RE.test(id)) continue;
+        const name =
+          e?.user?.full_name ??
+          (e?.user
+            ? `${e.user.firstName ?? ''} ${e.user.lastName ?? ''}`.trim()
+            : null);
+        if (name) employeesByName.set(name.toLowerCase(), id);
+      }
+    }
+  }
+
+  // Try to resolve each placeholder.
+  let allResolved = true;
+  for (const a of assignments) {
+    if (!UUID_RE.test(a.shift_id)) {
+      // Try to match placeholder text against known shift names.
+      const resolved = findBestMatch(a.shift_id, shiftsByName);
+      if (resolved) {
+        a.shift_id = resolved;
+      } else {
+        allResolved = false;
+      }
+    }
+    if (!UUID_RE.test(a.employee_id)) {
+      const resolved = findBestMatch(a.employee_id, employeesByName);
+      if (resolved) {
+        a.employee_id = resolved;
+      } else {
+        allResolved = false;
+      }
+    }
+  }
+
+  if (!allResolved) {
+    // Can't fix all placeholders — strip the block so the fallback
+    // protocol (re-run discovery tools) kicks in on the next turn.
+    return answer.replace(blockRe, '');
+  }
+
+  // Rewrite the block with real UUIDs.
+  const fixed = `<!-- ASSIGNMENTS: ${JSON.stringify(assignments)} -->`;
+  return answer.replace(blockRe, fixed);
+}
+
+/**
+ * Synthesise an ASSIGNMENTS block when the agent's final answer asks for
+ * assignment confirmation but forgot to embed the block. Without this,
+ * the "yes" turn loses all UUIDs and the agent often fabricates fake ones.
+ *
+ * Conservative heuristics — we only inject when:
+ *   - The answer contains confirmation language ("would you like", "shall I",
+ *     "proceed", "confirm", "go ahead") AND assignment language ("assign",
+ *     "schedule", "plot", "book").
+ *   - The trace contains exactly one shift with a real UUID.
+ *   - The trace contains at least one employee with a real UUID from an
+ *     availability result.
+ * When those hold, we pair the one shift with every discovered employee
+ * using today's date. Multiple-shift scenarios are left alone — guessing
+ * the pairing is too risky.
+ */
+function synthesizeAssignmentsBlock(
+  answer: string,
+  trace: SchedulingAgentToolCall[],
+  timezone?: string,
+): string {
+  if (/<!--\s*ASSIGNMENTS:/i.test(answer)) return answer;
+
+  const asksConfirmation =
+    /\b(would you like|shall i|proceed|confirm|go ahead|want me to)\b/i.test(answer);
+  const mentionsAssignment =
+    /\b(assign|schedul|plot|book|put .* on)\b/i.test(answer);
+  if (!asksConfirmation || !mentionsAssignment) return answer;
+
+  const shifts = new Map<string, { id: string; name?: string }>();
+  const employees = new Map<string, { id: string }>();
+
+  for (const call of trace) {
+    const result = call.result as Record<string, unknown> | undefined;
+    if (!result || typeof result !== 'object') continue;
+
+    const shiftArr = (result as any).shifts ?? (result as any).data;
+    if (Array.isArray(shiftArr)) {
+      for (const s of shiftArr) {
+        if (s?.id && UUID_RE.test(s.id)) {
+          shifts.set(s.id, { id: s.id, name: s.name });
+        }
+      }
+    }
+
+    const availArr =
+      (result as any).availability ?? (result as any).candidates;
+    if (Array.isArray(availArr)) {
+      for (const slot of availArr) {
+        if (slot?.employee_id && UUID_RE.test(slot.employee_id)) {
+          employees.set(slot.employee_id, { id: slot.employee_id });
+        }
+      }
+    }
+  }
+
+  if (shifts.size !== 1 || employees.size === 0) return answer;
+
+  const [shift] = shifts.values();
+  const today = todayInTimezone(timezone);
+  const assignments = [...employees.values()].map((e) => ({
+    shift_id: shift.id,
+    employee_id: e.id,
+    scheduled_date: today,
+  }));
+  const block = `\n\n<!-- ASSIGNMENTS: ${JSON.stringify(assignments)} -->`;
+  return `${answer}${block}`;
+}
+
+function todayInTimezone(timezone?: string): string {
+  const tz = timezone && timezone.trim() ? timezone : FALLBACK_TIMEZONE;
+  try {
+    const fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    const parts = fmt.formatToParts(new Date());
+    const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
+    return `${get('year')}-${get('month')}-${get('day')}`;
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+/**
+ * Try to match a placeholder string (e.g. "<uuid_for_AM1>") against a map
+ * of known names. Strips angle brackets, underscores, and common prefixes
+ * like "uuid_for_" to extract the keyword, then does substring matching.
+ */
+function findBestMatch(
+  placeholder: string,
+  nameMap: Map<string, string>,
+): string | null {
+  // Normalize: "<uuid_for_AM1>" → "am1"
+  const cleaned = placeholder
+    .replace(/[<>]/g, '')
+    .replace(/^uuid[_\s]*(for[_\s]*)?/i, '')
+    .replace(/_/g, ' ')
+    .trim()
+    .toLowerCase();
+
+  if (!cleaned) return null;
+
+  // Exact match first.
+  const exact = nameMap.get(cleaned);
+  if (exact) return exact;
+
+  // Substring match: check if the cleaned placeholder is contained in any
+  // name, or vice versa.
+  for (const [name, id] of nameMap) {
+    if (name.includes(cleaned) || cleaned.includes(name)) return id;
+  }
+
+  // If only one entry in the map, use it (common case: one shift, one employee).
+  if (nameMap.size === 1) return nameMap.values().next().value;
+
+  return null;
+}
+
 function safeStringify(value: unknown, maxLen: number): string {
   let text: string;
   try {
@@ -350,10 +611,10 @@ export interface SchedulingAgentRequest {
    */
   priorToolCalls?: SchedulingAgentToolCall[];
   /**
-   * Client-supplied IANA timezone, e.g. "Asia/Karachi".
+   * Client-supplied IANA timezone, e.g. "America/Los_Angeles".
    * The browser provides this for free via
    * `Intl.DateTimeFormat().resolvedOptions().timeZone`. Optional — falls
-   * back to UTC at the factory boundary if missing or invalid.
+   * back to America/Los_Angeles (US Pacific) if missing or invalid.
    */
   timezone?: string;
 }
@@ -437,7 +698,9 @@ export class SchedulingAgentService {
         this.logger.debug(
           `agent finished in ${step + 1} step(s); ${trace.length} tool call(s): ${trace.map((t) => t.name).join(', ') || '(none)'}`,
         );
-        return { answer: msg.content ?? '', toolCalls: trace };
+        const fixed = fixAssignmentsBlock(msg.content ?? '', trace);
+        const answer = synthesizeAssignmentsBlock(fixed, trace, req.timezone);
+        return { answer, toolCalls: trace };
       }
 
       for (const call of msg.tool_calls) {

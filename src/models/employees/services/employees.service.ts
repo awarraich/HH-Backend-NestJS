@@ -749,6 +749,34 @@ export class EmployeesService {
     return map;
   }
 
+  /**
+   * Resolve an ambiguous ID to a real employee.id within the org.
+   * Tries `employee.id` first; if no match, falls back to `employee.user_id`.
+   * Returns the canonical employee.id, or null if neither matches.
+   *
+   * Why: The LLM scheduling agent sometimes picks the `user_id` (from the
+   * nested `user.id` field in tool responses) instead of the top-level
+   * employee `id`. This helper lets callers accept either without failing.
+   */
+  async resolveEmployeeId(
+    organizationId: string,
+    idOrUserId: string,
+  ): Promise<string | null> {
+    // Try as employee.id first (the common / correct case).
+    const byId = await this.employeeRepository.findOne({
+      where: { id: idOrUserId, organization_id: organizationId },
+      select: ['id'],
+    });
+    if (byId) return byId.id;
+
+    // Fallback: try as user_id.
+    const byUserId = await this.employeeRepository.findOne({
+      where: { user_id: idOrUserId, organization_id: organizationId },
+      select: ['id'],
+    });
+    return byUserId?.id ?? null;
+  }
+
   async findOne(organizationId: string, employeeId: string): Promise<any> {
     const employee = await this.employeeRepository.findOne({
       where: {

@@ -77,15 +77,23 @@ export class EmployeeAvailabilityService {
     organizationId: string | null,
   ): EmployeeAvailabilityRecord {
     const isSpecific = !!rule.date;
-    const dayCode = rule.day_of_week != null
-      ? (WEEKDAY_BY_INDEX[rule.day_of_week] ?? 'MON')
-      : 'MON';
 
     const dateStr = rule.date
       ? (typeof rule.date === 'string'
           ? rule.date.slice(0, 10)
           : new Date(rule.date).toISOString().slice(0, 10))
       : null;
+
+    // Prefer the stored day_of_week, but if null, derive from the date
+    // field (for specific-date rules) instead of blindly defaulting to MON.
+    let dayCode: WeekdayCode;
+    if (rule.day_of_week != null) {
+      dayCode = WEEKDAY_BY_INDEX[rule.day_of_week] ?? 'MON';
+    } else if (dateStr) {
+      dayCode = WEEKDAY_BY_INDEX[new Date(`${dateStr}T00:00:00Z`).getUTCDay()] ?? 'MON';
+    } else {
+      dayCode = 'MON';
+    }
 
     return {
       id: rule.id,

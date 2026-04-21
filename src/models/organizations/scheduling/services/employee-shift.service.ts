@@ -16,6 +16,7 @@ import { Station } from '../entities/station.entity';
 import { Room } from '../entities/room.entity';
 import { Bed } from '../entities/bed.entity';
 import { Chair } from '../entities/chair.entity';
+import { StationShiftAssignment } from '../entities/station-shift-assignment.entity';
 import { OrganizationRoleService } from '../../services/organization-role.service';
 import { CreateEmployeeShiftDto } from '../dto/create-employee-shift.dto';
 import { UpdateEmployeeShiftDto } from '../dto/update-employee-shift.dto';
@@ -26,10 +27,11 @@ import { QueryEmployeeShiftsByEmployeeDto } from '../dto/query-employee-shifts-b
  * Format a Postgres DATE value (returned by pg as a midnight-local Date, or
  * a pre-formatted string) as YYYY-MM-DD using LOCAL components.
  *
- * Why: pg parses `date` columns at midnight in the server's local timezone,
- * so `.toISOString()` shifts the day backward for UTC-ahead zones (e.g.
- * Asia/Karachi UTC+5 turns 2026-04-14 into 2026-04-13T19:00Z → "2026-04-13").
- * We want the calendar date the DB stored, regardless of timezone.
+ * Why: pg parses `date` columns at midnight in the server's local timezone.
+ * With TZ=America/Los_Angeles set, `.getFullYear()/.getMonth()/.getDate()`
+ * return Pacific-local components, which correctly match the calendar date
+ * stored in the database. We avoid `.toISOString()` because it shifts the
+ * day for non-UTC zones.
  */
 function formatDateOnly(d: string | Date): string {
   if (typeof d === 'string') return d.slice(0, 10);
@@ -60,8 +62,65 @@ export class EmployeeShiftService {
     private readonly chairRepository: Repository<Chair>,
     @InjectRepository(Organization)
     private readonly organizationRepository: Repository<Organization>,
+    @InjectRepository(StationShiftAssignment)
+    private readonly stationShiftAssignmentRepository: Repository<StationShiftAssignment>,
     private readonly organizationRoleService: OrganizationRoleService,
   ) {}
+
+  /**
+   * Resolve which station an assignment belongs to, given a shift.
+   *
+   * Why: a Shift is an org-level template and gets linked to locations via
+   * the `station_shift_assignments` junction. The MCP agent (and any other
+   * write caller) was happily inserting employee_shift rows with station_id
+   * null, which rendered as orphans in the frontend grid. This method makes
+   * station resolution explicit:
+   *   - If caller passed a station_id, validate it's actually linked to the
+   *     shift. Reject with the list of valid stations if not.
+   *   - If caller didn't, look up the shift's station links:
+   *       * exactly one  → auto-fill (the common case)
+   *       * more than one → reject with the list — caller must pick
+   *       * zero          → return null (genuinely org-level shift; allowed)
+   *
+   * Returns the resolved Station entity (with department preloaded) or null.
+   */
+  private async resolveStationForShift(
+    shiftId: string,
+    providedStationId?: string,
+  ): Promise<Station | null> {
+    const links = await this.stationShiftAssignmentRepository.find({
+      where: { shift_id: shiftId },
+      relations: ['station', 'station.department'],
+    });
+
+    if (providedStationId) {
+      const match = links.find((l) => l.station_id === providedStationId);
+      if (!match) {
+        if (links.length === 0) {
+          throw new BadRequestException(
+            'This shift has no stations linked; do not pass station_id for it.',
+          );
+        }
+        const valid = links
+          .map((l) => `${l.station?.name ?? 'unnamed'} (${l.station_id})`)
+          .join(', ');
+        throw new BadRequestException(
+          `station_id ${providedStationId} is not linked to this shift. Valid stations: ${valid}`,
+        );
+      }
+      return match.station;
+    }
+
+    if (links.length === 1) return links[0].station;
+    if (links.length === 0) return null;
+
+    const valid = links
+      .map((l) => `${l.station?.name ?? 'unnamed'} (${l.station_id})`)
+      .join(', ');
+    throw new BadRequestException(
+      `This shift is offered at multiple stations; station_id is required. Valid stations: ${valid}`,
+    );
+  }
 
   private async ensureAccess(organizationId: string, userId: string): Promise<void> {
     const canAccess = await this.organizationRoleService.hasAnyRoleInOrganization(
@@ -151,7 +210,7 @@ export class EmployeeShiftService {
     });
     if (!shift) throw new NotFoundException('Shift not found');
 
-    const { page = 1, limit = 20, employee_id, status, from_date, to_date } = query;
+    const { page = 1, limit = 20, employee_id, status, scheduled_date, from_date, to_date } = query;
     const skip = (page - 1) * limit;
 
     const qb = this.employeeShiftRepository
@@ -168,6 +227,7 @@ export class EmployeeShiftService {
 
     if (employee_id) qb.andWhere('es.employee_id = :employee_id', { employee_id });
     if (status) qb.andWhere('es.status = :status', { status });
+    if (scheduled_date) qb.andWhere('es.scheduled_date = :scheduled_date', { scheduled_date });
     if (from_date) qb.andWhere('es.scheduled_date >= :from_date', { from_date });
     if (to_date) qb.andWhere('es.scheduled_date <= :to_date', { to_date });
     qb.orderBy('es.created_at', 'ASC').skip(skip).take(limit);
@@ -247,18 +307,36 @@ export class EmployeeShiftService {
       );
     }
 
-    await this.validateLocationInOrg(organizationId, dto);
+    // Resolve the station first so we can derive department_id from it when
+    // the caller didn't pass one. This is the fix for orphan employee_shift
+    // rows that were invisible in the frontend grid.
+    const resolvedStation = await this.resolveStationForShift(
+      shiftId,
+      dto.station_id,
+    );
+    const stationId = resolvedStation?.id ?? dto.station_id ?? null;
+    const departmentId =
+      dto.department_id ?? resolvedStation?.department_id ?? null;
+
+    await this.validateLocationInOrg(organizationId, {
+      department_id: departmentId ?? undefined,
+      station_id: stationId ?? undefined,
+      room_id: dto.room_id,
+      bed_id: dto.bed_id,
+      chair_id: dto.chair_id,
+    });
 
     const employeeShift = this.employeeShiftRepository.create({
       shift_id: shiftId,
       employee_id: dto.employee_id,
       scheduled_date: scheduledDate,
-      department_id: dto.department_id ?? null,
-      station_id: dto.station_id ?? null,
+      department_id: departmentId,
+      station_id: stationId,
       room_id: dto.room_id ?? null,
       bed_id: dto.bed_id ?? null,
       chair_id: dto.chair_id ?? null,
       status: dto.status ?? 'SCHEDULED',
+      role: dto.role ?? null,
       notes: dto.notes ?? null,
     });
     return this.employeeShiftRepository.save(employeeShift);
@@ -279,6 +357,7 @@ export class EmployeeShiftService {
     if (dto.bed_id !== undefined) es.bed_id = dto.bed_id;
     if (dto.chair_id !== undefined) es.chair_id = dto.chair_id;
     if (dto.status !== undefined) es.status = dto.status;
+    if (dto.role !== undefined) es.role = dto.role;
     if (dto.notes !== undefined) es.notes = dto.notes;
     if (dto.actual_start_at !== undefined) es.actual_start_at = new Date(dto.actual_start_at);
     if (dto.actual_end_at !== undefined) es.actual_end_at = new Date(dto.actual_end_at);

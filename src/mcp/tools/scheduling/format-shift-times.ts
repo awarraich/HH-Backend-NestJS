@@ -113,8 +113,10 @@ export function formatShiftLocalTimes(
   const isRecurring = rt && rt !== 'ONE_TIME';
 
   if (isTemplate || isRecurring) {
-    // Time-only format for recurring/template shifts
-    const timeFmt = getTimeOnlyFormatter(safeTz);
+    // Time-only format for recurring/template shifts.
+    // Shift times are stored as-is (07:00Z = 7:00 AM local), NOT as real
+    // UTC, so we format with 'UTC' to avoid a double timezone conversion.
+    const timeFmt = getTimeOnlyFormatter('UTC');
     const localStart = timeFmt.format(start);
     const localEnd = timeFmt.format(end);
     const recLabel = RECURRENCE_LABELS[rt] ?? rt;

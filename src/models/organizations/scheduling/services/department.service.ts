@@ -24,6 +24,7 @@ import { OrganizationRoleService } from '../../services/organization-role.servic
 import { CreateDepartmentDto, InlineShiftDto } from '../dto/create-department.dto';
 import { UpdateDepartmentDto } from '../dto/update-department.dto';
 import { QueryDepartmentDto } from '../dto/query-department.dto';
+// localToUtc / FALLBACK_TIMEZONE no longer needed — shift times are stored as-is
 
 /** Map frontend recurrence strings to backend recurrence_type values. */
 const RECURRENCE_MAP: Record<string, string> = {
@@ -230,6 +231,7 @@ export class DepartmentService {
             queryRunner.manager,
             organizationId,
             s,
+            dto.timezone,
           );
           tempIdToRealId.set(s.temp_id, shift.id);
           // Link shift to department
@@ -558,6 +560,7 @@ export class DepartmentService {
             queryRunner.manager,
             organizationId,
             s,
+            dto.timezone,
           );
           tempIdToRealId.set(s.temp_id, shift.id);
           await queryRunner.manager.save(DepartmentShift, queryRunner.manager.create(DepartmentShift, {
@@ -840,8 +843,12 @@ export class DepartmentService {
     manager: typeof this.dataSource.manager,
     organizationId: string,
     s: InlineShiftDto,
+    timezone?: string,
   ): Promise<Shift> {
-    // Convert HH:mm to Date using a base date
+    // Store the time-of-day as-is on a fixed base date. These are recurring
+    // shift templates — the hour:minute is what matters, not a specific UTC
+    // instant. Converting to UTC would shift the displayed time and break
+    // across DST boundaries.
     const baseDate = '1970-01-01';
     const startAt = new Date(`${baseDate}T${s.start_time}:00Z`);
     const endAt = new Date(`${baseDate}T${s.end_time}:00Z`);

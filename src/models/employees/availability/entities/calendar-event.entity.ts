@@ -56,7 +56,7 @@ export class CalendarEvent {
   @Column({ type: 'date', nullable: true })
   recurrence_end_date: Date | null;
 
-  @Column({ type: 'varchar', length: 100, default: 'UTC' })
+  @Column({ type: 'varchar', length: 100, default: 'America/Los_Angeles' })
   timezone: string;
 
   @Column({ type: 'varchar', length: 20, default: 'active' })
