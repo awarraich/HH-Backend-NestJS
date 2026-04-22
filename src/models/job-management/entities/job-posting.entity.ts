@@ -46,6 +46,29 @@ export class JobPosting {
   @Column({ type: 'jsonb', nullable: true })
   details: Record<string, unknown> | null;
 
+  /**
+   * Per-job snapshot of the application form field definitions.
+   *
+   * This is the source of truth for what applicants see when applying to this
+   * specific posting. It is seeded from the organization's Application Form
+   * Setup at create time and then evolves independently of it — so editing
+   * the org setup later never mutates past postings. Each item is a full
+   * definition: { id, label, type, required, placeholder?, options? }.
+   *
+   * Nullable for backward compatibility with postings created before this
+   * column existed; those continue to resolve via the org setup + the
+   * `details.required_fields` / `details.optional_fields` ID arrays.
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  application_fields_snapshot: Array<{
+    id: string;
+    label: string;
+    type: string;
+    required: boolean;
+    placeholder?: string;
+    options?: string[];
+  }> | null;
+
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
 

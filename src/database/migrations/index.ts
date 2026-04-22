@@ -84,6 +84,8 @@ import { AddApplicantUserIdToJobApplications20260417100000 } from './20260417100
 import { AddUserFksForOrphanSafety20260418100000 } from './20260418100000-add-user-fks-for-orphan-safety.js';
 import { CreateScheduledTaskTables20260420100000 } from './20260420100000-create-scheduled-task-tables.js';
 import { AddSignatureAuditToOfferLetterFieldValues20260421100000 } from './20260421100000-add-signature-audit-to-offer-letter-field-values.js';
+import { AddApplicationFieldsSnapshotToJobPostings20260421000000 } from './20260421000000-add-application-fields-snapshot-to-job-postings.js';
+import { AddPurposeToCompetencyTemplates20260422000002 } from './20260422000002-add-purpose-to-competency-templates.js';
 
 type MigrationConstructor = new () => MigrationInterface;
 
@@ -173,4 +175,6 @@ export const migrations: MigrationConstructor[] = [
   AddUserFksForOrphanSafety20260418100000,
   CreateScheduledTaskTables20260420100000,
   AddSignatureAuditToOfferLetterFieldValues20260421100000,
+  AddApplicationFieldsSnapshotToJobPostings20260421000000,
+  AddPurposeToCompetencyTemplates20260422000002,
 ];

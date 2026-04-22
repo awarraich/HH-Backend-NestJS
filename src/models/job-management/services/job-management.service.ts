@@ -96,6 +96,12 @@ export class JobManagementService {
       application_deadline: applicationDeadline,
       status: dto.status ?? 'active',
       details,
+      // Snapshot the application form at create time so later changes to the
+      // org-level setup don't retroactively alter this posting's form.
+      application_fields_snapshot:
+        Array.isArray(dto.application_fields_snapshot) && dto.application_fields_snapshot.length > 0
+          ? dto.application_fields_snapshot
+          : null,
     });
 
     return this.jobPostingRepository.save(entity);
@@ -265,6 +271,15 @@ export class JobManagementService {
     if (dto.hiring_timeline !== undefined) details.hiring_timeline = dto.hiring_timeline;
     if (dto.people_to_hire !== undefined) details.people_to_hire = dto.people_to_hire;
     if (dto.application_fields !== undefined) details.application_fields = dto.application_fields;
+
+    // Per-job snapshot of the application form (independent of org setup).
+    // Accept an empty array as an explicit "no fields" state; callers can send
+    // null to fall back to the legacy org-setup path.
+    if (dto.application_fields_snapshot !== undefined) {
+      job.application_fields_snapshot = Array.isArray(dto.application_fields_snapshot)
+        ? dto.application_fields_snapshot
+        : null;
+    }
 
     job.details = details;
     return this.jobPostingRepository.save(job);

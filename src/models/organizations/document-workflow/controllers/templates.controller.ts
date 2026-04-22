@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   Req,
   Res,
   UseGuards,
@@ -49,8 +50,15 @@ export class TemplatesController {
   @HttpCode(HttpStatus.OK)
   async findAll(
     @Param('organizationId') orgId: string,
+    @Query('purpose') purpose?: string,
   ) {
-    const data = await this.service.findAll(orgId);
+    // Accept only the known values; anything else is ignored so a bad query
+    // string can't 500 the list endpoint.
+    const normalized: 'document' | 'applicant_form' | undefined =
+      purpose === 'applicant_form' || purpose === 'document'
+        ? purpose
+        : undefined;
+    const data = await this.service.findAll(orgId, normalized);
     return SuccessHelper.createSuccessResponse(data);
   }
 

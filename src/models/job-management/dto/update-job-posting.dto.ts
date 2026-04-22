@@ -7,7 +7,11 @@ import {
   IsArray,
   IsDateString,
   MaxLength,
+  ValidateNested,
+  ArrayMaxSize,
 } from 'class-validator';
+import { Type } from 'class-transformer';
+import { ApplicationFieldSnapshotDto } from './create-job-posting.dto';
 
 /** Full update: all fields optional so the edit form can send the same shape as create. */
 export class UpdateJobPostingDto {
@@ -157,4 +161,15 @@ export class UpdateJobPostingDto {
     placeholder?: string;
     options?: string[];
   }>;
+
+  /**
+   * Per-job snapshot of the full application form field definitions. See the
+   * same field on CreateJobPostingDto for the full contract.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => ApplicationFieldSnapshotDto)
+  application_fields_snapshot?: ApplicationFieldSnapshotDto[];
 }
