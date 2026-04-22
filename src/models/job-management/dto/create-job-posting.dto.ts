@@ -7,7 +7,38 @@ import {
   IsArray,
   IsDateString,
   MaxLength,
+  ValidateNested,
+  ArrayMaxSize,
 } from 'class-validator';
+import { Type } from 'class-transformer';
+
+export class ApplicationFieldSnapshotDto {
+  @IsString()
+  @MaxLength(128)
+  id!: string;
+
+  @IsString()
+  @MaxLength(255)
+  label!: string;
+
+  @IsString()
+  @MaxLength(64)
+  type!: string;
+
+  @IsBoolean()
+  required!: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  placeholder?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @IsString({ each: true })
+  options?: string[];
+}
 
 export class CreateJobPostingDto {
   @IsString()
@@ -156,4 +187,20 @@ export class CreateJobPostingDto {
     placeholder?: string;
     options?: string[];
   }>;
+
+  /**
+   * Per-job snapshot of the full application form field definitions.
+   *
+   * When provided, this becomes the source of truth for applicants on THIS
+   * posting and the org setup is no longer consulted. Editing the org setup
+   * later does not retroactively mutate existing postings.
+   *
+   * Capped at 200 fields per posting.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => ApplicationFieldSnapshotDto)
+  application_fields_snapshot?: ApplicationFieldSnapshotDto[];
 }

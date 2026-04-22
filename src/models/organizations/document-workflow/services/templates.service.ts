@@ -20,8 +20,11 @@ export class TemplatesService {
     private readonly pdfStorage: PdfStorageService,
   ) {}
 
-  async findAll(orgId: string) {
-    const where: any = { organization_id: orgId };
+  async findAll(orgId: string, purpose?: 'document' | 'applicant_form') {
+    const where: Record<string, unknown> = { organization_id: orgId };
+    if (purpose) {
+      where.purpose = purpose;
+    }
     const templates = await this.repo.find({ where, order: { updated_at: 'DESC' } });
     return templates.map((t) => {
       if (t.pdf_file_key) {
@@ -177,6 +180,7 @@ export class TemplatesService {
         document_fields: dto.documentFields ?? [],
         roles: dto.roles ?? [],
         created_by: userId,
+        purpose: dto.purpose === 'applicant_form' ? 'applicant_form' : 'document',
       }),
     );
   }

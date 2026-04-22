@@ -40,6 +40,16 @@ export class CompetencyTemplate {
   @Column({ type: 'uuid', nullable: true })
   created_by: string | null;
 
+  /**
+   * What this template is used for — separates the original Document
+   * Templates flow from Job Application Forms so each tab in the Document
+   * Workflow page can filter its own list. `'document'` (default) means a
+   * competency / onboarding / signable document; `'applicant_form'` means a
+   * PDF an applicant fills when applying for a job.
+   */
+  @Column({ type: 'varchar', length: 32, default: 'document' })
+  purpose: 'document' | 'applicant_form';
+
   @CreateDateColumn({ type: 'timestamptz', default: () => 'now()' })
   created_at: Date;
 
