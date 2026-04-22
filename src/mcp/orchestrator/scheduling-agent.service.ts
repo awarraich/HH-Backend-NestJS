@@ -69,11 +69,18 @@ Assignment workflow (follow strictly when the user asks to "schedule", "assign",
      CRITICAL: In your plan response, you MUST include the actual UUIDs AND scheduled_dates for each proposed pairing in a machine-readable block at the end, like this:
      <!-- ASSIGNMENTS: [{"shift_id":"<uuid>","employee_id":"<uuid>","scheduled_date":"YYYY-MM-DD"},…] -->
      This is essential because tool results from this turn will NOT be available in the next turn. The only way to preserve the UUIDs is to embed them in your text response. The HTML comment keeps them hidden from the user while remaining accessible to you in conversation history.
+     MULTI-SHIFT CRITICAL: when the plan spans TWO OR MORE shifts, emit ONE ASSIGNMENTS entry per (shift_id, employee_id, scheduled_date) triple — never collapse multiple shifts onto a single shift_id. If the plan pairs 4 employees with 2 shifts, the block must contain up to 8 entries (one per pairing). Double-check that each shift_id in the block actually corresponds to the shift name you described in the same bullet above it. Do NOT reuse the first shift's UUID for every pairing.
   5. On confirmation (user says "yes", "go ahead", "proceed", etc.): read the ASSIGNMENTS block from your previous message in the conversation history. Call assign_employee_to_shift for each pairing using those exact UUIDs and scheduled_dates. Do NOT re-call get_employee_availability or get_employee_availability_schedule — the availability was already verified in step 3. Do NOT ask the user for employee names or IDs.
+     COMPLETE THE WHOLE BATCH: if the ASSIGNMENTS block has N entries, you MUST call assign_employee_to_shift N times before writing a final reply. Do not stop after the first successful assignment and summarise — the user confirmed the entire plan. Prefer emitting ALL N tool_calls in a single assistant message (parallel calls) so the batch completes in one step. Only reply once every entry has a success-or-failure outcome you can report on. If some succeed and some fail, report both in the summary.
   6. If no employees are available for a shift, say so honestly for that shift.
   IMPORTANT: NEVER ask the user to provide employee names or IDs when they have asked for a bulk/auto-assignment. Use the tools to look up employees and their availability yourself.
 
 When refusing or confirming, always state the shift's ACTUAL hours from start_at/end_at — never echo the user's typed hours as if they were the shift's hours.
+
+Trust the server's response, not your memory (CRITICAL — this prevents fabricated summaries):
+- Every successful assign_employee_to_shift returns \`employee_shift.shift.name\` and \`employee_shift.scheduled_date\`. When you summarise the result to the user, quote these values VERBATIM. Do not substitute a shift name from an earlier turn or from the user's question.
+- If the user asked to assign to "Evening (PM)" but the response says \`shift.name = "Morning (AM1)"\`, that is a UUID mismatch — you passed the wrong shift_id. Tell the user honestly: "I tried to assign to Evening (PM) but the server recorded it against Morning (AM1) — the shift_id I used was for the wrong shift." Do NOT paper over the mismatch by calling it Evening in your reply.
+- Before calling assign_employee_to_shift for a named shift, cross-check the shift_id against a prior list_shifts or search_shifts result that returned a shift with that exact name. If the user says "Evening" and your memory only has the Morning shift's UUID, call search_shifts("evening") first rather than reusing the Morning UUID.
 
 list_shifts caveats:
 - Many shifts have shift_type stored as NULL in the database (it is an optional column). Filtering list_shifts by shift_type will silently hide those rows. DO NOT pass shift_type to list_shifts unless the user explicitly named a type (e.g. "show me the NIGHT shifts"). Inferring the type from the shift's start/end times (e.g. 7-15 → DAY) is WRONG — leave shift_type unset and filter in your head from the results instead.
@@ -102,6 +109,7 @@ Timezone handling:
 - All shift times in tool results include a \`local_time\` object with times rendered in the user's timezone. ALWAYS use the \`local_time.local_start\`, \`local_time.local_end\`, and \`local_time.local_time_display\` fields when presenting times to the user — never show raw UTC ISO strings.
 - The user's timezone is provided in the "Today's date" block below. If no timezone was provided, the system defaults to US Pacific (America/Los_Angeles).
 - When referring to times in your replies, always include the timezone abbreviation (e.g. "2:00 PM PDT", "7:00 AM PST").
+- CRITICAL — machine-readable times for tool arguments: when you need to pass a shift's time window to ANY tool that takes HH:MM 24-hour input (e.g. search_available_employees's start_time/end_time, get_employee_availability's start_time/end_time), use \`local_time.local_start_24h\` and \`local_time.local_end_24h\` DIRECTLY. Do NOT read "3:00 PM" from \`local_start\` and convert it yourself — that conversion is where you go wrong. The \`_24h\` fields are already correctly formatted (e.g. 3:00 PM → "15:00", 11:00 PM → "23:00", 7:00 AM → "07:00").
 
 Rules:
 - Always prefer calling a tool over guessing.
@@ -430,18 +438,20 @@ function fixAssignmentsBlock(
 /**
  * Synthesise an ASSIGNMENTS block when the agent's final answer asks for
  * assignment confirmation but forgot to embed the block. Without this,
- * the "yes" turn loses all UUIDs and the agent often fabricates fake ones.
+ * the "yes" turn loses all UUIDs and the agent often fabricates fake ones,
+ * or — worse on multi-shift plans — reuses the first discovered shift's
+ * UUID for every pairing and silently assigns everyone to the same shift.
  *
- * Conservative heuristics — we only inject when:
- *   - The answer contains confirmation language ("would you like", "shall I",
- *     "proceed", "confirm", "go ahead") AND assignment language ("assign",
- *     "schedule", "plot", "book").
- *   - The trace contains exactly one shift with a real UUID.
- *   - The trace contains at least one employee with a real UUID from an
- *     availability result.
- * When those hold, we pair the one shift with every discovered employee
- * using today's date. Multiple-shift scenarios are left alone — guessing
- * the pairing is too risky.
+ * Multi-shift aware: for every shift found in the trace, pair it with the
+ * employees whose availability actually covers it (day-of-week + time
+ * containment). Emits one entry per (shift_id, employee_id, scheduled_date)
+ * triple. Empty intersections produce no entry rather than a bogus pairing.
+ *
+ * Conservative — we only inject when:
+ *   - No ASSIGNMENTS block already present.
+ *   - The answer contains confirmation language AND assignment language.
+ *   - The trace has at least one shift and one available employee.
+ *   - The pairing check produces at least one assignment.
  */
 function synthesizeAssignmentsBlock(
   answer: string,
@@ -456,44 +466,170 @@ function synthesizeAssignmentsBlock(
     /\b(assign|schedul|plot|book|put .* on)\b/i.test(answer);
   if (!asksConfirmation || !mentionsAssignment) return answer;
 
-  const shifts = new Map<string, { id: string; name?: string }>();
-  const employees = new Map<string, { id: string }>();
+  type DiscoveredShift = {
+    id: string;
+    name?: string;
+    start_at?: string;
+    recurrence_type?: string;
+    local_start_24h?: string;
+    local_end_24h?: string;
+  };
+  type DiscoveredAvailability = {
+    employee_id: string;
+    availability_type?: string;
+    date?: string | null;
+    days_of_week?: string[] | null;
+    start_time?: string;
+    end_time?: string;
+    status?: string;
+  };
+
+  const shifts = new Map<string, DiscoveredShift>();
+  const availabilitySlots: DiscoveredAvailability[] = [];
+
+  const captureShift = (s: unknown) => {
+    if (!s || typeof s !== 'object') return;
+    const o = s as Record<string, any>;
+    if (!o.id || !UUID_RE.test(o.id)) return;
+    if (shifts.has(o.id)) return;
+    shifts.set(o.id, {
+      id: o.id,
+      name: o.name,
+      start_at: o.start_at,
+      recurrence_type: o.recurrence_type,
+      local_start_24h: o.local_time?.local_start_24h,
+      local_end_24h: o.local_time?.local_end_24h,
+    });
+  };
 
   for (const call of trace) {
     const result = call.result as Record<string, unknown> | undefined;
     if (!result || typeof result !== 'object') continue;
+    const r = result as Record<string, any>;
 
-    const shiftArr = (result as any).shifts ?? (result as any).data;
-    if (Array.isArray(shiftArr)) {
-      for (const s of shiftArr) {
-        if (s?.id && UUID_RE.test(s.id)) {
-          shifts.set(s.id, { id: s.id, name: s.name });
-        }
-      }
-    }
+    // list_shifts / search_shifts wrap in { shifts: [...] } or { data: [...] }.
+    const shiftArr = r.shifts ?? r.data;
+    if (Array.isArray(shiftArr)) for (const s of shiftArr) captureShift(s);
 
-    const availArr =
-      (result as any).availability ?? (result as any).candidates;
+    // get_shift_details returns the shift object at the top level.
+    if (r.id && r.start_at !== undefined && r.name !== undefined) captureShift(r);
+
+    // assign_employee_to_shift carries the shift in employee_shift.shift.
+    if (r.employee_shift?.shift) captureShift(r.employee_shift.shift);
+
+    const availArr = r.availability ?? r.candidates ?? r.schedule;
     if (Array.isArray(availArr)) {
       for (const slot of availArr) {
-        if (slot?.employee_id && UUID_RE.test(slot.employee_id)) {
-          employees.set(slot.employee_id, { id: slot.employee_id });
-        }
+        if (!slot?.employee_id || !UUID_RE.test(slot.employee_id)) continue;
+        if (slot.status && slot.status !== 'available') continue;
+        availabilitySlots.push({
+          employee_id: slot.employee_id,
+          availability_type: slot.availability_type,
+          date: slot.date ?? null,
+          days_of_week: slot.days_of_week ?? null,
+          start_time: slot.start_time,
+          end_time: slot.end_time,
+          status: slot.status,
+        });
       }
     }
   }
 
-  if (shifts.size !== 1 || employees.size === 0) return answer;
+  if (shifts.size === 0 || availabilitySlots.length === 0) return answer;
 
-  const [shift] = shifts.values();
   const today = todayInTimezone(timezone);
-  const assignments = [...employees.values()].map((e) => ({
-    shift_id: shift.id,
-    employee_id: e.id,
-    scheduled_date: today,
-  }));
+  const assignments: Array<{
+    shift_id: string;
+    employee_id: string;
+    scheduled_date: string;
+  }> = [];
+  const seen = new Set<string>();
+
+  for (const shift of shifts.values()) {
+    const scheduledDate = deriveScheduledDate(shift, today, timezone);
+    const weekday = weekdayCode(scheduledDate);
+
+    for (const slot of availabilitySlots) {
+      const dayMatches =
+        (slot.availability_type === 'specific' && slot.date === scheduledDate) ||
+        (Array.isArray(slot.days_of_week) && slot.days_of_week.includes(weekday));
+      if (!dayMatches) continue;
+
+      // Time-window containment. Skip if either side lacks 24h data (can't
+      // compare reliably); the day-of-week match alone is a weaker but
+      // acceptable fallback. Note: this does NOT handle overnight shifts
+      // where local_end_24h < local_start_24h — those get skipped below.
+      if (
+        shift.local_start_24h &&
+        shift.local_end_24h &&
+        slot.start_time &&
+        slot.end_time
+      ) {
+        const shiftCrossesMidnight =
+          shift.local_end_24h <= shift.local_start_24h;
+        if (shiftCrossesMidnight) continue;
+        if (
+          !(
+            slot.start_time <= shift.local_start_24h &&
+            slot.end_time >= shift.local_end_24h
+          )
+        ) {
+          continue;
+        }
+      }
+
+      const key = `${shift.id}|${slot.employee_id}|${scheduledDate}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      assignments.push({
+        shift_id: shift.id,
+        employee_id: slot.employee_id,
+        scheduled_date: scheduledDate,
+      });
+    }
+  }
+
+  if (assignments.length === 0) return answer;
+
   const block = `\n\n<!-- ASSIGNMENTS: ${JSON.stringify(assignments)} -->`;
   return `${answer}${block}`;
+}
+
+const WEEKDAY_CODES = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'] as const;
+
+function weekdayCode(isoDate: string): string {
+  return WEEKDAY_CODES[new Date(`${isoDate}T00:00:00Z`).getUTCDay()];
+}
+
+/**
+ * ONE_TIME shifts have a real calendar date baked into start_at; use it.
+ * Recurring / template shifts use 1970 placeholder dates, so fall back to
+ * today in the user's timezone.
+ */
+function deriveScheduledDate(
+  shift: { start_at?: string; recurrence_type?: string },
+  today: string,
+  timezone?: string,
+): string {
+  const rt = (shift.recurrence_type ?? '').toUpperCase();
+  if (rt && rt !== 'ONE_TIME') return today;
+  if (!shift.start_at) return today;
+  const d = new Date(shift.start_at);
+  if (isNaN(d.getTime()) || d.getUTCFullYear() < 2000) return today;
+  const tz = timezone && timezone.trim() ? timezone : FALLBACK_TIMEZONE;
+  try {
+    const fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    const parts = fmt.formatToParts(d);
+    const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
+    return `${get('year')}-${get('month')}-${get('day')}`;
+  } catch {
+    return d.toISOString().slice(0, 10);
+  }
 }
 
 function todayInTimezone(timezone?: string): string {
@@ -546,6 +682,37 @@ function findBestMatch(
   if (nameMap.size === 1) return nameMap.values().next().value;
 
   return null;
+}
+
+/**
+ * Pull a human-readable error string out of a tool result, if any.
+ * Used by loop detection to key identical-failure retries.
+ * Covers the two shapes our tools produce:
+ *   - `{ success: false, error: "..." }` — from assignment-tools and most wrappers
+ *   - `{ error: "...", message: "..." }` — from the execution-failure catch in the agent
+ */
+function extractErrorText(result: unknown): string | null {
+  if (!result || typeof result !== 'object') return null;
+  const r = result as Record<string, unknown>;
+  if (r.success === false && typeof r.error === 'string') return r.error;
+  if (typeof r.error === 'string' && typeof r.message === 'string') {
+    return `${r.error}: ${r.message}`;
+  }
+  if (typeof r.error === 'string') return r.error;
+  return null;
+}
+
+/**
+ * Stable stringification of tool arguments for loop-detection key equality.
+ * Sorts object keys so that `{a:1,b:2}` and `{b:2,a:1}` hash the same.
+ */
+function stableArgs(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return JSON.stringify(value.map(stableArgs));
+  const entries = Object.entries(value as Record<string, unknown>).sort(
+    ([a], [b]) => a.localeCompare(b),
+  );
+  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableArgs(v)}`).join(',')}}`;
 }
 
 function safeStringify(value: unknown, maxLen: number): string {
@@ -682,6 +849,14 @@ export class SchedulingAgentService {
 
     messages.push({ role: 'user', content: req.query });
     const trace: SchedulingAgentToolCall[] = [];
+    // Tracks (tool_name + normalized_args + error_message) → count so we can
+    // detect when the agent is retrying the exact same failing call. Without
+    // this, a wrapper-injected field (e.g. ctx.stationId) that triggers a
+    // deterministic backend error can burn the full MAX_STEPS budget while
+    // the agent tries the same call over and over expecting a different
+    // result.
+    const errorRepeats = new Map<string, number>();
+    const MAX_IDENTICAL_ERROR_RETRIES = 2;
 
     for (let step = 0; step < MAX_STEPS; step++) {
       const completion = await this.openai.client.chat.completions.create({
@@ -702,6 +877,14 @@ export class SchedulingAgentService {
         const answer = synthesizeAssignmentsBlock(fixed, trace, req.timezone);
         return { answer, toolCalls: trace };
       }
+
+      // OpenAI requires EVERY tool_call in an assistant message to be
+      // immediately followed by contiguous tool-role responses (one per
+      // tool_call_id) before any other role appears. That means we must
+      // NOT push system/user messages in the middle of handling a
+      // multi-tool_call assistant turn. Collect any post-turn reminders
+      // here and flush them after the tool-response loop finishes.
+      const postTurnReminders: ChatCompletionMessageParam[] = [];
 
       for (const call of msg.tool_calls) {
         const tool = toolByName.get(call.function.name);
@@ -739,6 +922,69 @@ export class SchedulingAgentService {
             tool_call_id: call.id,
             content: text,
           });
+
+          // Authoritative-name reminder: after a successful assignment, the
+          // model has been observed summarising the result with the wrong
+          // shift name (e.g. claiming "Evening" when the backend confirmed
+          // "Morning" — the agent had reused the wrong shift_id). Queue a
+          // system reminder with the real shift name for AFTER the
+          // tool-response loop, so we don't split the tool_calls/tool
+          // sequence the OpenAI API requires.
+          if (
+            tool.name === 'assign_employee_to_shift' &&
+            parsed &&
+            typeof parsed === 'object'
+          ) {
+            const p = parsed as Record<string, any>;
+            if (p.success === true && p.employee_shift?.shift?.name) {
+              const empName =
+                p.employee_name ?? p.employee_shift?.employee?.user?.full_name ?? 'employee';
+              const shiftName = p.employee_shift.shift.name;
+              const date = p.employee_shift.scheduled_date ?? 'unknown date';
+              postTurnReminders.push({
+                role: 'system',
+                content:
+                  `ASSIGNMENT CONFIRMED BY SERVER: employee=${JSON.stringify(empName)} ` +
+                  `shift=${JSON.stringify(shiftName)} scheduled_date=${JSON.stringify(date)}. ` +
+                  `Treat this as the authoritative record of what was written. ` +
+                  `If the ASSIGNMENTS plan from a prior turn still has PENDING entries ` +
+                  `(pairings you have not called assign_employee_to_shift for yet), ` +
+                  `continue calling assign_employee_to_shift for each remaining entry ` +
+                  `before you reply to the user. Do not stop after one successful ` +
+                  `assignment when the plan had more. When you do eventually reply, ` +
+                  `quote the shift name ${JSON.stringify(shiftName)} verbatim for this ` +
+                  `assignment; never substitute a different shift name. If this ` +
+                  `server-reported name differs from the shift the user asked for, ` +
+                  `surface the mismatch honestly rather than rewriting the name.`,
+              });
+            }
+          }
+
+          // Loop detection: if the same tool + same args + same error
+          // repeats, the agent is stuck. Inject a one-time system reminder
+          // and, on the next repeat, abort with an honest "unwinnable"
+          // answer so we don't burn the whole step budget.
+          const errorText = extractErrorText(parsed);
+          if (errorText) {
+            const key = `${tool.name}|${stableArgs(args)}|${errorText}`;
+            const count = (errorRepeats.get(key) ?? 0) + 1;
+            errorRepeats.set(key, count);
+            if (count >= MAX_IDENTICAL_ERROR_RETRIES) {
+              this.logger.warn(
+                `[step ${step}] detected identical error loop on ${tool.name}: ${errorText}`,
+              );
+              return {
+                answer:
+                  `I was unable to complete this action. The tool \`${tool.name}\` ` +
+                  `keeps returning the same error: "${errorText}". ` +
+                  `This usually means a request field conflicts with the server's ` +
+                  `data (for example, a station that isn't linked to the shift, or ` +
+                  `a date the employee isn't available on). Please check the ` +
+                  `configuration or try a different shift/date.`,
+                toolCalls: trace,
+              };
+            }
+          }
         } catch (err) {
           this.logger.error(`Tool ${tool.name} failed`, err);
           messages.push({
@@ -751,6 +997,12 @@ export class SchedulingAgentService {
           });
         }
       }
+
+      // Flush any post-turn reminders now that every tool_call in the
+      // current assistant message has been paired with a tool-role
+      // response. Pushing these earlier would break the required
+      // tool_calls → tool → tool → … ordering.
+      if (postTurnReminders.length > 0) messages.push(...postTurnReminders);
     }
 
     return {

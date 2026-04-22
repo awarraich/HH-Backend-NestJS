@@ -122,6 +122,21 @@ export class EmployeeShiftService {
     );
   }
 
+  /**
+   * Return the station_ids linked to a shift via `station_shift_assignments`.
+   * Used by callers (e.g. the MCP assignment-tool wrapper) that want to
+   * preflight a station fallback decision before invoking `create`: a shift
+   * with zero links is genuinely org-level and must NOT receive an injected
+   * station_id, otherwise `resolveStationForShift` will reject it.
+   */
+  async getStationLinksForShift(shiftId: string): Promise<string[]> {
+    const links = await this.stationShiftAssignmentRepository.find({
+      where: { shift_id: shiftId },
+      select: ['station_id'],
+    });
+    return links.map((l) => l.station_id);
+  }
+
   private async ensureAccess(organizationId: string, userId: string): Promise<void> {
     const canAccess = await this.organizationRoleService.hasAnyRoleInOrganization(
       userId,

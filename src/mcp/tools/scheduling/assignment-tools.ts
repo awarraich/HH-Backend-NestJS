@@ -78,6 +78,8 @@ export function buildAssignmentTools(
     role?: string;
     notes?: string;
   }): SchedulingToolResult => {
+    // Hoisted so the catch block can report context injection alongside errors.
+    const appliedContext: Record<string, string> = {};
     try {
       // The LLM sometimes passes a user_id (from the nested user.id field
       // in employee tool responses) instead of the top-level employee id.
@@ -146,11 +148,46 @@ export function buildAssignmentTools(
       );
       const display = displayMap.get(employeeId);
 
+      // Context fallbacks — when the agent omits a location field, fall back
+      // to whatever the frontend said the user is looking at. EXCEPT for
+      // station_id: a shift may be "org-level" (no station_shift_assignments
+      // links), in which case the backend rejects any station_id. Blindly
+      // injecting ctx.stationId for such shifts turns a retry-without-station
+      // into a silent re-inject and the agent loops on an unwinnable error.
+      // Preflight: only fall back if the context station is actually linked
+      // to this shift.
       const department_id = args.department_id ?? ctx.departmentId;
-      const station_id = args.station_id ?? ctx.stationId;
+      if (!args.department_id && ctx.departmentId) {
+        appliedContext.department_id = 'from_page_context';
+      }
+
+      let station_id: string | undefined = args.station_id;
+      if (!station_id && ctx.stationId) {
+        const stationLinks = await employeeShiftService.getStationLinksForShift(
+          args.shift_id,
+        );
+        if (stationLinks.includes(ctx.stationId)) {
+          station_id = ctx.stationId;
+          appliedContext.station_id = 'from_page_context';
+        } else if (stationLinks.length === 0) {
+          // Org-level shift — leave station_id unset so the backend accepts it.
+          appliedContext.station_id =
+            'context_ignored_shift_has_no_stations_linked';
+        } else {
+          // Shift is linked to other stations, but not the context one.
+          // Leave station_id unset and let the backend's "multiple stations"
+          // error guide the agent to ask the user.
+          appliedContext.station_id =
+            'context_ignored_not_linked_to_this_shift';
+        }
+      }
+
       const room_id = args.room_id ?? ctx.roomId;
+      if (!args.room_id && ctx.roomId) appliedContext.room_id = 'from_page_context';
       const bed_id = args.bed_id ?? ctx.bedId;
+      if (!args.bed_id && ctx.bedId) appliedContext.bed_id = 'from_page_context';
       const chair_id = args.chair_id ?? ctx.chairId;
+      if (!args.chair_id && ctx.chairId) appliedContext.chair_id = 'from_page_context';
 
       // The effective role is: caller-supplied > employee's provider role.
       // We always prefer the real provider role over a caller guess because
@@ -222,10 +259,19 @@ export function buildAssignmentTools(
         employee_shift: { ...hydrated, shift: enrichedShift },
         employee_name: display?.name ?? 'Unknown employee',
         employee_email: display?.email ?? null,
+        applied_context:
+          Object.keys(appliedContext).length > 0 ? appliedContext : undefined,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return jsonResult({ success: false, error: message });
+      return jsonResult({
+        success: false,
+        error: message,
+        // Surface context injection so the agent can see whether a failure
+        // was caused by an auto-filled field vs. one it passed explicitly.
+        applied_context:
+          Object.keys(appliedContext).length > 0 ? appliedContext : undefined,
+      });
     }
   };
 
