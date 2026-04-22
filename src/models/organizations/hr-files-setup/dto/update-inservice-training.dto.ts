@@ -9,8 +9,13 @@ import {
   IsUrl,
   IsBoolean,
   IsArray,
+  ValidateNested,
 } from 'class-validator';
-import { INSERVICE_COMPLETION_FREQUENCIES } from './create-inservice-training.dto';
+import { Type } from 'class-transformer';
+import {
+  INSERVICE_COMPLETION_FREQUENCIES,
+  InserviceTrainingPdfFileDto,
+} from './create-inservice-training.dto';
 
 export class UpdateInserviceTrainingDto {
   @IsOptional()
@@ -51,4 +56,10 @@ export class UpdateInserviceTrainingDto {
   @Min(0)
   @Max(100)
   passing_score_percent?: number | null;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InserviceTrainingPdfFileDto)
+  pdf_files?: InserviceTrainingPdfFileDto[];
 }

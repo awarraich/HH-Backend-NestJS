@@ -182,53 +182,23 @@ export class ApplicantJobManagementController {
   async uploadSignedOfferLetter(
     @Req() req: FastifyRequest,
     @Param('applicationId') applicationId: string,
+    @Body() body: { key: string; file_name: string },
   ): Promise<unknown> {
     const userId = extractUserId(req);
-
-    const multipartRequest = req as FastifyRequest & {
-      isMultipart?: () => boolean;
-      body?: Record<
-        string,
-        | { toBuffer?: () => Promise<Buffer>; filename?: string; _buf?: Buffer }
-        | Array<{ toBuffer?: () => Promise<Buffer>; filename?: string; _buf?: Buffer }>
-      >;
-    };
-    if (!multipartRequest.isMultipart?.()) {
-      throw new BadRequestException('Content-Type must be multipart/form-data');
+    if (!body?.key || typeof body.key !== 'string') {
+      throw new BadRequestException('key is required');
     }
-    const filePart = multipartRequest.body?.file ?? multipartRequest.body?.document;
-    const singleFile = Array.isArray(filePart) ? filePart[0] : filePart;
-    if (!singleFile?.filename) {
-      throw new BadRequestException(
-        'No file uploaded. Send a field named "file" or "document".',
-      );
+    if (!body?.file_name || typeof body.file_name !== 'string') {
+      throw new BadRequestException('file_name is required');
     }
-    if (!singleFile.filename.toLowerCase().endsWith('.pdf')) {
+    if (!body.file_name.toLowerCase().endsWith('.pdf')) {
       throw new BadRequestException('Only PDF files are allowed.');
-    }
-    const buffer =
-      singleFile._buf != null
-        ? singleFile._buf
-        : typeof singleFile.toBuffer === 'function'
-          ? await singleFile.toBuffer()
-          : null;
-    if (!buffer || !Buffer.isBuffer(buffer)) {
-      throw new BadRequestException('Could not read file data');
-    }
-    // Server-side cap mirrors the 15 MB client-side guard. Without this a
-    // hostile caller can bypass the UI and POST multi-GB bodies; Fastify's
-    // multipart limit is sometimes lenient in dev configs, so enforce
-    // explicitly here rather than relying on framework-wide bodyLimit alone.
-    const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
-    if (buffer.byteLength > MAX_UPLOAD_BYTES) {
-      throw new BadRequestException('File is too large. Max 15 MB.');
     }
     const result =
       await this.offerLetterAssignmentService.saveApplicantUploadedSignedOfferLetter(
         String(userId),
         applicationId,
-        buffer,
-        singleFile.filename,
+        { key: body.key, fileName: body.file_name },
       );
     return SuccessHelper.createSuccessResponse(result, 'Signed offer letter uploaded.');
   }

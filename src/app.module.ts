@@ -18,6 +18,7 @@ import { OnboardingStatusModule } from './common/services/onboarding-status/onbo
 import { AppController } from './app.controller';
 import { ExternalDocumentsModule } from './models/external-documents/external-documents.module';
 import { McpModule } from './mcp/mcp.module';
+import { S3Module } from './common/services/s3/s3.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { McpModule } from './mcp/mcp.module';
     OnboardingStatusModule,
     ExternalDocumentsModule,
     McpModule,
+    S3Module,
   ],
   controllers: [AppController],
   providers: [],

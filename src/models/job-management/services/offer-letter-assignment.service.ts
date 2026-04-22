@@ -1109,9 +1109,8 @@ export class OfferLetterAssignmentService {
       throw new NotFoundException('Offer letter has no PDF attached');
     }
 
-    const { stream, contentType, fileName } =
-      await this.templatesService.getPdfStream(a.organization_id, snapshot.id);
-    const templateBytes = await this.collectStreamToBuffer(stream);
+    const { buffer: templateBytes, contentType, fileName } =
+      await this.templatesService.getPdfBuffer(a.organization_id, snapshot.id);
 
     // If the PDF can't be loaded (corrupt / not a PDF), fall back to the raw
     // bytes — the user at least gets the original document instead of an
@@ -1534,35 +1533,30 @@ export class OfferLetterAssignmentService {
   async saveApplicantUploadedSignedOfferLetter(
     userId: string,
     applicationId: string,
-    buffer: Buffer,
-    originalFilename: string,
+    payload: { key: string; fileName: string },
   ): Promise<{ file_name: string; file_url: string; uploadedAt: string }> {
     const application = await this.assertApplicantOwnsApplication(userId, applicationId);
     const existing = (application.offer_details ?? {}) as Record<string, unknown>;
     // Mirror of saveApplicantSignature — only one response method at a time.
-    const esig = existing.applicantSignature as
-      | Record<string, unknown>
-      | undefined;
+    const esig = existing.applicantSignature as Record<string, unknown> | undefined;
     if (esig && typeof esig.dataUrl === 'string' && esig.dataUrl) {
-      throw new BadRequestException(
-        'Remove your e-signature before uploading a signed copy.',
-      );
+      throw new BadRequestException('Remove your e-signature before uploading a signed copy.');
     }
-    const saved = await this.jobApplicationDocumentStorage.saveDocument(
-      buffer,
-      originalFilename,
-    );
+    const exists = await this.jobApplicationDocumentStorage.verifyUploaded(payload.key);
+    if (!exists) {
+      throw new BadRequestException('Uploaded file not found in storage. Retry the upload.');
+    }
     const uploadedAt = new Date().toISOString();
     application.offer_details = {
       ...existing,
       uploadedSignedOfferLetter: {
-        fileName: saved.file_name,
-        fileUrl: saved.file_url,
+        fileName: payload.fileName,
+        fileUrl: payload.key,
         uploadedAt,
       },
     };
     await this.applicationRepo.save(application);
-    return { ...saved, uploadedAt };
+    return { file_name: payload.fileName, file_url: payload.key, uploadedAt };
   }
 
   /**
@@ -1725,7 +1719,12 @@ export class OfferLetterAssignmentService {
     if (!snapshot?.pdf_file_key) {
       throw new NotFoundException('Offer letter has no PDF attached');
     }
-    return this.templatesService.getPdfStream(a.organization_id, snapshot.id);
+    const { buffer, contentType, fileName } = await this.templatesService.getPdfBuffer(
+      a.organization_id,
+      snapshot.id,
+    );
+    const { Readable } = await import('stream');
+    return { stream: Readable.from(buffer), contentType, fileName };
   }
 
   // ─── Writes ─────────────────────────────────────────────────────────────

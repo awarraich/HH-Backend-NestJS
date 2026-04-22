@@ -10,7 +10,23 @@ import {
   IsUrl,
   IsBoolean,
   IsArray,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
+
+export class InserviceTrainingPdfFileDto {
+  @IsString()
+  @MaxLength(255)
+  file_name!: string;
+
+  @IsString()
+  @MaxLength(1024)
+  file_path!: string;
+
+  @IsInt()
+  @Min(0)
+  file_size_bytes!: number;
+}
 
 export const INSERVICE_COMPLETION_FREQUENCIES = ['one_time', 'annual', 'quarterly'] as const;
 export type InserviceCompletionFrequency = (typeof INSERVICE_COMPLETION_FREQUENCIES)[number];
@@ -64,4 +80,10 @@ export class CreateInserviceTrainingDto {
   @Min(0)
   @Max(100)
   passing_score_percent?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InserviceTrainingPdfFileDto)
+  pdf_files?: InserviceTrainingPdfFileDto[];
 }
