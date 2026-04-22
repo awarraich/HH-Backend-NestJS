@@ -23,8 +23,8 @@ export class TwoFactorService {
    */
   async generateSecret(email: string): Promise<TotpSecretInterface> {
     const secret = speakeasy.generateSecret({
-      name: `Health Hub (${email})`,
-      issuer: 'Health Hub',
+      name: `Home Health AI (${email})`,
+      issuer: 'Home Health AI',
       length: 32,
     });
 

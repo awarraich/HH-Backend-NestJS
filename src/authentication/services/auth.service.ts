@@ -1955,16 +1955,6 @@ export class AuthService {
     };
   }
 
-  /**
-   * Link any `job_applications` rows that share the new user's email back to
-   * the freshly-created user row. Applies to guest applies + later signups,
-   * and to applicants who used a different email at apply time than they
-   * registered with (case-insensitive match). We never clobber an existing
-   * `applicant_user_id` — if a row is already linked it stays that way.
-   *
-   * Runs as raw SQL to avoid introducing a cyclic import between the auth
-   * module and the job-management module.
-   */
   private async linkExistingJobApplicationsToUser(
     userId: string,
     email: string,
