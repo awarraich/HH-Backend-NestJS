@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, IsNull, Repository } from 'typeorm';
 import { extractText, getDocumentProxy } from 'unpdf';
@@ -7,6 +7,7 @@ import { OrganizationDocumentChunk } from '../entities/organization-document-chu
 import { OrganizationDocumentCategory } from '../entities/organization-document-category.entity';
 import { EmbeddingService } from '../../../../common/services/embedding/embedding.service';
 import { OrganizationDocumentStorageService } from './organization-document-storage.service';
+import { S3Service } from '../../../../common/services/s3/s3.service';
 import { CreateOrganizationDocumentDto } from '../dto/create-organization-document.dto';
 import { UpdateOrganizationDocumentDto } from '../dto/update-organization-document.dto';
 import { QueryOrganizationDocumentDto } from '../dto/query-organization-document.dto';
@@ -20,15 +21,6 @@ const VECTOR_SEARCH_LIMIT = 10;
 const MAX_EMBEDDING_TEXT_LENGTH = 8000;
 const CHUNK_SIZE = 1000;
 const CHUNK_OVERLAP = 200;
-
-function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    stream.on('data', (chunk: Buffer) => chunks.push(chunk));
-    stream.on('end', () => resolve(Buffer.concat(chunks)));
-    stream.on('error', reject);
-  });
-}
 
 @Injectable()
 export class OrganizationDocumentsService {
@@ -44,8 +36,17 @@ export class OrganizationDocumentsService {
     private readonly categoryRepository: Repository<OrganizationDocumentCategory>,
     private readonly embeddingService: EmbeddingService,
     private readonly storageService: OrganizationDocumentStorageService,
+    private readonly s3Service: S3Service,
     private readonly dataSource: DataSource,
   ) {}
+
+  async presignUpload(
+    organizationId: string,
+    filename: string,
+    contentType: string,
+  ): Promise<{ uploadUrl: string; key: string; expiresIn: number }> {
+    return this.storageService.presignUpload(organizationId, filename, contentType);
+  }
 
   async findAll(organizationId: string, query: QueryOrganizationDocumentDto) {
     const { search, category_id, status, sort_by, sort_order, page = 1, limit = 20 } = query;
@@ -146,10 +147,10 @@ export class OrganizationDocumentsService {
     return this.serializer.serialize(doc);
   }
 
-  async upload(
+  async confirmUpload(
     organizationId: string,
     dto: CreateOrganizationDocumentDto,
-    file: { buffer: Buffer; originalFilename: string; mimeType?: string },
+    payload: { key: string; fileName: string; mimeType?: string; sizeBytes?: number },
     userId: string,
   ) {
     const category = await this.categoryRepository.findOne({
@@ -157,20 +158,19 @@ export class OrganizationDocumentsService {
     });
     if (!category) throw new NotFoundException('Category not found');
 
-    const { file_name, file_path } = await this.storageService.saveDocument(
-      file.buffer,
-      file.originalFilename,
-      organizationId,
-    );
+    const exists = await this.storageService.verifyUploaded(payload.key);
+    if (!exists) {
+      throw new BadRequestException('Uploaded file not found in storage. Retry the upload.');
+    }
 
     const doc = this.documentRepository.create({
       organization_id: organizationId,
       category_id: dto.category_id,
       document_name: dto.document_name,
-      file_name,
-      file_path,
-      file_size_bytes: file.buffer.length,
-      mime_type: file.mimeType ?? null,
+      file_name: payload.fileName,
+      file_path: payload.key,
+      file_size_bytes: payload.sizeBytes ?? null,
+      mime_type: payload.mimeType ?? null,
       is_required: dto.is_required ?? false,
       has_expiration: dto.has_expiration ?? false,
       expiration_date: dto.expiration_date ? new Date(dto.expiration_date) : null,
@@ -230,7 +230,7 @@ export class OrganizationDocumentsService {
   async replaceFile(
     organizationId: string,
     documentId: string,
-    file: { buffer: Buffer; originalFilename: string; mimeType?: string },
+    payload: { key: string; fileName: string; mimeType?: string; sizeBytes?: number },
     userId: string,
   ) {
     const doc = await this.documentRepository.findOne({
@@ -238,16 +238,17 @@ export class OrganizationDocumentsService {
     });
     if (!doc) throw new NotFoundException('Document not found');
 
-    const { file_name, file_path } = await this.storageService.saveDocument(
-      file.buffer,
-      file.originalFilename,
-      organizationId,
-    );
+    const exists = await this.storageService.verifyUploaded(payload.key);
+    if (!exists) {
+      throw new BadRequestException('Uploaded file not found in storage. Retry the upload.');
+    }
 
-    doc.file_name = file_name;
-    doc.file_path = file_path;
-    doc.file_size_bytes = file.buffer.length;
-    doc.mime_type = file.mimeType ?? null;
+    const previousKey = doc.file_path;
+
+    doc.file_name = payload.fileName;
+    doc.file_path = payload.key;
+    doc.file_size_bytes = payload.sizeBytes ?? null;
+    doc.mime_type = payload.mimeType ?? null;
     doc.uploaded_by = userId;
     doc.updated_by = userId;
     doc.extracted_text = null;
@@ -255,6 +256,12 @@ export class OrganizationDocumentsService {
     doc.extraction_error = null;
 
     const saved = await this.documentRepository.save(doc);
+
+    if (previousKey && previousKey !== payload.key) {
+      this.storageService.delete(previousKey).catch((err) => {
+        this.logger.warn(`Failed to delete previous file ${previousKey}`, err);
+      });
+    }
 
     this.runExtractionAndChunking(saved.id).catch((err) => {
       this.logger.warn(`Extraction failed for compliance document ${saved.id}`, err);
@@ -278,21 +285,14 @@ export class OrganizationDocumentsService {
     await this.documentRepository.save(doc);
   }
 
-  async getFileForDownload(organizationId: string, documentId: string) {
+  async getDownloadUrl(organizationId: string, documentId: string) {
     const doc = await this.documentRepository.findOne({
       where: { id: documentId, organization_id: organizationId, deleted_at: IsNull() },
     });
     if (!doc) throw new NotFoundException('Document not found');
 
-    try {
-      const { stream, contentType } = await this.storageService.getFileStream(
-        doc.file_path,
-        doc.file_name,
-      );
-      return { stream, contentType, file_name: doc.file_name };
-    } catch {
-      throw new NotFoundException('File not found in storage');
-    }
+    const url = await this.storageService.getPresignedViewUrl(doc.file_path);
+    return { url, file_name: doc.file_name, mime_type: doc.mime_type };
   }
 
   async scanDocument(organizationId: string, documentId: string) {
@@ -486,8 +486,7 @@ export class OrganizationDocumentsService {
     if (!doc) return;
 
     try {
-      const { stream } = await this.storageService.getFileStream(doc.file_path, doc.file_name);
-      const buffer = await streamToBuffer(stream);
+      const buffer = await this.s3Service.getObjectAsBuffer(doc.file_path);
 
       let extractedText = '';
       const mime = (doc.mime_type ?? '').toLowerCase();

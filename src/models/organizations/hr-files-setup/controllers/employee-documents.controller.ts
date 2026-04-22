@@ -6,14 +6,10 @@ import {
   Delete,
   Body,
   Param,
-  Res,
   UseGuards,
   HttpCode,
   HttpStatus,
-  Req,
-  BadRequestException,
 } from '@nestjs/common';
-import type { FastifyReply, FastifyRequest } from 'fastify';
 import { JwtAuthGuard } from '../../../../common/guards/jwt-auth.guard';
 import { EmployeeDocumentAccessGuard } from '../../../../common/guards/employee-document-access.guard';
 import { LoggedInUser } from '../../../../common/decorators/requests/logged-in-user.decorator';
@@ -24,6 +20,9 @@ import { EmployeeDocumentsChatService } from '../services/employee-documents-cha
 import { ExpirationStatusDto } from '../dto/expiration-status.dto';
 import { EmployeeDocumentsChatRequestDto } from '../dto/employee-documents-chat-request.dto';
 import { UpdateEmployeeDocumentDto } from '../dto/update-employee-document.dto';
+import { PresignEmployeeDocumentUploadDto } from '../dto/presign-employee-document-upload.dto';
+import { ConfirmEmployeeDocumentUploadDto } from '../dto/confirm-employee-document-upload.dto';
+import { ReplaceEmployeeDocumentFileDto } from '../dto/replace-employee-document-file.dto';
 
 @Controller('v1/api/organizations/:organizationId/employees/:employeeId/documents')
 @UseGuards(JwtAuthGuard, EmployeeDocumentAccessGuard)
@@ -115,114 +114,62 @@ export class EmployeeDocumentsController {
     return SuccessHelper.createSuccessResponse(result);
   }
 
-  @Post('upload')
-  @HttpCode(HttpStatus.CREATED)
-  async upload(
+  @Post('presign-upload')
+  @HttpCode(HttpStatus.OK)
+  async presignUpload(
     @Param('organizationId') organizationId: string,
     @Param('employeeId') employeeId: string,
-    @Req() request: FastifyRequest,
+    @Body() dto: PresignEmployeeDocumentUploadDto,
     @LoggedInUser() user: UserWithRolesInterface,
   ) {
-    const multipartRequest = request as FastifyRequest & {
-      isMultipart?: () => boolean;
-      body?: Record<
-        string,
-        | { value?: string; toBuffer?: () => Promise<Buffer>; filename?: string }
-        | Array<{ toBuffer?: () => Promise<Buffer>; filename?: string }>
-      >;
-    };
-
-    if (multipartRequest.isMultipart?.()) {
-      const body = multipartRequest.body;
-      const filePart = body?.file ?? body?.document;
-      const singleFile = Array.isArray(filePart) ? filePart[0] : filePart;
-      const docTypeRaw = body?.document_type_id;
-      const docTypeId =
-        typeof docTypeRaw === 'object' && docTypeRaw && 'value' in docTypeRaw
-          ? (docTypeRaw as { value?: string }).value
-          : typeof docTypeRaw === 'string'
-            ? docTypeRaw
-            : null;
-
-      if (!singleFile?.toBuffer || !singleFile?.filename) {
-        throw new BadRequestException('No file uploaded. Send a field named "file" or "document".');
-      }
-      if (!docTypeId || typeof docTypeId !== 'string') {
-        throw new BadRequestException('document_type_id is required.');
-      }
-
-      const buffer = await singleFile.toBuffer();
-      const mimeType = (singleFile as { mimetype?: string }).mimetype;
-      const result = await this.employeeDocumentsService.upload(
-        organizationId,
-        employeeId,
-        docTypeId,
-        {
-          buffer,
-          originalFilename: singleFile.filename,
-          mimeType,
-        },
-        user.userId,
-      );
-      return SuccessHelper.createSuccessResponse(result, 'Document uploaded successfully');
-    }
-
-    const legacyRequest = request as FastifyRequest & {
-      file: () => Promise<
-        { filename: string; toBuffer: () => Promise<Buffer>; mimetype?: string } | undefined
-      >;
-    };
-    const data = await legacyRequest.file?.();
-    if (!data) {
-      throw new BadRequestException(
-        'No file uploaded. Use multipart/form-data with field "file" and "document_type_id".',
-      );
-    }
-    const buffer = await data.toBuffer();
-    const docTypeId = (request.body as { document_type_id?: string })?.document_type_id;
-    if (!docTypeId) {
-      throw new BadRequestException('document_type_id is required.');
-    }
-    const result = await this.employeeDocumentsService.upload(
+    const data = await this.employeeDocumentsService.presignUpload(
       organizationId,
       employeeId,
-      docTypeId,
+      dto.filename,
+      dto.contentType,
+      user.userId,
+    );
+    return SuccessHelper.createSuccessResponse(data);
+  }
+
+  @Post('confirm-upload')
+  @HttpCode(HttpStatus.CREATED)
+  async confirmUpload(
+    @Param('organizationId') organizationId: string,
+    @Param('employeeId') employeeId: string,
+    @Body() dto: ConfirmEmployeeDocumentUploadDto,
+    @LoggedInUser() user: UserWithRolesInterface,
+  ) {
+    const result = await this.employeeDocumentsService.confirmUpload(
+      organizationId,
+      employeeId,
+      dto.document_type_id,
       {
-        buffer,
-        originalFilename: data.filename,
-        mimeType: data.mimetype,
+        key: dto.key,
+        fileName: dto.file_name,
+        mimeType: dto.mime_type,
+        sizeBytes: dto.size_bytes,
       },
       user.userId,
     );
     return SuccessHelper.createSuccessResponse(result, 'Document uploaded successfully');
   }
 
-  @Get(':documentId/download')
+  @Get(':documentId/file-url')
   @HttpCode(HttpStatus.OK)
-  async download(
+  async getFileUrl(
     @Param('organizationId') organizationId: string,
     @Param('employeeId') employeeId: string,
     @Param('documentId') documentId: string,
-    @Res() reply: FastifyReply,
     @LoggedInUser() user: UserWithRolesInterface,
   ) {
-    const { stream, contentType, file_name } =
-      await this.employeeDocumentsService.getFileForDownload(
-        organizationId,
-        employeeId,
-        documentId,
-        user.userId,
-      );
-    const rawName = file_name ?? 'document';
-    const safeName = rawName.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_');
-    const encodedName = encodeURIComponent(rawName);
-    return reply
-      .header('Content-Type', contentType)
-      .header(
-        'Content-Disposition',
-        `attachment; filename="${safeName}"; filename*=UTF-8''${encodedName}`,
-      )
-      .send(stream);
+    const data = await this.employeeDocumentsService.getDownloadUrl(
+      organizationId,
+      employeeId,
+      documentId,
+      user.userId,
+    );
+    return SuccessHelper.createSuccessResponse(data);
   }
 
   @Get(':documentId')
@@ -260,56 +207,19 @@ export class EmployeeDocumentsController {
     @Param('organizationId') organizationId: string,
     @Param('employeeId') employeeId: string,
     @Param('documentId') documentId: string,
-    @Req() request: FastifyRequest,
+    @Body() dto: ReplaceEmployeeDocumentFileDto,
     @LoggedInUser() user: UserWithRolesInterface,
   ) {
-    const multipartRequest = request as FastifyRequest & {
-      isMultipart?: () => boolean;
-      body?: Record<
-        string,
-        | { value?: string; toBuffer?: () => Promise<Buffer>; filename?: string }
-        | Array<{ toBuffer?: () => Promise<Buffer>; filename?: string }>
-      >;
-    };
-
-    if (multipartRequest.isMultipart?.()) {
-      const body = multipartRequest.body;
-      const filePart = body?.file ?? body?.document;
-      const singleFile = Array.isArray(filePart) ? filePart[0] : filePart;
-
-      if (!singleFile?.toBuffer || !singleFile?.filename) {
-        throw new BadRequestException('No file uploaded. Send a field named "file" or "document".');
-      }
-
-      const buffer = await singleFile.toBuffer();
-      const mimeType = (singleFile as { mimetype?: string }).mimetype;
-      const result = await this.employeeDocumentsService.replaceFile(
-        organizationId,
-        employeeId,
-        documentId,
-        { buffer, originalFilename: singleFile.filename, mimeType },
-        user.userId,
-      );
-      return SuccessHelper.createSuccessResponse(result, 'Document file replaced successfully');
-    }
-
-    const legacyRequest = request as FastifyRequest & {
-      file: () => Promise<
-        { filename: string; toBuffer: () => Promise<Buffer>; mimetype?: string } | undefined
-      >;
-    };
-    const data = await legacyRequest.file?.();
-    if (!data) {
-      throw new BadRequestException(
-        'No file uploaded. Use multipart/form-data with field "file".',
-      );
-    }
-    const buffer = await data.toBuffer();
     const result = await this.employeeDocumentsService.replaceFile(
       organizationId,
       employeeId,
       documentId,
-      { buffer, originalFilename: data.filename, mimeType: data.mimetype },
+      {
+        key: dto.key,
+        fileName: dto.file_name,
+        mimeType: dto.mime_type,
+        sizeBytes: dto.size_bytes,
+      },
       user.userId,
     );
     return SuccessHelper.createSuccessResponse(result, 'Document file replaced successfully');

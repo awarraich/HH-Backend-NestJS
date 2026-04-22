@@ -198,23 +198,43 @@ export class InserviceTrainingService {
     });
   }
 
+  async presignUpload(
+    organizationId: string,
+    inserviceIdOrNew: string,
+    filename: string,
+    contentType: string,
+    userId: string,
+  ): Promise<{ uploadUrl: string; key: string; expiresIn: number }> {
+    await this.ensureAccess(organizationId, userId);
+    return this.storageService.presignUploadForInserviceDocument(
+      organizationId,
+      inserviceIdOrNew,
+      filename,
+      contentType,
+    );
+  }
+
   async create(
     organizationId: string,
     dto: CreateInserviceTrainingDto,
     userId: string,
-    files?: Array<{ buffer: Buffer; originalFilename: string }>,
+    pdfFiles?: PdfFileEntry[],
   ): Promise<InserviceTrainingResponse> {
     await this.ensureAccess(organizationId, userId);
 
     const videoUrls = (dto.video_urls ?? []).map((u) => u.trim()).filter(Boolean);
-    const validFiles = (files ?? []).filter((f) => f.buffer?.length);
-    if (!videoUrls.length && !validFiles.length) {
+    const validPdfFiles = (pdfFiles ?? []).filter((f) => f.file_path && f.file_name);
+    if (!videoUrls.length && !validPdfFiles.length) {
       throw new BadRequestException(INSERVICE_CONTENT_REQUIRED_MESSAGE);
     }
 
-    for (const f of validFiles) {
-      if (f.buffer.length > MAX_PDF_SIZE_BYTES) {
+    for (const f of validPdfFiles) {
+      if (f.file_size_bytes > MAX_PDF_SIZE_BYTES) {
         throw new BadRequestException('Each PDF must be 50MB or less');
+      }
+      const exists = await this.storageService.verifyUploaded(f.file_path);
+      if (!exists) {
+        throw new BadRequestException(`Uploaded file not found in storage: ${f.file_name}`);
       }
     }
 
@@ -238,9 +258,7 @@ export class InserviceTrainingService {
       completion_frequency: dto.completion_frequency,
       expiry_months: expiryMonths,
       video_urls: videoUrls,
-      pdf_files: validFiles.length
-        ? [{ file_name: 'pending', file_path: 'pending', file_size_bytes: 0 }]
-        : [],
+      pdf_files: validPdfFiles,
       sort_order: dto.sort_order ?? 0,
       is_active: true,
       has_quiz: dto.has_quiz ?? false,
@@ -248,22 +266,6 @@ export class InserviceTrainingService {
     });
 
     const saved = await this.inserviceTrainingRepository.save(inservice);
-
-    if (validFiles.length) {
-      const pdfFiles: PdfFileEntry[] = [];
-      for (const f of validFiles) {
-        const { file_name, file_path } = await this.storageService.saveInserviceDocument(
-          f.buffer,
-          f.originalFilename,
-          organizationId,
-          saved.id,
-        );
-        pdfFiles.push({ file_name, file_path, file_size_bytes: f.buffer.length });
-      }
-      saved.pdf_files = pdfFiles;
-      await this.inserviceTrainingRepository.save(saved);
-    }
-
     return this.toResponse(saved);
   }
 
@@ -272,7 +274,7 @@ export class InserviceTrainingService {
     id: string,
     dto: UpdateInserviceTrainingDto,
     userId: string,
-    files?: Array<{ buffer: Buffer; originalFilename: string }>,
+    newPdfFiles?: PdfFileEntry[],
   ): Promise<InserviceTrainingResponse> {
     await this.ensureAccess(organizationId, userId);
 
@@ -283,10 +285,14 @@ export class InserviceTrainingService {
       throw new NotFoundException('Inservice training not found');
     }
 
-    const validFiles = (files ?? []).filter((f) => f.buffer?.length);
-    for (const f of validFiles) {
-      if (f.buffer.length > MAX_PDF_SIZE_BYTES) {
+    const validNewPdfFiles = (newPdfFiles ?? []).filter((f) => f.file_path && f.file_name);
+    for (const f of validNewPdfFiles) {
+      if (f.file_size_bytes > MAX_PDF_SIZE_BYTES) {
         throw new BadRequestException('Each PDF must be 50MB or less');
+      }
+      const exists = await this.storageService.verifyUploaded(f.file_path);
+      if (!exists) {
+        throw new BadRequestException(`Uploaded file not found in storage: ${f.file_name}`);
       }
     }
 
@@ -308,18 +314,8 @@ export class InserviceTrainingService {
         dto.passing_score_percent == null ? null : dto.passing_score_percent;
     }
 
-    if (validFiles.length) {
-      const newEntries: PdfFileEntry[] = [];
-      for (const f of validFiles) {
-        const { file_name, file_path } = await this.storageService.saveInserviceDocument(
-          f.buffer,
-          f.originalFilename,
-          organizationId,
-          inservice.id,
-        );
-        newEntries.push({ file_name, file_path, file_size_bytes: f.buffer.length });
-      }
-      inservice.pdf_files = [...(inservice.pdf_files ?? []), ...newEntries];
+    if (validNewPdfFiles.length) {
+      inservice.pdf_files = [...(inservice.pdf_files ?? []), ...validNewPdfFiles];
     }
 
     if (!inservice.pdf_files?.length && !inservice.video_urls?.length) {
@@ -343,18 +339,12 @@ export class InserviceTrainingService {
     await this.inserviceTrainingRepository.remove(inservice);
   }
 
-  async getPdfStream(
+  async getPdfFileUrl(
     organizationId: string,
     id: string,
-    userId: string,
+    _userId: string,
     fileIndex: number,
-  ): Promise<{
-    stream: NodeJS.ReadableStream;
-    contentType: string;
-    file_name: string;
-  }> {
-    // await this.ensureAccess(organizationId, userId);
-
+  ): Promise<{ url: string; file_name: string }> {
     const inservice = await this.inserviceTrainingRepository.findOne({
       where: { id, organization_id: organizationId },
     });
@@ -371,10 +361,7 @@ export class InserviceTrainingService {
     }
 
     const entry = files[fileIndex];
-    const { stream, contentType } = await this.storageService.getFileStream(
-      entry.file_path,
-      entry.file_name,
-    );
-    return { stream, contentType, file_name: entry.file_name };
+    const url = await this.storageService.getPresignedViewUrl(entry.file_path);
+    return { url, file_name: entry.file_name };
   }
 }

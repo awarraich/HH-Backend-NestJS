@@ -77,80 +77,32 @@ export class ReferralsController {
   }
 
   /**
-   * Create referral with files in one request (multipart/form-data).
-   * Form fields: "data" = JSON string of referral payload (without documents).
-   * Form files: "documents" = one or more files (same field name for each).
-   * With attachFieldsToBody: true, fields and files are on request.body; we read from there.
+   * Create referral with pre-uploaded documents (JSON body).
+   * Flow: client presigns + uploads each document to S3 via /documents/presign-upload,
+   * then POSTs CreateReferralDto with `documents: [{ file_name, file_url: <S3 key> }]`.
    */
   @Post('with-documents')
   @HttpCode(HttpStatus.CREATED)
   async createWithDocuments(
     @Param('organizationId') organizationId: string,
     @LoggedInUser() user: UserWithRolesInterface,
+    @Body() payload: CreateReferralDto,
     @Req() request: FastifyRequest,
   ) {
-    const multipartRequest = request as FastifyRequest & {
-      isMultipart: () => boolean;
-      body?: Record<
-        string,
-        | { value?: string; toBuffer?: () => Promise<Buffer>; filename?: string }
-        | Array<{ toBuffer?: () => Promise<Buffer>; filename?: string }>
-      >;
-    };
-    if (!multipartRequest.isMultipart?.()) {
-      throw new BadRequestException('Content-Type must be multipart/form-data');
-    }
-    const documents: { file_name: string; file_url: string }[] = [];
-    let payload: CreateReferralDto | null = null;
-
-    // With attachFieldsToBody: true, plugin parses multipart and attaches to request.body
-    const body = multipartRequest.body;
-    if (body?.data != null) {
-      const d = body.data as { value?: string | Record<string, unknown> };
-      const value = d?.value;
-      if (value != null) {
-        if (typeof value === 'string' && value.trim().length > 0) {
-          try {
-            payload = JSON.parse(value) as CreateReferralDto;
-          } catch {
-            payload = null;
-          }
-        } else if (typeof value === 'object' && !Array.isArray(value)) {
-          payload = value as unknown as CreateReferralDto;
-        }
-      }
-    }
-    if (body?.documents != null) {
-      const docParts = Array.isArray(body.documents) ? body.documents : [body.documents];
-      for (const part of docParts) {
-        const p = part as { toBuffer?: () => Promise<Buffer>; filename?: string };
-        if (p?.toBuffer && typeof p.toBuffer === 'function' && p.filename) {
-          const buffer = await p.toBuffer();
-          const result = await this.referralDocumentStorage.saveReferralDocument(
-            buffer,
-            p.filename,
+    if (payload.documents?.length) {
+      for (const doc of payload.documents) {
+        const exists = await this.referralDocumentStorage.verifyUploaded(doc.file_url);
+        if (!exists) {
+          throw new BadRequestException(
+            `Uploaded referral document not found in storage: ${doc.file_name}`,
           );
-          documents.push(result);
         }
       }
-    }
-
-    if (!payload || typeof payload !== 'object') {
-      throw new BadRequestException(
-        'Missing or invalid "data" field. Send "data" as a form field (JSON string of referral payload).',
-      );
-    }
-    payload.documents = documents;
-    const createDto = plainToInstance(CreateReferralDto, payload);
-    const errors = await validate(createDto, { whitelist: true, forbidNonWhitelisted: true });
-    if (errors.length > 0) {
-      const messages = errors.map((e) => Object.values(e.constraints ?? {})).flat();
-      throw new BadRequestException(messages.join('; '));
     }
     const result = await this.referralsService.create(
       organizationId,
       user.userId,
-      createDto,
+      payload,
       this.getIpAddress(request),
       this.getUserAgent(request),
     );
@@ -180,17 +132,19 @@ export class ReferralsController {
     );
   }
 
-  @Post('documents/upload')
-  @HttpCode(HttpStatus.CREATED)
-  async uploadReferralDocument(@Req() request: FastifyRequest) {
-    const multipartRequest = request as FastifyRequest & {
-      file: () => Promise<{ filename: string; toBuffer: () => Promise<Buffer> } | undefined>;
-    };
-    const data = await multipartRequest.file();
-    if (!data) throw new BadRequestException('No file uploaded');
-    const buffer = await data.toBuffer();
-    const result = await this.referralDocumentStorage.saveReferralDocument(buffer, data.filename);
-    return SuccessHelper.createSuccessResponse(result, 'File uploaded');
+  @Post('documents/presign-upload')
+  @HttpCode(HttpStatus.OK)
+  async presignReferralDocumentUpload(
+    @Body() body: { filename: string; contentType: string },
+  ) {
+    if (!body?.filename || typeof body.filename !== 'string') {
+      throw new BadRequestException('filename is required');
+    }
+    if (!body?.contentType || typeof body.contentType !== 'string') {
+      throw new BadRequestException('contentType is required');
+    }
+    const data = await this.referralDocumentStorage.presignUpload(body.filename, body.contentType);
+    return SuccessHelper.createSuccessResponse(data);
   }
 
   @Get('organizations')

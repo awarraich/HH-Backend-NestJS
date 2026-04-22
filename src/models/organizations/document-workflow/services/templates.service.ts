@@ -7,6 +7,7 @@ import { DocumentWorkflowRole } from '../entities/document-workflow-role.entity'
 import { CreateTemplateDto } from '../dto/create-template.dto';
 import { UpdateTemplateDto } from '../dto/update-template.dto';
 import { PdfStorageService } from './pdf-storage.service';
+import { S3Service } from '../../../../common/services/s3/s3.service';
 
 @Injectable()
 export class TemplatesService {
@@ -18,6 +19,7 @@ export class TemplatesService {
     @InjectRepository(DocumentWorkflowRole)
     private readonly roleRepo: Repository<DocumentWorkflowRole>,
     private readonly pdfStorage: PdfStorageService,
+    private readonly s3Service: S3Service,
   ) {}
 
   async findAll(orgId: string) {
@@ -40,14 +42,30 @@ export class TemplatesService {
     return t;
   }
 
-  async getPdfStream(orgId: string, id: string) {
+  async getPdfSignedUrl(orgId: string, id: string): Promise<{ url: string; fileName: string }> {
     const t = await this.repo.findOne({ where: { id, organization_id: orgId } });
     if (!t || !t.pdf_file_key) throw new NotFoundException('PDF not found');
-    const { stream, contentType } = await this.pdfStorage.getFileStream(
-      t.pdf_file_key,
-      t.pdf_original_name ?? 'document.pdf',
-    );
-    return { stream, contentType, fileName: t.pdf_original_name ?? 'document.pdf' };
+    const url = await this.pdfStorage.getPresignedUrl(t.pdf_file_key);
+    return { url, fileName: t.pdf_original_name ?? 'document.pdf' };
+  }
+
+  /**
+   * Fetch the template PDF bytes from S3 — for server-side processing like
+   * pdf-lib overlays or signed-field rendering. Callers that need streaming
+   * to an HTTP response should prefer `getPdfSignedUrl` and redirect instead.
+   */
+  async getPdfBuffer(
+    orgId: string,
+    id: string,
+  ): Promise<{ buffer: Buffer; contentType: string; fileName: string }> {
+    const t = await this.repo.findOne({ where: { id, organization_id: orgId } });
+    if (!t || !t.pdf_file_key) throw new NotFoundException('PDF not found');
+    const buffer = await this.s3Service.getObjectAsBuffer(t.pdf_file_key);
+    return {
+      buffer,
+      contentType: 'application/pdf',
+      fileName: t.pdf_original_name ?? 'document.pdf',
+    };
   }
 
   buildPdfUrl(orgId: string, templateId: string): string {
@@ -190,16 +208,26 @@ export class TemplatesService {
     return this.repo.save(t);
   }
 
-  async uploadPdf(orgId: string, id: string, buffer: Buffer, originalFilename: string, fileSize: number) {
+  async presignPdfUpload(orgId: string, id: string, filename: string, contentType: string) {
+    await this.findOne(orgId, id);
+    return this.pdfStorage.presignUpload(orgId, id, filename, contentType);
+  }
+
+  async confirmPdfUpload(
+    orgId: string,
+    id: string,
+    payload: { key: string; fileName: string; sizeBytes?: number },
+  ) {
     const t = await this.findOne(orgId, id);
-    if (t.pdf_file_key) {
-      await this.pdfStorage.delete(t.pdf_file_key);
+    const previousKey = t.pdf_file_key;
+    t.pdf_file_key = payload.key;
+    t.pdf_original_name = payload.fileName;
+    t.pdf_size_bytes = payload.sizeBytes ?? null;
+    const saved = await this.repo.save(t);
+    if (previousKey && previousKey !== payload.key) {
+      this.pdfStorage.delete(previousKey).catch(() => {});
     }
-    const result = await this.pdfStorage.upload(buffer, originalFilename, orgId, id);
-    t.pdf_file_key = result.file_key;
-    t.pdf_original_name = result.original_name;
-    t.pdf_size_bytes = fileSize;
-    return this.repo.save(t);
+    return saved;
   }
 
   async delete(orgId: string, id: string) {

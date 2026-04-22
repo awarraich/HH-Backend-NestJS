@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  BadRequestException,
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -23,6 +24,7 @@ import { EmbeddingService } from '../../../../common/services/embedding/embeddin
 import { EmployeeDocumentStorageService } from './employee-document-storage.service';
 import { InserviceCompletionService } from './inservice-completion.service';
 import { UpdateEmployeeDocumentDto } from '../dto/update-employee-document.dto';
+import { S3Service } from '../../../../common/services/s3/s3.service';
 
 const VECTOR_SEARCH_LIMIT = 10;
 const MAX_EMBEDDING_TEXT_LENGTH = 8000;
@@ -87,15 +89,6 @@ export interface ChatSource {
   snippet: string;
 }
 
-function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    stream.on('data', (chunk: Buffer) => chunks.push(chunk));
-    stream.on('end', () => resolve(Buffer.concat(chunks)));
-    stream.on('error', reject);
-  });
-}
-
 @Injectable()
 export class EmployeeDocumentsService {
   private readonly logger = new Logger(EmployeeDocumentsService.name);
@@ -123,6 +116,7 @@ export class EmployeeDocumentsService {
     private readonly organizationRoleService: OrganizationRoleService,
     private readonly embeddingService: EmbeddingService,
     private readonly storageService: EmployeeDocumentStorageService,
+    private readonly s3Service: S3Service,
     private readonly configService: ConfigService,
     private readonly dataSource: DataSource,
     private readonly inserviceCompletionService: InserviceCompletionService,
@@ -591,12 +585,12 @@ export class EmployeeDocumentsService {
     return doc;
   }
 
-  async getFileForDownload(
+  async getDownloadUrl(
     organizationId: string,
     employeeId: string,
     documentId: string,
     userId: string,
-  ): Promise<{ stream: NodeJS.ReadableStream; contentType: string; file_name: string }> {
+  ): Promise<{ url: string; file_name: string; mime_type: string | null }> {
     await this.ensureDocumentAccess(organizationId, employeeId, userId);
     const doc = await this.employeeDocumentRepository.findOne({
       where: {
@@ -609,15 +603,24 @@ export class EmployeeDocumentsService {
     if (!doc) {
       throw new NotFoundException('Document not found');
     }
-    try {
-      const { stream, contentType } = await this.storageService.getFileStream(
-        doc.file_path,
-        doc.file_name,
-      );
-      return { stream, contentType, file_name: doc.file_name };
-    } catch {
-      throw new NotFoundException('File not found in storage');
-    }
+    const url = await this.storageService.getPresignedViewUrl(doc.file_path);
+    return { url, file_name: doc.file_name, mime_type: doc.mime_type };
+  }
+
+  async presignUpload(
+    organizationId: string,
+    employeeId: string,
+    filename: string,
+    contentType: string,
+    userId: string,
+  ): Promise<{ uploadUrl: string; key: string; expiresIn: number }> {
+    await this.ensureDocumentAccess(organizationId, employeeId, userId);
+    return this.storageService.presignUploadForEmployeeDocument(
+      organizationId,
+      employeeId,
+      filename,
+      contentType,
+    );
   }
 
   async delete(
@@ -673,7 +676,7 @@ export class EmployeeDocumentsService {
     organizationId: string,
     employeeId: string,
     documentId: string,
-    file: { buffer: Buffer; originalFilename: string; mimeType?: string },
+    payload: { key: string; fileName: string; mimeType?: string; sizeBytes?: number },
     userId: string,
   ): Promise<EmployeeDocument> {
     await this.ensureDocumentAccess(organizationId, employeeId, userId);
@@ -690,23 +693,29 @@ export class EmployeeDocumentsService {
       throw new NotFoundException('Document not found');
     }
 
-    const { file_name, file_path } = await this.storageService.saveEmployeeDocument(
-      file.buffer,
-      file.originalFilename,
-      organizationId,
-      employeeId,
-    );
+    const exists = await this.storageService.verifyUploaded(payload.key);
+    if (!exists) {
+      throw new BadRequestException('Uploaded file not found in storage. Retry the upload.');
+    }
 
-    doc.file_name = file_name;
-    doc.file_path = file_path;
-    doc.file_size_bytes = file.buffer.length;
-    doc.mime_type = file.mimeType ?? null;
+    const previousKey = doc.file_path;
+
+    doc.file_name = payload.fileName;
+    doc.file_path = payload.key;
+    doc.file_size_bytes = payload.sizeBytes ?? null;
+    doc.mime_type = payload.mimeType ?? null;
     doc.uploaded_by = userId;
     doc.extracted_text = null;
     doc.extraction_status = 'pending';
     doc.extraction_error = null;
 
     const saved = await this.employeeDocumentRepository.save(doc);
+
+    if (previousKey && previousKey !== payload.key) {
+      this.storageService.delete(previousKey).catch((err) => {
+        this.logger.warn(`Failed to delete previous file ${previousKey}`, err);
+      });
+    }
 
     this.runExtractionAndChunking(saved.id).catch((err) => {
       this.logger.warn(`Extraction failed for document ${saved.id}`, err);
@@ -715,11 +724,11 @@ export class EmployeeDocumentsService {
     return saved;
   }
 
-  async upload(
+  async confirmUpload(
     organizationId: string,
     employeeId: string,
     documentTypeId: string,
-    file: { buffer: Buffer; originalFilename: string; mimeType?: string },
+    payload: { key: string; fileName: string; mimeType?: string; sizeBytes?: number },
     userId: string,
   ): Promise<EmployeeDocument> {
     await this.ensureDocumentAccess(organizationId, employeeId, userId);
@@ -751,21 +760,19 @@ export class EmployeeDocumentsService {
       throw new NotFoundException('Document type not found');
     }
 
-    const { file_name, file_path } = await this.storageService.saveEmployeeDocument(
-      file.buffer,
-      file.originalFilename,
-      organizationId,
-      employeeId,
-    );
+    const exists = await this.storageService.verifyUploaded(payload.key);
+    if (!exists) {
+      throw new BadRequestException('Uploaded file not found in storage. Retry the upload.');
+    }
 
     const doc = this.employeeDocumentRepository.create({
       organization_id: organizationId,
       employee_id: employeeId,
       document_type_id: documentTypeId,
-      file_name,
-      file_path,
-      file_size_bytes: file.buffer.length,
-      mime_type: file.mimeType ?? null,
+      file_name: payload.fileName,
+      file_path: payload.key,
+      file_size_bytes: payload.sizeBytes ?? null,
+      mime_type: payload.mimeType ?? null,
       uploaded_by: userId,
       extraction_status: 'pending',
     });
@@ -785,8 +792,7 @@ export class EmployeeDocumentsService {
     if (!doc) return;
 
     try {
-      const { stream } = await this.storageService.getFileStream(doc.file_path, doc.file_name);
-      const buffer = await streamToBuffer(stream);
+      const buffer = await this.s3Service.getObjectAsBuffer(doc.file_path);
 
       let extractedText = '';
       const mime = (doc.mime_type ?? '').toLowerCase();

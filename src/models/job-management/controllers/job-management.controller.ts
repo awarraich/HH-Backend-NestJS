@@ -147,83 +147,55 @@ export class JobManagementController {
     return SuccessHelper.createSuccessResponse(fields, 'Application form fields saved');
   }
 
-  /**
-   * Public: upload a job application document (resume, cover letter, etc.).
-   * With Fastify multipart attachFieldsToBody: true, the file is on request.body.
-   */
-  @Post('job-applications/upload-document')
-  @HttpCode(HttpStatus.CREATED)
-  async uploadApplicationDocument(@Req() request: FastifyRequest): Promise<unknown> {
-    const multipartRequest = request as FastifyRequest & {
-      isMultipart?: () => boolean;
-      body?: Record<
-        string,
-        | { value?: string; toBuffer?: () => Promise<Buffer>; filename?: string; _buf?: Buffer }
-        | Array<{ toBuffer?: () => Promise<Buffer>; filename?: string; _buf?: Buffer }>
-      >;
-    };
-
-    if (!multipartRequest.isMultipart?.()) {
-      throw new BadRequestException('Content-Type must be multipart/form-data');
+  /** Public: presign an upload URL for a job application document (resume, cover letter, etc.). */
+  @Post('job-applications/presign-upload-document')
+  @HttpCode(HttpStatus.OK)
+  async presignApplicationDocumentUpload(
+    @Body() body: { filename: string; contentType: string },
+  ): Promise<unknown> {
+    if (!body?.filename || typeof body.filename !== 'string') {
+      throw new BadRequestException('filename is required');
     }
-
-    const body = multipartRequest.body;
-    const filePart = body?.file ?? body?.document;
-    const singleFile = Array.isArray(filePart) ? filePart[0] : filePart;
-
-    if (!singleFile?.filename) {
-      throw new BadRequestException('No file uploaded. Send a field named "file" or "document".');
+    if (!body?.contentType || typeof body.contentType !== 'string') {
+      throw new BadRequestException('contentType is required');
     }
-
-    const ext = path.extname(singleFile.filename).toLowerCase();
-    if (ext !== '.pdf') {
+    if (!body.filename.toLowerCase().endsWith('.pdf') && body.contentType !== 'application/pdf') {
       throw new BadRequestException(
         'Only PDF files are allowed for job application and offer letter documents.',
       );
     }
-
-    const buffer =
-      singleFile._buf != null
-        ? singleFile._buf
-        : typeof singleFile.toBuffer === 'function'
-          ? await singleFile.toBuffer()
-          : null;
-    if (!buffer || !Buffer.isBuffer(buffer)) {
-      throw new BadRequestException('Could not read file data');
-    }
-
-    const result = await this.jobApplicationDocumentStorage.saveDocument(
-      buffer,
-      singleFile.filename,
+    const data = await this.jobApplicationDocumentStorage.presignUpload(
+      body.filename,
+      body.contentType,
     );
-    return SuccessHelper.createSuccessResponse(result, 'Document uploaded');
+    return SuccessHelper.createSuccessResponse(data);
   }
 
-  /** Public: serve a job application document by filename (local storage only; S3 uses direct URL). */
+  /** Preserves /job-applications/documents/files/:filename — 302-redirects to a signed S3 GET URL. */
   @Get('job-applications/documents/files/:filename')
-  @HttpCode(HttpStatus.OK)
   async serveApplicationDocument(
     @Param('filename') filename: string,
-    @Query('disposition') disposition: string | undefined,
     @Res() reply: FastifyReply,
   ): Promise<unknown> {
-    const filePath = this.jobApplicationDocumentStorage.getLocalFilePath(filename);
-    if (!filePath) throw new NotFoundException('File not found');
-    const ext = path.extname(filename).toLowerCase();
-    const contentType: Record<string, string> = {
-      '.pdf': 'application/pdf',
-      '.doc': 'application/msword',
-      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      '.jpg': 'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.png': 'image/png',
-      '.txt': 'text/plain',
-    };
-    const dispositionType = disposition === 'inline' ? 'inline' : 'attachment';
-    return reply
-      .header('Content-Type', contentType[ext] ?? 'application/octet-stream')
-      .header('Content-Disposition', `${dispositionType}; filename="${encodeURIComponent(filename)}"`)
-      .send(fs.createReadStream(filePath));
+    const url = await this.jobApplicationDocumentStorage.getPresignedViewUrl(
+      `job-application-documents/${filename}`,
+    );
+    return reply.redirect(url, 302);
+  }
+
+  /**
+   * Returns the signed S3 URL for a job-application document as JSON.
+   * Prefer this over /documents/files/:filename when the frontend needs to
+   * fetch() the file — a CORS-mode fetch that follows a 302 redirect to S3
+   * taints the request origin to `null`, which the bucket CORS rejects.
+   */
+  @Get('job-applications/documents/files/:filename/url')
+  @HttpCode(HttpStatus.OK)
+  async getApplicationDocumentFileUrl(@Param('filename') filename: string) {
+    const url = await this.jobApplicationDocumentStorage.getPresignedViewUrl(
+      `job-application-documents/${filename}`,
+    );
+    return SuccessHelper.createSuccessResponse({ url });
   }
 
   /**

@@ -19,6 +19,7 @@ import type {
 } from '../entities/organization-company-profile.entity';
 import { OrganizationRoleService } from '../../services/organization-role.service';
 import { CompanyProfileStorageService } from './company-profile-storage.service';
+import { S3Service } from '../../../../common/services/s3/s3.service';
 import { UpdateOrganizationCompanyProfileDto } from '../dto/update-organization-company-profile.dto';
 
 /** Amenity item returned to frontend (snake_case for API). */
@@ -104,7 +105,28 @@ export class OrganizationCompanyProfileService {
     private readonly organizationRepository: Repository<Organization>,
     private readonly organizationRoleService: OrganizationRoleService,
     private readonly storageService: CompanyProfileStorageService,
+    private readonly s3Service: S3Service,
   ) {}
+
+  async presignGalleryUpload(
+    organizationId: string,
+    filename: string,
+    contentType: string,
+    userId: string,
+  ): Promise<{ uploadUrl: string; key: string; expiresIn: number }> {
+    await this.ensureAccess(organizationId, userId);
+    return this.storageService.presignGalleryUpload(organizationId, filename, contentType);
+  }
+
+  async presignVideoUpload(
+    organizationId: string,
+    filename: string,
+    contentType: string,
+    userId: string,
+  ): Promise<{ uploadUrl: string; key: string; expiresIn: number }> {
+    await this.ensureAccess(organizationId, userId);
+    return this.storageService.presignVideoUpload(organizationId, filename, contentType);
+  }
 
   private async ensureAccess(organizationId: string, userId: string): Promise<void> {
     const canAccess = await this.organizationRoleService.hasAnyRoleInOrganization(
@@ -650,19 +672,18 @@ export class OrganizationCompanyProfileService {
     }
   }
 
-  async uploadGalleryImage(
+  async confirmGalleryUpload(
     organizationId: string,
-    file: { buffer: Buffer; originalFilename: string },
-    caption: string,
-    category: string,
+    payload: { key: string; caption: string; category: string },
     userId: string,
   ): Promise<{ id: string; url: string }> {
     await this.ensureAccess(organizationId, userId);
-    const { file_path } = await this.storageService.saveGalleryImage(
-      file.buffer,
-      file.originalFilename,
-      organizationId,
-    );
+    const exists = await this.storageService.verifyUploaded(payload.key);
+    if (!exists) {
+      throw new BadRequestException('Uploaded file not found in storage. Retry the upload.');
+    }
+    const file_path = payload.key;
+    const { caption, category } = payload;
     const id = randomUUID();
     let profile: OrganizationCompanyProfile | null = null;
     try {
@@ -707,18 +728,29 @@ export class OrganizationCompanyProfileService {
     return { id, url };
   }
 
-  async uploadVideo(
+  async confirmVideoUpload(
     organizationId: string,
-    file: { buffer: Buffer; originalFilename: string },
-    metadata: { title: string; description?: string; duration?: string; category?: string },
+    payload: {
+      key: string;
+      title: string;
+      description?: string;
+      duration?: string;
+      category?: string;
+    },
     userId: string,
   ): Promise<{ id: string; url: string }> {
     await this.ensureAccess(organizationId, userId);
-    const { file_path } = await this.storageService.saveVideo(
-      file.buffer,
-      file.originalFilename,
-      organizationId,
-    );
+    const exists = await this.storageService.verifyUploaded(payload.key);
+    if (!exists) {
+      throw new BadRequestException('Uploaded file not found in storage. Retry the upload.');
+    }
+    const file_path = payload.key;
+    const metadata = {
+      title: payload.title,
+      description: payload.description,
+      duration: payload.duration,
+      category: payload.category,
+    };
     const id = randomUUID();
     let profile: OrganizationCompanyProfile | null = null;
     try {
@@ -773,12 +805,12 @@ export class OrganizationCompanyProfileService {
     return { id, url };
   }
 
-  async getMediaStream(
+  async getMediaSignedUrl(
     organizationId: string,
     type: 'gallery' | 'video',
     fileId: string,
     userId: string,
-  ): Promise<{ stream: NodeJS.ReadableStream; contentType: string; file_name: string }> {
+  ): Promise<{ url: string; file_name: string }> {
     try {
       await this.ensureAccess(organizationId, userId);
       let profile: OrganizationCompanyProfile | null = null;
@@ -800,14 +832,13 @@ export class OrganizationCompanyProfileService {
         throw new NotFoundException(`${type} item not found or not an uploaded file`);
       }
       const fileName = item.file_path.split('/').pop() ?? 'file';
-      const { stream, contentType } = await this.storageService.getFileStream(
-        item.file_path,
-        fileName,
-      );
-      return { stream, contentType, file_name: fileName };
+      const url = await this.storageService.getPresignedViewUrl(item.file_path);
+      return { url, file_name: fileName };
     } catch (error) {
       if (error instanceof HttpException) throw error;
-      this.logger.error(`getMediaStream failed: ${error instanceof Error ? error.message : error}`);
+      this.logger.error(
+        `getMediaSignedUrl failed: ${error instanceof Error ? error.message : error}`,
+      );
       throw new NotFoundException('Company profile or media not found.');
     }
   }
@@ -890,15 +921,9 @@ export class OrganizationCompanyProfileService {
         return null;
       }
       const fileName = item.file_path.split('/').pop() ?? 'logo';
-      const { stream, contentType } = await this.storageService.getFileStream(
-        item.file_path,
-        fileName,
-      );
-      const chunks: Buffer[] = [];
-      for await (const chunk of stream as AsyncIterable<Buffer | string>) {
-        chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
-      }
-      return { buffer: Buffer.concat(chunks), contentType, file_name: fileName };
+      const buffer = await this.s3Service.getObjectAsBuffer(item.file_path);
+      const contentType = this.guessContentTypeFromName(fileName);
+      return { buffer, contentType, file_name: fileName };
     } catch (error) {
       this.logger.warn(
         `getOrganizationLogoBytes failed for org ${organizationId}: ${
@@ -909,12 +934,12 @@ export class OrganizationCompanyProfileService {
     }
   }
 
-  /** Serve media for public view (e.g. embedded image/video); no auth. */
-  async getMediaStreamPublic(
+  /** Signed GET URL for public media view (e.g. landing page); no auth. */
+  async getMediaSignedUrlPublic(
     organizationId: string,
     type: 'gallery' | 'video',
     fileId: string,
-  ): Promise<{ stream: NodeJS.ReadableStream; contentType: string; file_name: string }> {
+  ): Promise<{ url: string; file_name: string }> {
     try {
       let profile: OrganizationCompanyProfile | null = null;
       try {
@@ -935,17 +960,30 @@ export class OrganizationCompanyProfileService {
         throw new NotFoundException(`${type} item not found or not an uploaded file`);
       }
       const fileName = item.file_path.split('/').pop() ?? 'file';
-      const { stream, contentType } = await this.storageService.getFileStream(
-        item.file_path,
-        fileName,
-      );
-      return { stream, contentType, file_name: fileName };
+      const url = await this.storageService.getPresignedViewUrl(item.file_path);
+      return { url, file_name: fileName };
     } catch (error) {
       if (error instanceof HttpException) throw error;
       this.logger.error(
-        `getMediaStreamPublic failed: ${error instanceof Error ? error.message : error}`,
+        `getMediaSignedUrlPublic failed: ${error instanceof Error ? error.message : error}`,
       );
       throw new NotFoundException('Company profile or media not found.');
     }
+  }
+
+  private guessContentTypeFromName(filename: string): string {
+    const ext = filename.toLowerCase().split('.').pop() ?? '';
+    const map: Record<string, string> = {
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      png: 'image/png',
+      gif: 'image/gif',
+      webp: 'image/webp',
+      svg: 'image/svg+xml',
+      mp4: 'video/mp4',
+      webm: 'video/webm',
+      mov: 'video/quicktime',
+    };
+    return map[ext] ?? 'application/octet-stream';
   }
 }

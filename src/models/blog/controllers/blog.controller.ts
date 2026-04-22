@@ -10,19 +10,15 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
-  Req,
-  BadRequestException,
   Res,
-  NotFoundException,
 } from '@nestjs/common';
-import type { FastifyRequest, FastifyReply } from 'fastify';
-import * as fs from 'fs';
-import * as path from 'path';
+import type { FastifyReply } from 'fastify';
 import { BlogService } from '../services/blog.service';
 import { BlogImageStorageService } from '../services/blog-image-storage.service';
 import { CreateBlogDto } from '../dto/create-blog.dto';
 import { UpdateBlogDto } from '../dto/update-blog.dto';
 import { QueryBlogDto } from '../dto/query-blog.dto';
+import { PresignBlogUploadDto } from '../dto/presign-blog-upload.dto';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { OptionalJwtAuthGuard } from '../../../common/guards/optional-jwt-auth.guard';
 import { LoggedInUser } from '../../../common/decorators/requests/logged-in-user.decorator';
@@ -36,144 +32,46 @@ export class BlogController {
     private readonly blogImageStorage: BlogImageStorageService,
   ) {}
 
-  /**
-   * Upload a blog featured image.
-   * With Fastify multipart attachFieldsToBody: true, the file is on request.body, not request.file().
-   */
-  @Post('images/upload')
+  @Post('images/presign-upload')
   @UseGuards(JwtAuthGuard)
-  @HttpCode(HttpStatus.CREATED)
-  async uploadImage(@Req() request: FastifyRequest): Promise<unknown> {
-    const multipartRequest = request as FastifyRequest & {
-      isMultipart?: () => boolean;
-      body?: Record<
-        string,
-        | { value?: string; toBuffer?: () => Promise<Buffer>; filename?: string; _buf?: Buffer }
-        | Array<{ toBuffer?: () => Promise<Buffer>; filename?: string; _buf?: Buffer }>
-      >;
-    };
+  @HttpCode(HttpStatus.OK)
+  async presignImageUpload(@Body() dto: PresignBlogUploadDto): Promise<unknown> {
+    const data = await this.blogImageStorage.presignImageUpload(dto.filename, dto.contentType);
+    return SuccessHelper.createSuccessResponse(data);
+  }
 
-    if (!multipartRequest.isMultipart?.()) {
-      throw new BadRequestException('Content-Type must be multipart/form-data');
-    }
-
-    const body = multipartRequest.body;
-    const filePart = body?.file;
-    const singleFile = Array.isArray(filePart) ? filePart[0] : filePart;
-
-    if (!singleFile?.filename) {
-      throw new BadRequestException('No file uploaded. Send a field named "file".');
-    }
-
-    const buffer =
-      singleFile._buf != null
-        ? singleFile._buf
-        : typeof singleFile.toBuffer === 'function'
-          ? await singleFile.toBuffer()
-          : null;
-    if (!buffer || !Buffer.isBuffer(buffer)) {
-      throw new BadRequestException('Could not read file data');
-    }
-
-    const result = await this.blogImageStorage.saveBlogImage(buffer, singleFile.filename);
-    return SuccessHelper.createSuccessResponse(result, 'Image uploaded successfully');
+  @Post('videos/presign-upload')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async presignVideoUpload(@Body() dto: PresignBlogUploadDto): Promise<unknown> {
+    const data = await this.blogImageStorage.presignVideoUpload(dto.filename, dto.contentType);
+    return SuccessHelper.createSuccessResponse(data);
   }
 
   /**
-   * Upload a main/hero video for a blog (multipart field "file").
-   */
-  @Post('videos/upload')
-  @UseGuards(JwtAuthGuard)
-  @HttpCode(HttpStatus.CREATED)
-  async uploadVideo(@Req() request: FastifyRequest): Promise<unknown> {
-    const multipartRequest = request as FastifyRequest & {
-      isMultipart?: () => boolean;
-      body?: Record<
-        string,
-        | { value?: string; toBuffer?: () => Promise<Buffer>; filename?: string; _buf?: Buffer }
-        | Array<{ toBuffer?: () => Promise<Buffer>; filename?: string; _buf?: Buffer }>
-      >;
-    };
-
-    if (!multipartRequest.isMultipart?.()) {
-      throw new BadRequestException('Content-Type must be multipart/form-data');
-    }
-
-    const body = multipartRequest.body;
-    const filePart = body?.file;
-    const singleFile = Array.isArray(filePart) ? filePart[0] : filePart;
-
-    if (!singleFile?.filename) {
-      throw new BadRequestException('No file uploaded. Send a field named "file".');
-    }
-
-    const buffer =
-      singleFile._buf != null
-        ? singleFile._buf
-        : typeof singleFile.toBuffer === 'function'
-          ? await singleFile.toBuffer()
-          : null;
-    if (!buffer || !Buffer.isBuffer(buffer)) {
-      throw new BadRequestException('Could not read file data');
-    }
-
-    const result = await this.blogImageStorage.saveBlogVideo(buffer, singleFile.filename);
-    return SuccessHelper.createSuccessResponse(result, 'Video uploaded successfully');
-  }
-
-  /**
-   * Serve a blog image by filename
+   * Preserves the existing /blogs/images/:filename URL pattern.
+   * Now 302-redirects to a short-TTL presigned S3 GET URL so legacy DB URLs keep working after backfill.
    */
   @Get('images/:filename')
-  @HttpCode(HttpStatus.OK)
   async serveImage(
     @Param('filename') filename: string,
     @Res() reply: FastifyReply,
   ): Promise<unknown> {
-    const filePath = this.blogImageStorage.getLocalFilePath(filename);
-    if (!filePath) throw new NotFoundException('File not found');
-    const ext = path.extname(filename).toLowerCase();
-    const contentType =
-      {
-        '.jpg': 'image/jpeg',
-        '.jpeg': 'image/jpeg',
-        '.png': 'image/png',
-        '.gif': 'image/gif',
-        '.webp': 'image/webp',
-        '.svg': 'image/svg+xml',
-      }[ext] || 'application/octet-stream';
-    return reply
-      .header('Content-Type', contentType)
-      .header('Content-Disposition', `inline; filename="${filename}"`)
-      .send(fs.createReadStream(filePath));
+    const url = await this.blogImageStorage.getPresignedViewUrl(`blog-images/${filename}`);
+    return reply.redirect(url, 302);
   }
 
   /**
-   * Serve an uploaded blog video by stored filename (local storage only; S3 uses direct object URL).
+   * Preserves the existing /blogs/videos/:filename URL pattern.
+   * 302-redirects to a short-TTL presigned S3 GET URL.
    */
   @Get('videos/:filename')
-  @HttpCode(HttpStatus.OK)
   async serveVideo(
     @Param('filename') filename: string,
     @Res() reply: FastifyReply,
   ): Promise<unknown> {
-    const filePath = this.blogImageStorage.getLocalVideoFilePath(filename);
-    if (!filePath) throw new NotFoundException('File not found');
-    const ext = path.extname(filename).toLowerCase();
-    const contentType =
-      {
-        '.mp4': 'video/mp4',
-        '.webm': 'video/webm',
-        '.mov': 'video/quicktime',
-        '.mpeg': 'video/mpeg',
-        '.mpg': 'video/mpeg',
-        '.ogv': 'video/ogg',
-        '.m4v': 'video/x-m4v',
-      }[ext] || 'application/octet-stream';
-    return reply
-      .header('Content-Type', contentType)
-      .header('Content-Disposition', `inline; filename="${filename}"`)
-      .send(fs.createReadStream(filePath));
+    const url = await this.blogImageStorage.getPresignedViewUrl(`blog-videos/${filename}`);
+    return reply.redirect(url, 302);
   }
 
   @Post()
