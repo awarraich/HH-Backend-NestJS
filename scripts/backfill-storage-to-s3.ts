@@ -1,22 +1,3 @@
-/**
- * One-off backfill: upload every file under ./storage/ to S3 using the same
- * relative path as the S3 key. DB values are already stored as relative paths
- * (e.g. "hr-documents/<orgId>/<empId>/<uuid>.pdf"), so after this script runs
- * against the same bucket the new pre-signed GET endpoints find the files.
- *
- * Usage (from HH-Backend-NestJS/):
- *   # Dry run — lists what would be uploaded, no writes
- *   ts-node -r tsconfig-paths/register scripts/backfill-storage-to-s3.ts
- *
- *   # Actually upload
- *   ts-node -r tsconfig-paths/register scripts/backfill-storage-to-s3.ts --commit
- *
- * Env required: AWS_REGION, S3_BUCKET_NAME, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
- * (from .env.local or environment).
- *
- * Re-runnable: skips files already present in S3 (HeadObject check).
- */
-
 import 'dotenv/config';
 import * as fs from 'fs';
 import * as path from 'path';
