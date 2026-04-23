@@ -86,6 +86,9 @@ import { CreateScheduledTaskTables20260420100000 } from './20260420100000-create
 import { AddSignatureAuditToOfferLetterFieldValues20260421100000 } from './20260421100000-add-signature-audit-to-offer-letter-field-values.js';
 import { AddApplicationFieldsSnapshotToJobPostings20260421000000 } from './20260421000000-add-application-fields-snapshot-to-job-postings.js';
 import { AddPurposeToCompetencyTemplates20260422000002 } from './20260422000002-add-purpose-to-competency-templates.js';
+import { AddTitlesToInserviceTrainings20260422100000 } from './20260422100000-add-titles-to-inservice-trainings.js';
+import { AddHrNotesToJobApplications20260423100000 } from './20260423100000-add-hr-notes-to-job-applications.js';
+import { AddStatusTimestampsToJobApplications20260423110000 } from './20260423110000-add-status-timestamps-to-job-applications.js';
 
 type MigrationConstructor = new () => MigrationInterface;
 
@@ -177,4 +180,7 @@ export const migrations: MigrationConstructor[] = [
   AddSignatureAuditToOfferLetterFieldValues20260421100000,
   AddApplicationFieldsSnapshotToJobPostings20260421000000,
   AddPurposeToCompetencyTemplates20260422000002,
+  AddTitlesToInserviceTrainings20260422100000,
+  AddHrNotesToJobApplications20260423100000,
+  AddStatusTimestampsToJobApplications20260423110000,
 ];

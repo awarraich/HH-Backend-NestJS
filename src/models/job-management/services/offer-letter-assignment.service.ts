@@ -1428,6 +1428,15 @@ export class OfferLetterAssignmentService {
       consentVersion: string;
       ip: string | null;
       userAgent: string | null;
+      /** When the signature image was rendered from a typed name. */
+      typedName?: string | null;
+      /** Browser-reported geolocation at sign time. */
+      geolocation?: {
+        latitude: number;
+        longitude: number;
+        accuracy: number | null;
+        capturedAt: string;
+      } | null;
     },
   ): Promise<{ signedAt: string }> {
     if (!/^data:image\/(png|jpeg|jpg);base64,/i.test(signatureDataUrl)) {
@@ -1479,6 +1488,8 @@ export class OfferLetterAssignmentService {
         ip: audit.ip,
         userAgent: audit.userAgent,
         documentHash,
+        ...(audit.typedName ? { typedName: audit.typedName } : {}),
+        ...(audit.geolocation ? { geolocation: audit.geolocation } : {}),
       },
     };
     await this.applicationRepo.save(application);

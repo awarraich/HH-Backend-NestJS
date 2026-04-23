@@ -12,10 +12,16 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import {
-  INSERVICE_COMPLETION_FREQUENCIES,
-  InserviceTrainingPdfFileDto,
-} from './create-inservice-training.dto';
+import { INSERVICE_COMPLETION_FREQUENCIES } from './create-inservice-training.dto';
+
+export class ExistingFileTitleDto {
+  @IsString()
+  file_path: string;
+
+  @IsString()
+  @MaxLength(255)
+  title: string;
+}
 
 export class UpdateInserviceTrainingDto {
   @IsOptional()
@@ -37,6 +43,29 @@ export class UpdateInserviceTrainingDto {
   @IsUrl({}, { each: true })
   @MaxLength(2048, { each: true })
   video_urls?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(255, { each: true })
+  video_titles?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(255, { each: true })
+  file_titles?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ExistingFileTitleDto)
+  existing_file_titles?: ExistingFileTitleDto[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  remove_file_paths?: string[];
 
   @IsOptional()
   @IsInt()

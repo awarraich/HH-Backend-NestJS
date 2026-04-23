@@ -21,8 +21,67 @@ import { UpdateInserviceTrainingDto } from '../dto/update-inservice-training.dto
 import { QueryInserviceTrainingDto } from '../dto/query-inservice-training.dto';
 import { PresignInserviceUploadDto } from '../dto/presign-inservice-upload.dto';
 
-function userIdFromReq(req: FastifyRequest & { user?: { userId?: string; sub?: string } }): string {
-  return req.user?.userId ?? req.user?.sub ?? '';
+type MultipartField =
+  | { value?: string }
+  | { toBuffer?: () => Promise<Buffer>; filename?: string }
+  | undefined;
+
+function getMultipartString(field: MultipartField | MultipartField[]): string {
+  if (field == null) return '';
+  const single = Array.isArray(field) ? field[0] : field;
+  if (single && typeof single === 'object' && 'value' in single) {
+    return (single as { value?: string }).value ?? '';
+  }
+  return '';
+}
+
+interface MultipartFilePart {
+  toBuffer: () => Promise<Buffer>;
+  filename: string;
+}
+
+function parseJsonStringArray(raw: string): string[] | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.every((v: unknown) => typeof v === 'string')) {
+      return parsed as string[];
+    }
+  } catch {
+    /* not valid JSON — treat as single URL */
+  }
+  return [raw];
+}
+
+function parseJsonArray<T>(raw: string): T[] | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed as T[];
+  } catch {
+    /* not valid JSON */
+  }
+  return undefined;
+}
+
+function isFilePart(field: MultipartField): field is MultipartFilePart {
+  return (
+    !!field &&
+    typeof field === 'object' &&
+    'toBuffer' in field &&
+    typeof (field as { toBuffer?: unknown }).toBuffer === 'function' &&
+    !!(field as { filename?: string }).filename
+  );
+}
+
+function getMultipartFiles(
+  body: Record<string, MultipartField | MultipartField[] | undefined> | undefined,
+): MultipartFilePart[] {
+  if (!body) return [];
+  const field = body.file ?? body.document;
+  if (field == null) return [];
+  const items = Array.isArray(field) ? field : [field];
+  return items.filter(isFilePart);
 }
 
 @Controller('v1/api/organizations/:organizationId/inservice-trainings')
@@ -103,7 +162,68 @@ export class InserviceTrainingsController {
     @Body() dto: CreateInserviceTrainingDto,
     @Req() req: FastifyRequest & { user?: { userId?: string; sub?: string } },
   ) {
-    const userId = userIdFromReq(req);
+    const userId = (req as any).user?.userId ?? (req as any).user?.sub ?? '';
+
+    if (!req.isMultipart?.() || !req.body) {
+      throw new BadRequestException(
+        'Request must be multipart/form-data with fields: code, title, completion_frequency, and optionally description, video_url, sort_order, file (PDF).',
+      );
+    }
+
+    const body = req.body;
+    const code = getMultipartString(body.code);
+    const title = getMultipartString(body.title);
+    const description = getMultipartString(body.description);
+    const completion_frequency = getMultipartString(body.completion_frequency);
+    const video_urlsRaw = getMultipartString(body.video_urls);
+    const video_urls = parseJsonStringArray(video_urlsRaw);
+    const video_titlesRaw = getMultipartString(body.video_titles);
+    const video_titles = parseJsonArray<string>(video_titlesRaw);
+    const file_titlesRaw = getMultipartString(body.file_titles);
+    const file_titles = parseJsonArray<string>(file_titlesRaw);
+    const sort_orderStr = getMultipartString(body.sort_order);
+    const has_quizStr = getMultipartString(body.has_quiz);
+    const passing_score_percentStr = getMultipartString(body.passing_score_percent);
+    const sort_order = sort_orderStr ? parseInt(sort_orderStr, 10) : undefined;
+    const has_quiz = has_quizStr === 'true' ? true : has_quizStr === 'false' ? false : undefined;
+    const passing_score_percent = passing_score_percentStr
+      ? parseInt(passing_score_percentStr, 10)
+      : undefined;
+
+    const dto = plainToInstance(CreateInserviceTrainingDto, {
+      code: code || undefined,
+      title: title || undefined,
+      description: description || undefined,
+      completion_frequency: completion_frequency || undefined,
+      video_urls: video_urls?.length ? video_urls : undefined,
+      video_titles: video_titles ?? undefined,
+      file_titles: file_titles ?? undefined,
+      sort_order: Number.isFinite(sort_order) ? sort_order : undefined,
+      has_quiz,
+      passing_score_percent: Number.isFinite(passing_score_percent)
+        ? passing_score_percent
+        : undefined,
+    });
+
+    const errors = await validate(dto);
+    if (errors.length > 0) {
+      const messages = errors.flatMap((e) => Object.values(e.constraints ?? {}));
+      throw new BadRequestException(messages.join('; '));
+    }
+
+    const fileParts = getMultipartFiles(body);
+    const files: Array<{ buffer: Buffer; originalFilename: string }> = [];
+    for (const part of fileParts) {
+      try {
+        const buffer = await part.toBuffer();
+        if (buffer?.length) {
+          files.push({ buffer, originalFilename: part.filename });
+        }
+      } catch {
+        /* skip invalid file parts */
+      }
+    }
+
     const result = await this.inserviceTrainingService.create(
       organizationId,
       dto,
@@ -121,7 +241,98 @@ export class InserviceTrainingsController {
     @Body() dto: UpdateInserviceTrainingDto,
     @Req() req: FastifyRequest & { user?: { userId?: string; sub?: string } },
   ) {
-    const userId = userIdFromReq(req);
+    const userId = (req as any).user?.userId ?? (req as any).user?.sub ?? '';
+
+    if (!req.isMultipart?.() || !req.body) {
+      throw new BadRequestException(
+        'Request must be multipart/form-data with optional fields: title, description, completion_frequency, video_url, sort_order, is_active, file (PDF).',
+      );
+    }
+
+    const body = req.body;
+    const titleVal = body.title != null ? getMultipartString(body.title) : undefined;
+    const descriptionVal =
+      body.description != null ? getMultipartString(body.description) : undefined;
+    const completion_frequencyVal =
+      body.completion_frequency != null ? getMultipartString(body.completion_frequency) : undefined;
+    const video_urlsRaw = body.video_urls != null ? getMultipartString(body.video_urls) : undefined;
+    const video_titlesRaw =
+      body.video_titles != null ? getMultipartString(body.video_titles) : undefined;
+    const file_titlesRaw =
+      body.file_titles != null ? getMultipartString(body.file_titles) : undefined;
+    const existing_file_titlesRaw =
+      body.existing_file_titles != null ? getMultipartString(body.existing_file_titles) : undefined;
+    const remove_file_pathsRaw =
+      body.remove_file_paths != null ? getMultipartString(body.remove_file_paths) : undefined;
+    const sort_orderStr = body.sort_order != null ? getMultipartString(body.sort_order) : undefined;
+    const is_activeStr = body.is_active != null ? getMultipartString(body.is_active) : undefined;
+    const has_quizStr = body.has_quiz != null ? getMultipartString(body.has_quiz) : undefined;
+    const passing_score_percentStr =
+      body.passing_score_percent != null
+        ? getMultipartString(body.passing_score_percent)
+        : undefined;
+    const sort_order = sort_orderStr ? parseInt(sort_orderStr, 10) : undefined;
+    const is_active = is_activeStr === 'true' ? true : is_activeStr === 'false' ? false : undefined;
+    const has_quiz = has_quizStr === 'true' ? true : has_quizStr === 'false' ? false : undefined;
+    const passing_score_percent = passing_score_percentStr
+      ? parseInt(passing_score_percentStr, 10)
+      : passing_score_percentStr === ''
+        ? null
+        : undefined;
+
+    const dto = plainToInstance(UpdateInserviceTrainingDto, {
+      ...(titleVal !== undefined && { title: titleVal || undefined }),
+      ...(descriptionVal !== undefined && {
+        description: descriptionVal || undefined,
+      }),
+      ...(completion_frequencyVal !== undefined && {
+        completion_frequency: completion_frequencyVal || undefined,
+      }),
+      ...(video_urlsRaw !== undefined && {
+        video_urls: parseJsonStringArray(video_urlsRaw) ?? [],
+      }),
+      ...(video_titlesRaw !== undefined && {
+        video_titles: parseJsonArray<string>(video_titlesRaw) ?? [],
+      }),
+      ...(file_titlesRaw !== undefined && {
+        file_titles: parseJsonArray<string>(file_titlesRaw) ?? [],
+      }),
+      ...(existing_file_titlesRaw !== undefined && {
+        existing_file_titles:
+          parseJsonArray<{ file_path: string; title: string }>(existing_file_titlesRaw) ?? [],
+      }),
+      ...(remove_file_pathsRaw !== undefined && {
+        remove_file_paths: parseJsonArray<string>(remove_file_pathsRaw) ?? [],
+      }),
+      ...(Number.isFinite(sort_order) && { sort_order }),
+      ...(is_active !== undefined && { is_active }),
+      ...(has_quiz !== undefined && { has_quiz }),
+      ...(passing_score_percent !== undefined && {
+        passing_score_percent: Number.isFinite(passing_score_percent)
+          ? passing_score_percent
+          : null,
+      }),
+    });
+
+    const errors = await validate(dto, { skipMissingProperties: true });
+    if (errors.length > 0) {
+      const messages = errors.flatMap((e) => Object.values(e.constraints ?? {}));
+      throw new BadRequestException(messages.join('; '));
+    }
+
+    const fileParts = getMultipartFiles(body);
+    const files: Array<{ buffer: Buffer; originalFilename: string }> = [];
+    for (const part of fileParts) {
+      try {
+        const buffer = await part.toBuffer();
+        if (buffer?.length) {
+          files.push({ buffer, originalFilename: part.filename });
+        }
+      } catch {
+        /* skip invalid file parts */
+      }
+    }
+
     const result = await this.inserviceTrainingService.update(
       organizationId,
       id,

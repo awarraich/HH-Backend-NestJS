@@ -46,6 +46,10 @@ export class JobApplication {
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 
+  /** Internal HR note about the applicant — private, never exposed to the candidate. */
+  @Column({ type: 'text', nullable: true })
+  hr_notes: string | null;
+
   /** Application form field answers (key-value) */
   @Column({ type: 'jsonb', nullable: true })
   submitted_fields: Record<string, unknown> | null;
@@ -63,6 +67,29 @@ export class JobApplication {
   /** Reason the candidate gave when declining an offer. Populated when status = offer_declined. */
   @Column({ type: 'text', nullable: true })
   decline_reason: string | null;
+
+  /* -----------------------------------------------------------------
+   * Status-transition timestamps — stamped once by updateApplicationStatus
+   * when the status first enters the corresponding state. Power the
+   * vertical activity timeline in the UI.
+   * ----------------------------------------------------------------- */
+  @Column({ type: 'timestamp with time zone', nullable: true })
+  interview_scheduled_at: Date | null;
+
+  @Column({ type: 'timestamp with time zone', nullable: true })
+  offer_sent_at: Date | null;
+
+  @Column({ type: 'timestamp with time zone', nullable: true })
+  offer_accepted_at: Date | null;
+
+  @Column({ type: 'timestamp with time zone', nullable: true })
+  offer_declined_at: Date | null;
+
+  @Column({ type: 'timestamp with time zone', nullable: true })
+  rejected_at: Date | null;
+
+  @Column({ type: 'timestamp with time zone', nullable: true })
+  hired_at: Date | null;
 
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;

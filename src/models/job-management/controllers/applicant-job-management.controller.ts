@@ -140,6 +140,15 @@ export class ApplicantJobManagementController {
       signatureDataUrl?: string;
       consentVersion?: string;
       consentAccepted?: boolean;
+      /** When the signature was typed (not drawn), the original name text. */
+      typedName?: string;
+      /** Optional browser geolocation at sign time (sanity-checked below). */
+      geolocation?: {
+        latitude?: number;
+        longitude?: number;
+        accuracy?: number;
+        capturedAt?: string;
+      };
     },
   ): Promise<unknown> {
     const userId = extractUserId(req);
@@ -157,6 +166,34 @@ export class ApplicantJobManagementController {
       throw new BadRequestException('consentVersion is required.');
     }
     const { ip, userAgent } = extractRequestSignatureMetadata(req);
+
+    // Normalise optional audit fields. Bad values are silently dropped —
+    // we never reject the sign just because geolocation is malformed.
+    const typedNameRaw =
+      typeof body?.typedName === 'string' ? body.typedName.trim() : '';
+    const typedName = typedNameRaw.length > 0 ? typedNameRaw.slice(0, 255) : null;
+    const g = body?.geolocation;
+    const isFiniteNum = (v: unknown): v is number =>
+      typeof v === 'number' && Number.isFinite(v);
+    const geolocation =
+      g &&
+      isFiniteNum(g.latitude) &&
+      isFiniteNum(g.longitude) &&
+      g.latitude >= -90 &&
+      g.latitude <= 90 &&
+      g.longitude >= -180 &&
+      g.longitude <= 180
+        ? {
+            latitude: g.latitude,
+            longitude: g.longitude,
+            accuracy: isFiniteNum(g.accuracy) ? g.accuracy : null,
+            capturedAt:
+              typeof g.capturedAt === 'string' && g.capturedAt.length > 0
+                ? g.capturedAt
+                : new Date().toISOString(),
+          }
+        : null;
+
     const result = await this.offerLetterAssignmentService.saveApplicantSignature(
       String(userId),
       applicationId,
@@ -165,6 +202,8 @@ export class ApplicantJobManagementController {
         consentVersion,
         ip,
         userAgent,
+        typedName,
+        geolocation,
       },
     );
     return SuccessHelper.createSuccessResponse(result, 'Signature saved.');
