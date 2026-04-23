@@ -7,7 +7,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, IsNull } from 'typeorm';
 import { Employee } from '../entities/employee.entity';
 import { EmployeeProfile } from '../entities/employee-profile.entity';
 import { Organization } from '../../organizations/entities/organization.entity';
@@ -1022,12 +1022,26 @@ export class EmployeesService {
     return this.employeeSerializer.serialize(employeeWithRelations!);
   }
 
+  /**
+   * Soft-delete an employee. Sets `deleted_at` on the row (keeping profile
+   * data + history intact), and flips any linked hired applications to
+   * `terminated` so they drop out of the Hired tab and into Former
+   * Employees. Previously this was a hard-delete that dropped the Employee
+   * and EmployeeProfile rows outright — we'd lose all hire history the
+   * moment HR clicked remove. Now the row stays put; listings just filter
+   * it out.
+   *
+   * Rehiring the same user into the same org is supported: the next hire
+   * call finds the soft-deleted row, clears `deleted_at`, and refreshes
+   * the position/employment fields (see `hireApplicant`).
+   */
   async remove(
     organizationId: string,
     employeeId: string,
     userId: string,
     ipAddress?: string,
     userAgent?: string,
+    deletionReason?: string | null,
   ): Promise<void> {
     // Validate organization access
     const { hasRole } = await this.validateOrganizationAccess(organizationId, userId, [
@@ -1062,6 +1076,7 @@ export class EmployeesService {
       where: {
         id: employeeId,
         organization_id: organizationId,
+        deleted_at: IsNull(),
       },
     });
 
@@ -1076,16 +1091,32 @@ export class EmployeesService {
     await queryRunner.startTransaction();
 
     try {
-      // Delete related data first: profile (FK from profile to employee)
-      await queryRunner.manager.delete(EmployeeProfile, { employee_id: employeeId });
-      await queryRunner.manager.delete(Employee, { id: employeeId });
+      // Soft delete: mark `deleted_at` + who/why. Keep the profile row,
+      // requirement tags, and everything downstream so the employee can
+      // be resurrected on re-hire and the audit trail survives.
+      const reason =
+        typeof deletionReason === 'string' && deletionReason.trim().length > 0
+          ? deletionReason.trim()
+          : null;
+      await queryRunner.manager.update(
+        Employee,
+        { id: employeeId },
+        {
+          deleted_at: new Date(),
+          deleted_by: userId || null,
+          deletion_reason: reason,
+          // Mirror into `status` so legacy reads that only look at status
+          // (e.g. org counts, dashboards) also see the employee as gone.
+          status: 'terminated',
+          end_date: new Date(),
+        },
+      );
 
-      // Flip the linked job_application from "hired" to "terminated" so the
-      // HR-facing applications list stops showing a green Hired badge for a
-      // user who no longer exists as an employee. Scoped to this org's job
-      // postings and the user's own applications so we never flip a row
-      // outside the caller's reach. Best-effort: if there's no matching
-      // hired application, skip silently (e.g. pre-hire-flow employees).
+      // Flip the linked job_application from "hired" to "terminated" so
+      // the HR-facing applications list stops showing a green Hired badge
+      // for a user who no longer exists as an employee. Same scope rules
+      // as before — this org's job postings, the employee's own
+      // applications.
       if (employee.user_id) {
         await queryRunner.manager.query(
           `UPDATE job_applications ja
@@ -1108,11 +1139,12 @@ export class EmployeesService {
           action: 'DELETE',
           resourceType: 'EMPLOYEE',
           resourceId: employeeId,
-          description: 'Employee removed from organization',
+          description: 'Employee soft-removed from organization',
           metadata: {
             organization_id: organizationId,
             user_id: employee.user_id,
             provider_role_id: employee.provider_role_id,
+            deletion_reason: reason,
           },
           ipAddress,
           userAgent,
@@ -1123,7 +1155,7 @@ export class EmployeesService {
       }
 
       this.logger.log(
-        `Employee removed: ${employeeId} from organization: ${organizationId} by user: ${userId}`,
+        `Employee soft-removed: ${employeeId} from organization: ${organizationId} by user: ${userId}`,
       );
     } catch (error) {
       await queryRunner.rollbackTransaction();

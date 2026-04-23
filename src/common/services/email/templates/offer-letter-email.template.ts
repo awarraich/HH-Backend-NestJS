@@ -234,48 +234,14 @@ export class OfferLetterEmailTemplate {
                 </tr>`
         : '';
 
-    // ── Applicant-only candidate acceptance block ───────────────────────────
-    const acceptanceBlock = isApplicant
-      ? `
-                <tr>
-                  <td style="padding: 16px 0 24px 0;">
-                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:#ffffff;border:1px solid #e5e7eb;border-radius:6px;">
-                      <tr>
-                        <td style="padding: 24px;">
-                          <p style="font-size: 11px; font-weight: 700; color: #475569; margin: 0 0 12px 0; letter-spacing: 0.8px; text-transform: uppercase;">Candidate Acceptance</p>
-                          <p style="font-size: 13px; color: #4b5563; margin: 0 0 24px 0; line-height: 1.7;">
-                            By signing below, I, <strong style="color:#0f172a;">${escapeHtml(applicantName)}</strong>, confirm that I have read and understood the terms of this offer and hereby accept the position of <strong style="color:#0f172a;">${escapeHtml(jobTitle)}</strong>${organizationName ? ` at <strong style="color:#0f172a;">${escapeHtml(organizationName)}</strong>` : ''}.
-                          </p>
-                          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-                            <tr>
-                              <td class="eml-col-50" style="width:48%;padding-bottom:16px;vertical-align:bottom;">
-                                <div style="border-bottom:1px solid #cbd5e1;height:36px;margin-bottom:6px;"></div>
-                                <span style="font-size:11px;color:#64748b;letter-spacing:0.3px;">Candidate Signature</span>
-                              </td>
-                              <td style="width:4%;"></td>
-                              <td class="eml-col-50" style="width:48%;padding-bottom:16px;vertical-align:bottom;">
-                                <div style="border-bottom:1px solid #cbd5e1;height:36px;margin-bottom:6px;"></div>
-                                <span style="font-size:11px;color:#64748b;letter-spacing:0.3px;">Date</span>
-                              </td>
-                            </tr>
-                            <tr>
-                              <td class="eml-col-50" style="vertical-align:bottom;">
-                                <div style="border-bottom:1px solid #cbd5e1;height:36px;margin-bottom:6px;"></div>
-                                <span style="font-size:11px;color:#64748b;letter-spacing:0.3px;">Printed Name</span>
-                              </td>
-                              <td></td>
-                              <td class="eml-col-50" style="vertical-align:bottom;">
-                                <div style="border-bottom:1px solid #cbd5e1;height:36px;margin-bottom:6px;"></div>
-                                <span style="font-size:11px;color:#64748b;letter-spacing:0.3px;">Personal Email</span>
-                              </td>
-                            </tr>
-                          </table>
-                        </td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>`
-      : '';
+    // Candidate acceptance used to render a paper-style signature block
+    // (Candidate Signature / Date / Printed Name / Personal Email lines)
+    // here. Now that the applicant e-signs the actual offer letter PDF
+    // in-app — and we capture signature + IP + geolocation in
+    // `offer_details.applicantSignature` — the email no longer needs to
+    // duplicate that ceremony. Left as an empty string so the template
+    // layout below stays unchanged.
+    const acceptanceBlock = '';
 
     // ── HR signature block — shared ─────────────────────────────────────────
     const hrSignatureBlock = `
@@ -329,9 +295,11 @@ export class OfferLetterEmailTemplate {
                 <tr>
                   <td style="padding: 8px 0 24px 0;">
                     <p style="margin: 0; color: #374151; font-size: 15px; line-height: 1.7;">
-                      Please review the terms above and confirm your acceptance by
-                      <strong style="color: #0f172a;">${responseDeadline ? escapeHtml(responseDeadline) : '[Response Deadline]'}</strong>.
-                      You may sign below or reply to this email to indicate your acceptance.
+                      ${
+                        responseDeadline
+                          ? `Please review the terms and confirm your acceptance by <strong style="color: #0f172a;">${escapeHtml(responseDeadline)}</strong>. Open the offer using the button above to sign electronically, or reply to this email with any questions.`
+                          : `Open the offer using the button above to review the full terms and sign electronically. Reply to this email if you have any questions — we'd be delighted to hear from you.`
+                      }
                     </p>
                   </td>
                 </tr>`

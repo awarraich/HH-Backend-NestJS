@@ -210,6 +210,37 @@ export class ApplicantJobManagementController {
   }
 
   /**
+   * Applicant-triggered self-hire. Converts the caller's own accepted+signed
+   * offer into an Employee row and flips the application to `hired`. Used by
+   * the "Continue to Onboarding" button on the employee Applications view so
+   * the applicant can promote themselves instead of waiting for HR to click
+   * Hire. Idempotent (matches the HR-side POST /organization/.../hire).
+   */
+  @Post('me/job-applications/:applicationId/hire')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async selfHireForMyApplication(
+    @Req() req: FastifyRequest,
+    @Param('applicationId') applicationId: string,
+  ): Promise<unknown> {
+    const userId = extractUserId(req);
+    const result = await this.jobManagementService.selfHireApplicant(
+      String(userId),
+      applicationId,
+    );
+    return SuccessHelper.createSuccessResponse(
+      {
+        application: result.application,
+        employee: result.employee,
+        already_hired: result.alreadyHired,
+      },
+      result.alreadyHired
+        ? 'You are already hired for this role.'
+        : 'Welcome aboard — you are now an employee.',
+    );
+  }
+
+  /**
    * Accept a PDF upload of the applicant's hand-signed offer letter (for the
    * print/scan/upload flow). Delegates storage to the existing job-application
    * document storage service; records the URL + metadata on
