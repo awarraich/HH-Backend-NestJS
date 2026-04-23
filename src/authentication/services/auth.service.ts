@@ -16,6 +16,7 @@ import { RoleRepository } from '../repositories/role.repository';
 import { User } from '../entities/user.entity';
 import { Role } from '../entities/role.entity';
 import { UserRole } from '../entities/user-role.entity';
+import { UserOAuthAccount } from '../entities/user-oauth-account.entity';
 import { EmailService } from '../../common/services/email/email.service';
 import { TwoFactorService } from './two-factor.service';
 import { RecaptchaService } from '../../common/services/recaptcha/recaptcha.service';
@@ -60,6 +61,8 @@ export class AuthService {
     private dataSource: DataSource,
     @InjectRepository(UserRole)
     private userRoleRepository: Repository<UserRole>,
+    @InjectRepository(UserOAuthAccount)
+    private userOAuthAccountRepository: Repository<UserOAuthAccount>,
   ) {}
 
   /**
@@ -717,6 +720,14 @@ export class AuthService {
     firstName: string;
     lastName: string;
     picture?: string;
+    accessToken?: string;
+    refreshToken?: string;
+    /** Scopes Google granted; used so the Calendar/Meet integration can tell
+     *  whether the user has consented to the calendar scope before attempting
+     *  a Meet-link creation. */
+    scope?: string;
+    /** Seconds until the access_token expires — defaults to 3600 when missing. */
+    expiresIn?: number;
   }): Promise<AuthResponseInterface> {
     // Check if user exists by Google ID
     let user = await this.userRepository.findByGoogleId(googleProfile.googleId);
@@ -745,6 +756,25 @@ export class AuthService {
     // Update last login
     user.last_login = new Date();
     const savedUser = await this.userRepository.save(user);
+
+    // Persist Google OAuth tokens so the Calendar/Meet integration can act on
+    // behalf of this HR user later, without forcing them to re-consent every
+    // hour. Google only returns a refresh_token on the first consent (or when
+    // `prompt=consent` is set in the authorize URL) — when it's absent we
+    // preserve whatever we already had stored.
+    if (googleProfile.accessToken) {
+      await this.upsertOAuthAccount(
+        String(savedUser.id),
+        'google',
+        {
+          providerAccountId: googleProfile.googleId,
+          accessToken: googleProfile.accessToken,
+          refreshToken: googleProfile.refreshToken,
+          scope: googleProfile.scope,
+          expiresIn: googleProfile.expiresIn,
+        },
+      );
+    }
 
     // Link any guest-apply job applications submitted under this email to
     // the (possibly new) user record, so applicants who used Google signup
@@ -2000,5 +2030,54 @@ export class AuthService {
         ? `${localPart[0]}${'*'.repeat(localPart.length - 2)}${localPart[localPart.length - 1]}`
         : '**';
     return `${maskedLocal}@${domain}`;
+  }
+
+  /**
+   * Upsert a UserOAuthAccount row for this (user_id, provider). When Google
+   * omits the refresh_token on a subsequent sign-in (it only returns it on
+   * first consent, or when `prompt=consent` is set), we keep the previously
+   * stored token so the Calendar integration continues to work.
+   */
+  private async upsertOAuthAccount(
+    userId: string,
+    provider: 'google',
+    tokens: {
+      providerAccountId?: string;
+      accessToken?: string;
+      refreshToken?: string;
+      scope?: string;
+      expiresIn?: number;
+    },
+  ): Promise<void> {
+    const existing = await this.userOAuthAccountRepository.findOne({
+      where: { user_id: userId, provider },
+    });
+    const expiresAt = tokens.accessToken
+      ? new Date(Date.now() + Math.max(60, tokens.expiresIn ?? 3600) * 1000)
+      : null;
+
+    if (existing) {
+      existing.provider_account_id =
+        tokens.providerAccountId ?? existing.provider_account_id;
+      if (tokens.accessToken) existing.access_token = tokens.accessToken;
+      // Preserve previously stored refresh_token when Google omits it.
+      if (tokens.refreshToken) existing.refresh_token = tokens.refreshToken;
+      if (tokens.scope) existing.scope = tokens.scope;
+      if (expiresAt) existing.access_token_expires_at = expiresAt;
+      await this.userOAuthAccountRepository.save(existing);
+      return;
+    }
+
+    await this.userOAuthAccountRepository.save(
+      this.userOAuthAccountRepository.create({
+        user_id: userId,
+        provider,
+        provider_account_id: tokens.providerAccountId ?? null,
+        access_token: tokens.accessToken ?? null,
+        refresh_token: tokens.refreshToken ?? null,
+        scope: tokens.scope ?? null,
+        access_token_expires_at: expiresAt,
+      }),
+    );
   }
 }

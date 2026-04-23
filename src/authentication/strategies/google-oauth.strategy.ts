@@ -5,7 +5,7 @@ import { GoogleOAuthConfigService } from '../../config/google-oauth/config.servi
 
 @Injectable()
 export class GoogleOAuthStrategy extends PassportStrategy(Strategy, 'google') {
-  constructor(private googleOAuthConfigService: GoogleOAuthConfigService) {
+  constructor(googleOAuthConfigService: GoogleOAuthConfigService) {
     super({
       clientID: googleOAuthConfigService.clientId,
       clientSecret: googleOAuthConfigService.clientSecret,
@@ -14,8 +14,8 @@ export class GoogleOAuthStrategy extends PassportStrategy(Strategy, 'google') {
         'openid',
         'email',
         'profile',
-        'https://www.googleapis.com/auth/calendar'
-      ]
+        'https://www.googleapis.com/auth/calendar',
+      ],
     });
   }
 
@@ -47,6 +47,7 @@ export class GoogleOAuthStrategy extends PassportStrategy(Strategy, 'google') {
       lastName,
       picture,
       accessToken,
+      refreshToken,
     };
 
     done(null, user);

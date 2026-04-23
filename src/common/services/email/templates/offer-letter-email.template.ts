@@ -99,29 +99,12 @@ export class OfferLetterEmailTemplate {
       : '';
     const hrEmail = contactEmail ? escapeHtml(contactEmail) : 'hr@homehealth.ai';
 
-    // ── Logo block — gradient square with image overlay ──────────────────────
+    // ── Logo block — exact same treatment as the Organization Staff
+    // Created email: plain 80x80 inline image, no colored wrapper. The
+    // CID is attached by `EmailService.buildLogoAttachment()` so the
+    // per-org logo overrides the default when uploaded.
     const logoBlock = `
-                    <!--[if mso]>
-                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center" style="margin-bottom:20px;">
-                      <tr>
-                        <td width="64" height="64" style="background:#7c3aed;border-radius:14px;text-align:center;vertical-align:middle;font-family:Arial,sans-serif;font-size:28px;font-weight:700;color:#ffffff;">
-                          H
-                        </td>
-                      </tr>
-                    </table>
-                    <![endif]-->
-                    <!--[if !mso]><!-->
-                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center" style="margin: 0 auto 20px auto;">
-                      <tr>
-                        <td width="64" height="64"
-                            style="width:64px;height:64px;background:linear-gradient(135deg,#7c3aed 0%,#ec4899 100%);border-radius:14px;text-align:center;vertical-align:middle;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;font-size:28px;font-weight:700;color:#ffffff;line-height:64px;">
-                          <img src="cid:logo@homehealth.ai" alt="${logoAlt}" width="64" height="64"
-                               style="display:block;width:64px;height:64px;border-radius:14px;object-fit:cover;"
-                               onerror="this.style.display='none'" />
-                        </td>
-                      </tr>
-                    </table>
-                    <!--<![endif]-->`;
+                    <img src="cid:logo@homehealth.ai" alt="${logoAlt}" width="80" height="80" style="display: block; width: 80px; height: 80px; margin: 0 auto;" />`;
 
     // ── Role rows — shared by both layouts (signers need job-context too) ───
     const roleRows: string[] = [];

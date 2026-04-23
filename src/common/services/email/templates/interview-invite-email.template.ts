@@ -8,6 +8,15 @@ export interface InterviewInviteOptions {
   /** Address, video link, or phone number depending on mode */
   interviewLocation?: string;
   interviewDuration?: string;
+  /** IANA timezone for the Add-to-Calendar deep links. */
+  interviewTimezone?: string;
+  interviewDurationMinutes?: number;
+  /** Auto-generated video meeting URL (Zoom/Meet) — rendered separately from interviewLocation. */
+  meetingLink?: string;
+  /** Which platform created the link, for the "Join" button label. */
+  meetingProvider?: 'zoom' | 'google_meet' | 'teams';
+  /** Stable identifier used as the .ics UID so re-sends update the same event. */
+  applicationId?: string;
   message?: string;
   jobLocation?: string;
   jobType?: string;
@@ -24,6 +33,10 @@ export interface InterviewInviteOptions {
    */
   confirmUrl?: string;
   declineUrl?: string;
+  /** Pre-built "Add to Google Calendar" deep link. */
+  googleCalendarLink?: string;
+  /** Pre-built "Add to Outlook Calendar" deep link. */
+  outlookCalendarLink?: string;
 }
 
 export class InterviewInviteEmailTemplate {
@@ -40,6 +53,8 @@ export class InterviewInviteEmailTemplate {
       interviewMode,
       interviewLocation,
       interviewDuration,
+      meetingLink,
+      meetingProvider,
       message,
       jobLocation,
       jobType,
@@ -51,6 +66,8 @@ export class InterviewInviteEmailTemplate {
       contactPhone,
       confirmUrl,
       declineUrl,
+      googleCalendarLink,
+      outlookCalendarLink,
     } = opts;
 
     const brandName = organizationName?.trim() || 'homehealth.ai';
@@ -71,47 +88,103 @@ export class InterviewInviteEmailTemplate {
         ? 'Phone'
         : 'Location';
     const hrEmail = contactEmail ? escapeHtml(contactEmail) : 'hr@homehealth.ai';
-
-    // ── Logo block — gradient square with image overlay ──────────────────────
-    const logoBlock = `
-                    <!--[if mso]>
-                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center" style="margin-bottom:20px;">
-                      <tr>
-                        <td width="64" height="64" style="background:#7c3aed;border-radius:14px;text-align:center;vertical-align:middle;font-family:Arial,sans-serif;font-size:28px;font-weight:700;color:#ffffff;">
-                          H
-                        </td>
-                      </tr>
-                    </table>
-                    <![endif]-->
-                    <!--[if !mso]><!-->
-                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center" style="margin: 0 auto 20px auto;">
-                      <tr>
-                        <td width="64" height="64"
-                            style="width:64px;height:64px;background:linear-gradient(135deg,#7c3aed 0%,#ec4899 100%);border-radius:14px;text-align:center;vertical-align:middle;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;font-size:28px;font-weight:700;color:#ffffff;line-height:64px;">
-                          <img src="cid:logo@homehealth.ai" alt="${logoAlt}" width="64" height="64"
-                               style="display:block;width:64px;height:64px;border-radius:14px;object-fit:cover;"
-                               onerror="this.style.display='none'" />
-                        </td>
-                      </tr>
-                    </table>
-                    <!--<![endif]-->`;
+    // const logoBlock = `<img src="cid:logo@homehealth.ai" alt="${logoAlt}" width="80" height="80" style="display: block; width: 80px; height: 80px; margin: 0 auto;" />`;
 
     // ── Interview Details rows ───────────────────────────────────────────────
+    const effectiveLink =
+      meetingLink ||
+      (interviewMode === 'video' && interviewLocation && /^https?:\/\//i.test(interviewLocation)
+        ? interviewLocation
+        : undefined);
     const interviewRows: string[] = [];
     if (interviewDate)     interviewRows.push(tableRow('Date',     escapeHtml(interviewDate),     '#e5e7eb'));
     if (interviewTime)     interviewRows.push(tableRow('Time',     escapeHtml(interviewTime),     '#e5e7eb'));
     if (interviewDuration) interviewRows.push(tableRow('Duration', escapeHtml(interviewDuration), '#e5e7eb'));
     if (modeLabel)         interviewRows.push(tableRow('Format',   escapeHtml(modeLabel),         '#e5e7eb'));
-    if (interviewLocation) {
+    if (interviewLocation || effectiveLink) {
+      const shown = effectiveLink ?? interviewLocation ?? '';
       const value =
-        interviewMode === 'video' && /^https?:\/\//i.test(interviewLocation)
-          ? `<a href="${escapeHtml(interviewLocation)}" style="color:#4f46e5;text-decoration:underline;font-weight:500;">${escapeHtml(interviewLocation)}</a>`
-          : escapeHtml(interviewLocation);
+        interviewMode === 'video' && /^https?:\/\//i.test(shown)
+          ? `<a href="${escapeHtml(shown)}" style="color:#4f46e5;text-decoration:underline;font-weight:500;">${escapeHtml(shown)}</a>`
+          : escapeHtml(shown);
       interviewRows.push(tableRow(locationLabel, value, '#e5e7eb'));
     }
 
     const interviewBlock = interviewRows.length
       ? `<tr><td style="padding-bottom:16px;">${sectionCard('Interview Details', '#4f46e5', interviewRows.join(''))}</td></tr>`
+      : '';
+
+    // ── Join meeting + Add to Calendar block ─────────────────────────────────
+    const joinLabel = meetingProvider === 'zoom'
+      ? 'Join Zoom Meeting'
+      : meetingProvider === 'google_meet'
+        ? 'Join Google Meet'
+        : meetingProvider === 'teams'
+          ? 'Join Teams Meeting'
+          : 'Join Meeting';
+    const joinButton = effectiveLink
+      ? `
+                      <tr>
+                        <td align="center" style="padding-bottom: 10px;">
+                          <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                            <tr>
+                              <td style="border-radius:6px;background:#4f46e5;">
+                                <a href="${escapeHtml(effectiveLink)}" target="_blank"
+                                   style="display:inline-block;padding:14px 32px;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none;border-radius:6px;letter-spacing:0.2px;background:#4f46e5;">
+                                  ▶ ${joinLabel}
+                                </a>
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>`
+      : '';
+
+    // Colored buttons render as buttons even in clients that strip CSS — the
+    // bgcolor attribute is honoured by Outlook while `background` handles the
+    // rest. Each link is its own <td> so they wrap on narrow mobile widths.
+    const addCalendarButtons = (googleCalendarLink || outlookCalendarLink)
+      ? `
+                      <tr>
+                        <td align="center" style="padding: 4px 0 6px 0;">
+                          <p style="margin: 0 0 10px 0; font-size: 11px; font-weight: 700; color: #475569; letter-spacing: 0.8px; text-transform: uppercase;">📅 Add to Your Calendar</p>
+                          <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                            <tr>
+                              ${googleCalendarLink ? `<td style="padding:4px 4px;" bgcolor="#1a73e8">
+                                <a href="${escapeHtml(googleCalendarLink)}" target="_blank"
+                                   style="display:inline-block;padding:11px 18px;color:#ffffff;font-size:13px;font-weight:600;text-decoration:none;border-radius:6px;background:#1a73e8;">
+                                  Google Calendar
+                                </a></td>` : ''}
+                              ${outlookCalendarLink ? `<td style="padding:4px 4px;" bgcolor="#0078d4">
+                                <a href="${escapeHtml(outlookCalendarLink)}" target="_blank"
+                                   style="display:inline-block;padding:11px 18px;color:#ffffff;font-size:13px;font-weight:600;text-decoration:none;border-radius:6px;background:#0078d4;">
+                                  Outlook Calendar
+                                </a></td>` : ''}
+                            </tr>
+                          </table>
+                          <p style="margin: 12px 0 0 0; color:#64748b; font-size:12px; line-height:1.5;">
+                            Using <strong>Apple Calendar</strong>, <strong>iPhone</strong>, or another client?
+                            <br>Open the attached <strong>invite.ics</strong> file to add this interview to your calendar.
+                          </p>
+                        </td>
+                      </tr>`
+      : '';
+
+    // Wrap the calendar block in a lightly tinted card so it reads as a
+    // distinct CTA section and doesn't blend into the surrounding body copy.
+    const calendarCard = addCalendarButtons
+      ? `<tr>
+          <td style="padding: 4px 0 16px 0;">
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;">
+              <tr><td style="padding: 18px 16px;">
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">${addCalendarButtons}</table>
+              </td></tr>
+            </table>
+          </td>
+        </tr>`
+      : '';
+    const joinAndCalendarBlock = (joinButton || addCalendarButtons)
+      ? `<tr><td style="padding: 4px 0 8px 0;"><table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">${joinButton}</table></td></tr>${calendarCard}`
       : '';
 
     // ── About the Role rows ──────────────────────────────────────────────────
@@ -221,9 +294,7 @@ export class InterviewInviteEmailTemplate {
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
                 <tr>
                   <td align="center">
-
-                    ${logoBlock}
-
+                    <img src="cid:logo@homehealth.ai" alt="HomeHealth.AI" width="80" height="80" style="display: block; width: 80px; height: 80px;" />
                     <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center" style="margin: 0 auto 14px auto;">
                       <tr>
                         <td style="background: linear-gradient(135deg, #eff6ff, #f3e8ff); border: 1px solid #e0e7ff; border-radius: 24px; padding: 5px 16px;">
@@ -267,6 +338,7 @@ export class InterviewInviteEmailTemplate {
                 </tr>
 
                 ${interviewBlock}
+                ${joinAndCalendarBlock}
                 ${roleBlock}
                 ${descriptionBlock}
                 ${prepareBlock}
@@ -385,8 +457,19 @@ export class InterviewInviteEmailTemplate {
       interviewTime     ? `  Time:     ${interviewTime}`     : '',
       interviewDuration ? `  Duration: ${interviewDuration}` : '',
       modeLabel         ? `  Format:   ${modeLabel}`         : '',
-      interviewLocation ? `  ${locationLabel}: ${interviewLocation}` : '',
+      effectiveLink
+        ? `  ${locationLabel}: ${effectiveLink}`
+        : interviewLocation
+          ? `  ${locationLabel}: ${interviewLocation}`
+          : '',
     ];
+
+    if (googleCalendarLink || outlookCalendarLink) {
+      textLines.push('', 'ADD TO CALENDAR');
+      if (googleCalendarLink)  textLines.push(`  Google:  ${googleCalendarLink}`);
+      if (outlookCalendarLink) textLines.push(`  Outlook: ${outlookCalendarLink}`);
+      textLines.push('  Apple: open the attached invite.ics');
+    }
 
     if (jobTitle || jobType || jobLocation || salaryRange) {
       textLines.push('', 'ABOUT THE ROLE');

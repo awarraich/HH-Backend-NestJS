@@ -89,6 +89,7 @@ import { AddPurposeToCompetencyTemplates20260422000002 } from './20260422000002-
 import { AddTitlesToInserviceTrainings20260422100000 } from './20260422100000-add-titles-to-inservice-trainings.js';
 import { AddHrNotesToJobApplications20260423100000 } from './20260423100000-add-hr-notes-to-job-applications.js';
 import { AddStatusTimestampsToJobApplications20260423110000 } from './20260423110000-add-status-timestamps-to-job-applications.js';
+import { CreateUserOAuthAccounts20260423120000 } from './20260423120000-create-user-oauth-accounts.js';
 
 type MigrationConstructor = new () => MigrationInterface;
 
@@ -183,4 +184,5 @@ export const migrations: MigrationConstructor[] = [
   AddTitlesToInserviceTrainings20260422100000,
   AddHrNotesToJobApplications20260423100000,
   AddStatusTimestampsToJobApplications20260423110000,
+  CreateUserOAuthAccounts20260423120000,
 ];

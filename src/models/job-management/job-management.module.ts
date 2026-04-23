@@ -25,6 +25,7 @@ import { OfferLetterAssignmentService } from './services/offer-letter-assignment
 import { OrganizationsModule } from '../organizations/organizations.module';
 import { StorageConfigModule } from '../../config/storage/config.module';
 import { EmailModule } from '../../common/services/email/email.module';
+import { MeetingIntegrationModule } from '../../common/services/meeting-integration/meeting-integration.module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { EmailModule } from '../../common/services/email/email.module';
     OrganizationsModule,
     StorageConfigModule,
     EmailModule,
+    MeetingIntegrationModule,
   ],
   controllers: [
     JobManagementController,

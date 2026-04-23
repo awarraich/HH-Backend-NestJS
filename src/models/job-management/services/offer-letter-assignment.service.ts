@@ -246,14 +246,31 @@ export class OfferLetterAssignmentService {
       userById,
     );
 
-    // When no internal signing is required, hand off to the applicant
-    // straight away. Otherwise the handoff fires later from
-    // `reconcileCompletion` once the last internal signature lands.
+    // Applicant role-fill emails fire at create time (in parallel with
+    // internal signers) so the applicant can sign their portion without
+    // waiting for supervisors to finish. Previously these were deferred
+    // inside `fireApplicantHandoff`, which meant HR had to wait for every
+    // supervisor to sign before the applicant was even notified — making
+    // offers with multiple signers appear "stuck" from the applicant's
+    // view.
+    await this.notifyApplicantRoleFillers(
+      application,
+      template.name,
+      applicantRows,
+      userById,
+      emailDelivery,
+    );
+
+    // When no internal signing is required, also fire the applicant's
+    // "review and accept" decision email straight away. Otherwise the
+    // decision email fires later from `reconcileCompletion` once the last
+    // internal signature lands — reviewing an unsigned offer would be
+    // confusing.
     if (!hasInternalSigners) {
       await this.fireApplicantHandoff(
         application,
         template.name,
-        applicantRows,
+        /* applicantRows */ [], // role-fill already sent above
         userById,
         emailDelivery,
       );
@@ -458,6 +475,118 @@ export class OfferLetterAssignmentService {
    *
    * Results are appended to the caller's delivery report.
    */
+  /**
+   * Send "please sign your portion" emails to applicant role-filler rows
+   * (i.e. role assignments where the filler is the applicant themselves,
+   * typically the `employee` recipient_type). Fires immediately at offer
+   * creation so the applicant can sign in parallel with internal signers
+   * rather than waiting for them to finish.
+   *
+   * This is the role-fill half of what used to live inside
+   * `fireApplicantHandoff`. The decision ("review and accept") half still
+   * fires later via `fireApplicantHandoffIfReady`.
+   */
+  private async notifyApplicantRoleFillers(
+    application: JobApplication,
+    templateName: string,
+    applicantRows: OfferLetterAssignmentRole[],
+    userByIdCache: Map<string, User>,
+    report: OfferEmailDeliveryReport,
+  ): Promise<void> {
+    if (!applicantRows.length) return;
+
+    const frontendBase = (
+      this.configService.get<string>('HOME_HEALTH_AI_URL') ?? ''
+    ).replace(/\/$/, '');
+    const offerDetails = (application.offer_details ?? {}) as Record<
+      string,
+      unknown
+    >;
+    const orgId = application.job_posting?.organization_id;
+    const [organizationName, orgLogo] = orgId
+      ? await Promise.all([
+          this.resolveOrganizationName(orgId),
+          this.companyProfileService.getOrganizationLogoBytes(orgId),
+        ])
+      : [undefined, null];
+
+    for (const row of applicantRows) {
+      const user = userByIdCache.get(row.user_id);
+      if (!user?.email) {
+        report.recipients.push({
+          kind: 'assignee',
+          email: null,
+          status: 'skipped',
+          reason: 'No email on file for this applicant role-filler.',
+        });
+        continue;
+      }
+      const fillUrl = this.buildFillUrl(frontendBase, row);
+      const recipientName =
+        this.fullName(user) || application.applicant_name || 'there';
+      try {
+        await this.emailService.sendOfferLetterEmail(
+          user.email,
+          {
+            applicantName: recipientName,
+            candidateName: application.applicant_name || undefined,
+            jobTitle: application.job_posting?.title ?? templateName,
+            salary:
+              typeof offerDetails.salary === 'string' ? offerDetails.salary : '',
+            startDate:
+              typeof offerDetails.startDate === 'string'
+                ? offerDetails.startDate
+                : '',
+            offerContent: '',
+            benefits:
+              typeof offerDetails.benefits === 'string'
+                ? offerDetails.benefits
+                : undefined,
+            responseDeadline:
+              typeof offerDetails.responseDeadline === 'string'
+                ? offerDetails.responseDeadline
+                : undefined,
+            employmentType:
+              (offerDetails.employmentType as
+                | 'full_time'
+                | 'part_time'
+                | 'contract'
+                | 'temporary'
+                | 'internship'
+                | undefined) ?? undefined,
+            message:
+              typeof offerDetails.message === 'string'
+                ? offerDetails.message
+                : undefined,
+            jobLocation: application.job_posting?.location ?? undefined,
+            organizationName,
+            fillUrl,
+            recipientType: row.recipient_type,
+          },
+          orgLogo,
+        );
+        report.sent += 1;
+        report.recipients.push({
+          kind: 'assignee',
+          email: user.email,
+          status: 'sent',
+        });
+      } catch (err) {
+        report.failed += 1;
+        const reason = this.buildFailureMessage(err);
+        this.logger.warn(
+          `Applicant role-fill email to user ${row.user_id} (${user.email}) failed: ${reason}`,
+        );
+        report.recipients.push({
+          kind: 'assignee',
+          email: user.email,
+          status: 'failed',
+          reason,
+        });
+      }
+    }
+  }
+
   private async fireApplicantHandoff(
     application: JobApplication,
     templateName: string,

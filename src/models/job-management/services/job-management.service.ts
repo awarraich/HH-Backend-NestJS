@@ -18,6 +18,10 @@ import { QueryJobPostingDto } from '../dto/query-job-posting.dto';
 import { QueryJobApplicationsDto } from '../dto/query-job-applications.dto';
 import { SendInterviewInviteDto } from '../dto/send-interview-invite.dto';
 import { EmailService } from '../../../common/services/email/email.service';
+import {
+  InterviewMeetingService,
+  VideoPlatform,
+} from '../../../common/services/meeting-integration/interview-meeting.service';
 
 @Injectable()
 export class JobManagementService {
@@ -39,6 +43,7 @@ export class JobManagementService {
     private readonly emailService: EmailService,
     private readonly companyProfileService: OrganizationCompanyProfileService,
     private readonly dataSource: DataSource,
+    private readonly interviewMeetingService: InterviewMeetingService,
   ) {}
 
   private async resolveOrganizationName(
@@ -1257,7 +1262,13 @@ export class JobManagementService {
     organizationId: string,
     applicationId: string,
     dto: SendInterviewInviteDto,
-  ): Promise<{ message: string }> {
+    hrUserId: string,
+  ): Promise<{
+    message: string;
+    meetingLink?: string;
+    meetingGenerationFailed?: boolean;
+    meetingGenerationError?: string;
+  }> {
     const application = await this.jobApplicationRepository.findOne({
       where: { id: applicationId },
       relations: ['job_posting'],
@@ -1283,6 +1294,71 @@ export class JobManagementService {
       : '';
     const confirmUrl = portalBase ? `${portalBase}&response=confirmed` : undefined;
     const declineUrl = portalBase ? `${portalBase}&response=unavailable` : undefined;
+
+    // ── Auto-generate the meeting link for video interviews ────────────────
+    // If generation fails we proceed with an email that has no link rather
+    // than failing the whole request — HR gets a warning flag in the response
+    // so the UI can surface a retry / manual-paste fallback.
+    const timezone = dto.interviewTimezone || 'UTC';
+    const durationMinutes =
+      dto.interviewDurationMinutes ??
+      parseDurationLabel(dto.interviewDuration) ??
+      30;
+
+    let meetingLink: string | undefined;
+    let providerEventId: string | undefined;
+    let meetingGenerationFailed = false;
+    let meetingGenerationError: string | undefined;
+    const platform = dto.videoPlatform as VideoPlatform | undefined;
+
+    // Skip generation when the HR user already pasted a URL — backwards-compat
+    // escape hatch for platforms we can't auto-create (e.g. Teams).
+    const shouldGenerate =
+      dto.interviewMode === 'video' &&
+      (platform === 'zoom' || platform === 'google_meet') &&
+      !isMeetingUrl(dto.interviewLocation);
+
+    if (shouldGenerate && platform) {
+      try {
+        const result = await this.interviewMeetingService.generateLink({
+          platform,
+          hrUserId,
+          topic: `Interview — ${dto.jobTitle}${organizationName ? ` @ ${organizationName}` : ''}`,
+          description: buildMeetingDescription({
+            applicantName: dto.applicantName,
+            jobTitle: dto.jobTitle,
+            organizationName,
+            message: dto.message,
+          }),
+          timezone,
+          date: dto.interviewDate,
+          time: dto.interviewTime,
+          durationMinutes,
+          attendees: [dto.toEmail, dto.contactEmail].filter(
+            (x): x is string => Boolean(x),
+          ),
+        });
+        meetingLink = result.joinUrl;
+        providerEventId = result.providerEventId;
+      } catch (err) {
+        meetingGenerationFailed = true;
+        meetingGenerationError =
+          err instanceof Error ? err.message : String(err);
+      }
+    }
+
+    // Persist meeting metadata so HR sees the generated link in the UI and a
+    // future reschedule/cancel can reference the provider event id.
+    const resolvedLocation = meetingLink ?? dto.interviewLocation;
+    await this.persistInterviewMeetingMeta(applicationId, {
+      meetingLink,
+      meetingProvider: platform,
+      providerEventId,
+      interviewLocation: resolvedLocation,
+      timezone,
+      durationMinutes,
+    });
+
     try {
       await this.emailService.sendInterviewInviteEmail(
         dto.toEmail,
@@ -1292,8 +1368,13 @@ export class JobManagementService {
           interviewDate: dto.interviewDate,
           interviewTime: dto.interviewTime,
           interviewMode: dto.interviewMode,
-          interviewLocation: dto.interviewLocation,
+          interviewLocation: resolvedLocation,
           interviewDuration: dto.interviewDuration,
+          interviewTimezone: timezone,
+          interviewDurationMinutes: durationMinutes,
+          meetingLink,
+          meetingProvider: platform,
+          applicationId,
           message: dto.message,
           jobLocation: dto.jobLocation,
           jobType: dto.jobType,
@@ -1308,7 +1389,14 @@ export class JobManagementService {
         },
         orgLogo,
       );
-      return { message: 'Interview invite email sent successfully' };
+      return {
+        message: meetingGenerationFailed
+          ? 'Interview invite sent, but automatic meeting link creation failed — paste the link manually and resend.'
+          : 'Interview invite email sent successfully',
+        meetingLink,
+        meetingGenerationFailed: meetingGenerationFailed || undefined,
+        meetingGenerationError,
+      };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes('not configured')) {
@@ -1318,6 +1406,34 @@ export class JobManagementService {
       }
       throw new BadRequestException(`Failed to send interview invite email.`);
     }
+  }
+
+  private async persistInterviewMeetingMeta(
+    applicationId: string,
+    meta: {
+      meetingLink?: string;
+      meetingProvider?: VideoPlatform;
+      providerEventId?: string;
+      interviewLocation?: string;
+      timezone?: string;
+      durationMinutes?: number;
+    },
+  ): Promise<void> {
+    const app = await this.jobApplicationRepository.findOne({
+      where: { id: applicationId },
+    });
+    if (!app) return;
+    const existing =
+      (app.interview_details as Record<string, unknown> | null) ?? {};
+    const next: Record<string, unknown> = { ...existing };
+    if (meta.meetingLink) next.meetingLink = meta.meetingLink;
+    if (meta.meetingProvider) next.meetingProvider = meta.meetingProvider;
+    if (meta.providerEventId) next.providerEventId = meta.providerEventId;
+    if (meta.interviewLocation) next.interviewLocation = meta.interviewLocation;
+    if (meta.timezone) next.interviewTimezone = meta.timezone;
+    if (meta.durationMinutes) next.interviewDurationMinutes = meta.durationMinutes;
+    app.interview_details = next;
+    await this.jobApplicationRepository.save(app);
   }
 
   /**
@@ -1432,3 +1548,44 @@ export class JobManagementService {
     return normalized;
   }
 }
+
+/**
+ * Extract a minute count from free-text durations like "30 minutes", "1 hour",
+ * "45 min", "1.5 hrs". Returns null when the label isn't recognisable so the
+ * caller can fall back to a default.
+ */
+function parseDurationLabel(label?: string | null): number | null {
+  if (!label) return null;
+  const s = label.toLowerCase().trim();
+  const hourMatch = s.match(/(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\b/);
+  const minMatch = s.match(/(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes)\b/);
+  if (hourMatch && minMatch) {
+    return Math.round(Number(hourMatch[1]) * 60 + Number(minMatch[1]));
+  }
+  if (hourMatch) return Math.round(Number(hourMatch[1]) * 60);
+  if (minMatch) return Math.round(Number(minMatch[1]));
+  const bare = s.match(/^(\d+)$/);
+  if (bare) return Number(bare[1]);
+  return null;
+}
+
+function isMeetingUrl(s?: string | null): boolean {
+  return Boolean(s && /^https?:\/\//i.test(s.trim()));
+}
+
+function buildMeetingDescription(args: {
+  applicantName: string;
+  jobTitle: string;
+  organizationName?: string;
+  message?: string;
+}): string {
+  const parts = [
+    `Interview for ${args.jobTitle}${args.organizationName ? ` at ${args.organizationName}` : ''}.`,
+    `Candidate: ${args.applicantName}.`,
+  ];
+  if (args.message?.trim()) {
+    parts.push('', args.message.trim());
+  }
+  return parts.join('\n');
+}
+

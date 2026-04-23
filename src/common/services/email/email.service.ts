@@ -12,6 +12,12 @@ import { GoogleSignInInviteEmailTemplate } from './templates/google-sign-in-invi
 import { InterviewInviteEmailTemplate } from './templates/interview-invite-email.template';
 import { OfferLetterEmailTemplate } from './templates/offer-letter-email.template';
 import { HireWelcomeEmailTemplate } from './templates/hire-welcome-email.template';
+import {
+  buildIcs,
+  googleCalendarDeepLink,
+  outlookCalendarDeepLink,
+} from '../meeting-integration/ics-builder.util';
+import { localIsoToUtcIso } from '../meeting-integration/interview-meeting.service';
 
 @Injectable()
 export class EmailService implements OnModuleInit {
@@ -425,14 +431,99 @@ export class EmailService implements OnModuleInit {
         'Email service not configured. Set EMAIL_USER and EMAIL_PASSWORD (e.g. in production) to send interview invites.',
       );
     }
-    const template = InterviewInviteEmailTemplate.generate(options);
+
+    // Build the Add-to-Calendar deep links and the .ics attachment only when
+    // we have enough data (date + time + duration). For in-person/phone
+    // interviews we still attach a calendar invite so candidates get a
+    // reminder — the .ics uses the location text instead of a meeting URL.
+    const tz = options.interviewTimezone || 'UTC';
+    const duration = Math.max(5, options.interviewDurationMinutes ?? 30);
+    // Use the default HomeHealth logo everywhere — the org-logo override
+    // was causing interview emails to show a different image than the
+    // Create Staff email (which always uses the default). Per-org logo
+    // customization can be reintroduced later if the business needs it.
+    void orgLogo;
+    const attachments = [...(this.logoAttachment || [])];
+
+    let googleCalendarLink: string | undefined;
+    let outlookCalendarLink: string | undefined;
+
+    if (
+      /^\d{4}-\d{2}-\d{2}$/.test(options.interviewDate) &&
+      /^\d{2}:\d{2}(:\d{2})?$/.test(options.interviewTime)
+    ) {
+      const startLocalIso = `${options.interviewDate}T${options.interviewTime.length === 5 ? `${options.interviewTime}:00` : options.interviewTime}`;
+      const endLocalIso = addMinutesToLocalIso(startLocalIso, duration);
+      const locationForEvent =
+        options.meetingLink ||
+        (options.interviewMode === 'video'
+          ? options.interviewLocation
+          : options.interviewLocation) ||
+        '';
+      const descriptionForEvent = buildEventDescription({
+        applicantName: options.applicantName,
+        jobTitle: options.jobTitle,
+        organizationName: options.organizationName,
+        meetingLink: options.meetingLink,
+        message: options.message,
+      });
+      const summary = `Interview — ${options.jobTitle}${options.organizationName ? ` @ ${options.organizationName}` : ''}`;
+
+      const ics = buildIcs({
+        uid: `${options.applicationId ?? Math.random().toString(36).slice(2)}@homehealth.ai`,
+        summary,
+        description: descriptionForEvent,
+        startLocalIso,
+        endLocalIso,
+        timezone: tz,
+        location: locationForEvent,
+        organizer: {
+          name: this.emailConfigService.fromName,
+          email: this.emailConfigService.from,
+        },
+        attendee: { name: options.applicantName, email: toEmail },
+        reminderMinutes: 30,
+        method: 'REQUEST',
+      });
+
+      // Content-Type `text/calendar; method=REQUEST` is what makes Gmail /
+      // Outlook.com / Apple Mail recognise the attachment as an invite (vs a
+      // generic file) and render the RSVP card inline.
+      attachments.push({
+        filename: 'invite.ics',
+        content: Buffer.from(ics, 'utf8'),
+        contentType: 'text/calendar; charset=utf-8; method=REQUEST; name="invite.ics"',
+      });
+
+      googleCalendarLink = googleCalendarDeepLink({
+        summary,
+        description: descriptionForEvent,
+        startLocalIso,
+        endLocalIso,
+        timezone: tz,
+        location: locationForEvent,
+      });
+      outlookCalendarLink = outlookCalendarDeepLink({
+        summary,
+        description: descriptionForEvent,
+        startUtcIso: localIsoToUtcIso(startLocalIso, tz),
+        endUtcIso: localIsoToUtcIso(endLocalIso, tz),
+        location: locationForEvent,
+      });
+    }
+
+    const template = InterviewInviteEmailTemplate.generate({
+      ...options,
+      googleCalendarLink,
+      outlookCalendarLink,
+    });
     const mailOptions = {
       from: `"${this.emailConfigService.fromName}" <${this.emailConfigService.from}>`,
       to: toEmail,
       subject: template.subject,
       html: template.html,
       text: template.text,
-      attachments: this.buildLogoAttachment(orgLogo),
+      attachments,
     };
     const info = await this.transporter.sendMail(mailOptions);
     this.logger.log(
@@ -460,6 +551,10 @@ export class EmailService implements OnModuleInit {
         'Email service not configured. Set EMAIL_USER and EMAIL_PASSWORD (e.g. in production) to send offer letters.',
       );
     }
+    // Use the default HomeHealth logo everywhere — the org-logo override
+    // was causing offer letter emails to show a different image than the
+    // Create Staff email (which always uses the default).
+    void orgLogo;
     const template = OfferLetterEmailTemplate.generate(options);
     const mailOptions = {
       from: `"${this.emailConfigService.fromName}" <${this.emailConfigService.from}>`,
@@ -467,11 +562,11 @@ export class EmailService implements OnModuleInit {
       subject: template.subject,
       html: template.html,
       text: template.text,
-      attachments: this.buildLogoAttachment(orgLogo),
+      attachments: this.logoAttachment,
     };
     const info = await this.transporter.sendMail(mailOptions);
     this.logger.log(
-      `Offer letter email sent to: ${this.maskEmail(toEmail)}. MessageId: ${info.messageId}`,
+      `Offer letter email sent to: ${toEmail} MessageId: ${info.messageId}`,
     );
   }
 
@@ -519,4 +614,30 @@ export class EmailService implements OnModuleInit {
         : '**';
     return `${maskedLocal}@${domain}`;
   }
+}
+
+function addMinutesToLocalIso(localIso: string, minutes: number): string {
+  const [datePart, timePart] = localIso.split('T');
+  const [y, mo, d] = datePart.split('-').map(Number);
+  const [h, mi, s] = timePart.split(':').map(Number);
+  const base = Date.UTC(y, mo - 1, d, h, mi, s || 0);
+  const shifted = new Date(base + minutes * 60_000);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}T${pad(shifted.getUTCHours())}:${pad(shifted.getUTCMinutes())}:${pad(shifted.getUTCSeconds())}`;
+}
+
+function buildEventDescription(args: {
+  applicantName: string;
+  jobTitle: string;
+  organizationName?: string;
+  meetingLink?: string;
+  message?: string;
+}): string {
+  const parts: string[] = [
+    `Interview for ${args.jobTitle}${args.organizationName ? ` at ${args.organizationName}` : ''}.`,
+    `Candidate: ${args.applicantName}.`,
+  ];
+  if (args.meetingLink) parts.push('', `Join: ${args.meetingLink}`);
+  if (args.message?.trim()) parts.push('', args.message.trim());
+  return parts.join('\n');
 }

@@ -11,7 +11,17 @@ interface ExpressCompatibleResponse extends FastifyReply {
 @Injectable()
 export class GoogleOAuthGuard extends AuthGuard('google') {
   getAuthenticateOptions(_context: ExecutionContext) {
-    return { prompt: 'select_account' };
+    // `accessType: 'offline'` + `prompt: 'consent'` are required for Google to
+    // return a refresh_token. Without them we only ever get a 1-hour access
+    // token, which is not enough to call Calendar API later when HR schedules
+    // an interview hours/days after signing in.
+    // `includeGrantedScopes` keeps previously granted scopes so re-consent
+    // doesn't shrink the user's permissions.
+    return {
+      accessType: 'offline',
+      prompt: 'consent',
+      includeGrantedScopes: 'true',
+    };
   }
 
   getRequest(context: ExecutionContext): FastifyRequest {
