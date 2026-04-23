@@ -1,10 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import * as fs from 'fs';
-import * as path from 'path';
-import { randomUUID } from 'crypto';
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
-import { StorageConfigService } from '../../../../config/storage/config.service';
+import { S3Service, PresignedUploadResult } from '../../../../common/services/s3/s3.service';
 
 const HR_DOCUMENTS_SUBDIR = 'hr-documents';
 const INSERVICE_DOCUMENTS_SUBDIR = 'inservices';
@@ -43,46 +38,13 @@ export class EmployeeDocumentStorageService {
     return this.s3.objectExists(key);
   }
 
-  async deleteInserviceDocument(relativePath: string): Promise<void> {
-    if (!relativePath) return;
-    if (this.storageConfig.isS3) {
-      const bucket = this.storageConfig.s3Bucket;
-      if (!bucket) return;
-      const client = new S3Client({
-        region: this.storageConfig.s3Region,
-        credentials:
-          this.storageConfig.s3AccessKeyId && this.storageConfig.s3SecretAccessKey
-            ? {
-                accessKeyId: this.storageConfig.s3AccessKeyId,
-                secretAccessKey: this.storageConfig.s3SecretAccessKey,
-              }
-            : undefined,
-      });
-      try {
-        await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: relativePath }));
-      } catch {
-        /* swallow — storage cleanup is best-effort */
-      }
-      return;
-    }
-    const fullPath = this.getLocalFilePath(relativePath);
-    if (fullPath) {
-      try {
-        fs.unlinkSync(fullPath);
-      } catch {
-        /* swallow — storage cleanup is best-effort */
-      }
-    }
+  getPresignedViewUrl(key: string, expiresIn?: number): Promise<string> {
+    return this.s3.generatePresignedGetUrl(key, expiresIn);
   }
 
-  /**
-   * Resolve full path to a locally stored file. Returns null if S3 or file missing.
-   */
-  getLocalFilePath(relativePath: string): string | null {
-    if (this.storageConfig.isS3) return null;
-    const safe = path.normalize(relativePath).replace(/^(\.\.(\/|\\))+/, '');
-    const fullPath = path.join(this.storageConfig.path, safe);
-    return fs.existsSync(fullPath) ? fullPath : null;
+  async deleteInserviceDocument(key: string): Promise<void> {
+    if (!key) return;
+    await this.s3.deleteObject(key);
   }
 
   delete(key: string): Promise<boolean> {

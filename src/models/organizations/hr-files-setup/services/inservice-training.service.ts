@@ -261,6 +261,18 @@ export class InserviceTrainingService {
     const videoTitles = (dto.video_titles ?? []).map((t) => (t ?? '').trim());
     const alignedVideoTitles = videoUrls.map((_, i) => videoTitles[i] ?? '');
 
+    const fileTitles = (dto.file_titles ?? []).map((t) => (t ?? '').trim());
+    const pdfFilesWithTitles: PdfFileEntry[] = validPdfFiles.map((f, i) => {
+      const entry: PdfFileEntry = {
+        file_name: f.file_name,
+        file_path: f.file_path,
+        file_size_bytes: f.file_size_bytes,
+      };
+      const t = fileTitles[i];
+      if (t) entry.title = t;
+      return entry;
+    });
+
     const inservice = this.inserviceTrainingRepository.create({
       organization_id: organizationId,
       code: dto.code,
@@ -270,9 +282,7 @@ export class InserviceTrainingService {
       expiry_months: expiryMonths,
       video_urls: videoUrls,
       video_titles: alignedVideoTitles,
-      pdf_files: validFiles.length
-        ? [{ file_name: 'pending', file_path: 'pending', file_size_bytes: 0 }]
-        : [],
+      pdf_files: pdfFilesWithTitles,
       sort_order: dto.sort_order ?? 0,
       is_active: true,
       has_quiz: dto.has_quiz ?? false,
@@ -280,31 +290,6 @@ export class InserviceTrainingService {
     });
 
     const saved = await this.inserviceTrainingRepository.save(inservice);
-
-    if (validFiles.length) {
-      const fileTitles = (dto.file_titles ?? []).map((t) => (t ?? '').trim());
-      const pdfFiles: PdfFileEntry[] = [];
-      for (let i = 0; i < validFiles.length; i++) {
-        const f = validFiles[i];
-        const { file_name, file_path } = await this.storageService.saveInserviceDocument(
-          f.buffer,
-          f.originalFilename,
-          organizationId,
-          saved.id,
-        );
-        const entry: PdfFileEntry = {
-          file_name,
-          file_path,
-          file_size_bytes: f.buffer.length,
-        };
-        const titleForFile = fileTitles[i];
-        if (titleForFile) entry.title = titleForFile;
-        pdfFiles.push(entry);
-      }
-      saved.pdf_files = pdfFiles;
-      await this.inserviceTrainingRepository.save(saved);
-    }
-
     return this.toResponse(saved);
   }
 
@@ -389,26 +374,18 @@ export class InserviceTrainingService {
       });
     }
 
-    if (validFiles.length) {
+    if (validNewPdfFiles.length) {
       const fileTitles = (dto.file_titles ?? []).map((t) => (t ?? '').trim());
-      const newEntries: PdfFileEntry[] = [];
-      for (let i = 0; i < validFiles.length; i++) {
-        const f = validFiles[i];
-        const { file_name, file_path } = await this.storageService.saveInserviceDocument(
-          f.buffer,
-          f.originalFilename,
-          organizationId,
-          inservice.id,
-        );
+      const newEntries: PdfFileEntry[] = validNewPdfFiles.map((f, i) => {
         const entry: PdfFileEntry = {
-          file_name,
-          file_path,
-          file_size_bytes: f.buffer.length,
+          file_name: f.file_name,
+          file_path: f.file_path,
+          file_size_bytes: f.file_size_bytes,
         };
-        const titleForFile = fileTitles[i];
-        if (titleForFile) entry.title = titleForFile;
-        newEntries.push(entry);
-      }
+        const t = fileTitles[i];
+        if (t) entry.title = t;
+        return entry;
+      });
       pdfFiles = [...pdfFiles, ...newEntries];
     }
 

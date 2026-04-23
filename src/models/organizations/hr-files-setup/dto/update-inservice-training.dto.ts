@@ -12,7 +12,10 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { INSERVICE_COMPLETION_FREQUENCIES } from './create-inservice-training.dto';
+import {
+  INSERVICE_COMPLETION_FREQUENCIES,
+  InserviceTrainingPdfFileDto,
+} from './create-inservice-training.dto';
 
 export class ExistingFileTitleDto {
   @IsString()
