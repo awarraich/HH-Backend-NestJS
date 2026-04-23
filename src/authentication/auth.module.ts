@@ -10,6 +10,7 @@ import { JwtStrategy } from './jwt.strategy';
 import { User } from './entities/user.entity';
 import { Role } from './entities/role.entity';
 import { UserRole } from './entities/user-role.entity';
+import { UserOAuthAccount } from './entities/user-oauth-account.entity';
 import { UserRepository } from './repositories/user.repository';
 import { RoleRepository } from './repositories/role.repository';
 import { TwoFactorModule } from './services/two-factor.module';
@@ -22,7 +23,7 @@ import { AppConfigModule } from '../config/app/config.module';
 @Module({
   imports: [
     AppConfigModule,
-    TypeOrmModule.forFeature([User, Role, UserRole]),
+    TypeOrmModule.forFeature([User, Role, UserRole, UserOAuthAccount]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],

@@ -405,14 +405,17 @@ export class JobManagementController {
   @Roles('OWNER', 'HR', 'ADMIN')
   @HttpCode(HttpStatus.OK)
   async sendInterviewInvite(
+    @Req() req: FastifyRequest,
     @Param('organizationId') organizationId: string,
     @Param('id') id: string,
     @Body() dto: SendInterviewInviteDto,
   ): Promise<unknown> {
+    const hrUserId = extractUserId(req);
     const result = await this.jobManagementService.sendInterviewInviteEmail(
       organizationId,
       id,
       dto,
+      hrUserId,
     );
     return SuccessHelper.createSuccessResponse(result, result.message);
   }
