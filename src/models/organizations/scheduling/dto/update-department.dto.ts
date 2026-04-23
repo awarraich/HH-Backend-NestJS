@@ -16,6 +16,13 @@ export class UpdateDepartmentDto {
   @MaxLength(255)
   name?: string;
 
+  /** IANA timezone of the client (e.g. "America/Los_Angeles"). Used to
+   *  convert inline shift start/end times from local to UTC before storage. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  timezone?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(50)

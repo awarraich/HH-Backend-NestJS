@@ -33,8 +33,17 @@ export class InlineStationRoomDto {
   chairs?: number;
 }
 
-/** Station item for inline creation within a department. */
+/** Station item for inline creation OR update within a department.
+ *
+ * Update semantics match InlineShiftDto: supply `id` for an existing
+ * station (row is preserved, rooms/beds/chairs/station_shift_assignments
+ * are merged rather than replaced). Omit `id` for a new station.
+ */
 export class InlineStationDto {
+  @IsOptional()
+  @IsUUID()
+  id?: string;
+
   @IsNotEmpty()
   @IsString()
   @MaxLength(255)
@@ -132,8 +141,20 @@ export class InlineDepartmentRoomDto {
   shift_ids?: string[];
 }
 
-/** Shift for inline creation within a department. */
+/** Shift for inline creation OR update within a department.
+ *
+ * Update semantics: if `id` is a real shift UUID, the update path treats
+ * this entry as "modify existing" and preserves the row (and every
+ * downstream relationship — employee_shifts, station_shift_assignments,
+ * etc.). Omit `id` for genuinely new shifts; the backend creates them and
+ * maps `temp_id` to the generated UUID for cross-references inside the
+ * same payload. See DepartmentService.update for the diff logic.
+ */
 export class InlineShiftDto {
+  @IsOptional()
+  @IsUUID()
+  id?: string;
+
   @IsNotEmpty()
   @IsString()
   temp_id: string;
@@ -305,6 +326,13 @@ export class CreateDepartmentDto {
   @IsString()
   @MaxLength(255)
   name: string;
+
+  /** IANA timezone of the client (e.g. "America/Los_Angeles"). Used to
+   *  convert inline shift start/end times from local to UTC before storage. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  timezone?: string;
 
   @IsOptional()
   @IsString()

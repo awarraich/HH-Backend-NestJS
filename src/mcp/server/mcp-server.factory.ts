@@ -36,7 +36,7 @@ export interface SchedulingContext {
   /**
    * IANA timezone supplied by the client (browser sends
    * `Intl.DateTimeFormat().resolvedOptions().timeZone`). Optional — falls
-   * back to 'UTC' if missing or invalid.
+   * back to 'America/Los_Angeles' (US Pacific) if missing or invalid.
    */
   timezone?: string | null;
   /**

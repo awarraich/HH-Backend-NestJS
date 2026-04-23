@@ -39,7 +39,7 @@ export class CalendarEventService {
       color: dto.color ?? null,
       recurrence_rule: dto.recurrence_rule ?? null,
       recurrence_end_date: dto.recurrence_end_date ? new Date(dto.recurrence_end_date) : null,
-      timezone: dto.timezone ?? 'UTC',
+      timezone: dto.timezone ?? 'America/Los_Angeles',
     });
 
     return this.calendarEventRepository.save(event);

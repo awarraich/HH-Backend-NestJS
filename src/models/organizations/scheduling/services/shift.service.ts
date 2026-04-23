@@ -9,7 +9,7 @@ import { OrganizationRoleService } from '../../services/organization-role.servic
 import { CreateShiftDto } from '../dto/create-shift.dto';
 import { UpdateShiftDto } from '../dto/update-shift.dto';
 import { QueryShiftDto } from '../dto/query-shift.dto';
-import { localToUtc } from '../../../../mcp/tools/scheduling/timezone';
+// localToUtc / FALLBACK_TIMEZONE no longer needed — shifts store time-of-day as-is
 
 @Injectable()
 export class ShiftService {
@@ -143,8 +143,10 @@ export class ShiftService {
 
   async create(organizationId: string, dto: CreateShiftDto, userId: string): Promise<Shift> {
     await this.ensureAccess(organizationId, userId);
-    const tz = dto.timezone;
-    const toDate = (v: string) => (tz ? localToUtc(v, tz) : new Date(v));
+    // Store times as-is. Shift start/end represent time-of-day for recurring
+    // templates — no UTC conversion needed. Appending 'Z' ensures new Date()
+    // treats the value as UTC so the stored hour:minute matches the input.
+    const toDate = (v: string) => new Date(v.endsWith('Z') ? v : v + 'Z');
     const shift = this.shiftRepository.create({
       organization_id: organizationId,
       start_at: toDate(dto.start_at),
@@ -172,8 +174,7 @@ export class ShiftService {
   ): Promise<Shift> {
     await this.ensureAccess(organizationId, userId);
     const shift = await this.findOne(organizationId, shiftId, userId);
-    const tz = dto.timezone;
-    const toDate = (v: string) => (tz ? localToUtc(v, tz) : new Date(v));
+    const toDate = (v: string) => new Date(v.endsWith('Z') ? v : v + 'Z');
     if (dto.start_at !== undefined) shift.start_at = toDate(dto.start_at);
     if (dto.end_at !== undefined) shift.end_at = toDate(dto.end_at);
     if (dto.shift_type !== undefined) shift.shift_type = dto.shift_type;

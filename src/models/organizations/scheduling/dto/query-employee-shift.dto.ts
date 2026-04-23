@@ -12,6 +12,10 @@ export class QueryEmployeeShiftDto {
 
   @IsOptional()
   @IsString()
+  scheduled_date?: string;
+
+  @IsOptional()
+  @IsString()
   from_date?: string;
 
   @IsOptional()

@@ -15,6 +15,14 @@ export interface LocalTimeView {
   /** Local-time formatted strings, e.g. "Apr 7, 2026 11:00 PM" or "2:00 PM" for recurring. */
   local_start: string;
   local_end: string;
+  /**
+   * 24-hour HH:MM strings for machine consumption (e.g. passing to tools
+   * like search_available_employees that take HH:MM 24-hour). LLMs reliably
+   * bungle 12→24 conversion on strings like "3:00 PM"; this is the pre-baked
+   * answer so they never have to.
+   */
+  local_start_24h: string;
+  local_end_24h: string;
   /** Compact display, e.g. "Apr 7 11:00 PM – Apr 8 7:00 AM PKT" or "2:00 PM – 10:00 PM PKT (Weekdays)". */
   local_time_display: string;
   /** The IANA timezone the local strings were rendered in. */
@@ -25,6 +33,7 @@ export interface LocalTimeView {
 
 const DATE_TIME_FORMATTER_CACHE = new Map<string, Intl.DateTimeFormat>();
 const TIME_ONLY_FORMATTER_CACHE = new Map<string, Intl.DateTimeFormat>();
+const TIME_24H_FORMATTER_CACHE = new Map<string, Intl.DateTimeFormat>();
 const ABBR_FORMATTER_CACHE = new Map<string, Intl.DateTimeFormat>();
 
 function getDateTimeFormatter(timezone: string): Intl.DateTimeFormat {
@@ -56,6 +65,28 @@ function getTimeOnlyFormatter(timezone: string): Intl.DateTimeFormat {
     TIME_ONLY_FORMATTER_CACHE.set(timezone, f);
   }
   return f;
+}
+
+function getTime24hFormatter(timezone: string): Intl.DateTimeFormat {
+  let f = TIME_24H_FORMATTER_CACHE.get(timezone);
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-GB', {
+      timeZone: timezone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+    TIME_24H_FORMATTER_CACHE.set(timezone, f);
+  }
+  return f;
+}
+
+function formatHHMM(date: Date, timezone: string): string {
+  const parts = getTime24hFormatter(timezone).formatToParts(date);
+  const hour = parts.find((p) => p.type === 'hour')?.value ?? '00';
+  const minute = parts.find((p) => p.type === 'minute')?.value ?? '00';
+  const hh = hour === '24' ? '00' : hour.padStart(2, '0');
+  return `${hh}:${minute.padStart(2, '0')}`;
 }
 
 function getAbbreviationFormatter(timezone: string): Intl.DateTimeFormat {
@@ -113,10 +144,14 @@ export function formatShiftLocalTimes(
   const isRecurring = rt && rt !== 'ONE_TIME';
 
   if (isTemplate || isRecurring) {
-    // Time-only format for recurring/template shifts
-    const timeFmt = getTimeOnlyFormatter(safeTz);
+    // Time-only format for recurring/template shifts.
+    // Shift times are stored as-is (07:00Z = 7:00 AM local), NOT as real
+    // UTC, so we format with 'UTC' to avoid a double timezone conversion.
+    const timeFmt = getTimeOnlyFormatter('UTC');
     const localStart = timeFmt.format(start);
     const localEnd = timeFmt.format(end);
+    const localStart24h = formatHHMM(start, 'UTC');
+    const localEnd24h = formatHHMM(end, 'UTC');
     const recLabel = RECURRENCE_LABELS[rt] ?? rt;
     const display = isRecurring
       ? `${localStart} – ${localEnd} ${abbr} (${recLabel})`
@@ -127,6 +162,8 @@ export function formatShiftLocalTimes(
       end_at_utc: end.toISOString(),
       local_start: localStart,
       local_end: localEnd,
+      local_start_24h: localStart24h,
+      local_end_24h: localEnd24h,
       local_time_display: display,
       timezone: safeTz,
       timezone_abbr: abbr,
@@ -143,6 +180,8 @@ export function formatShiftLocalTimes(
     end_at_utc: end.toISOString(),
     local_start: localStart,
     local_end: localEnd,
+    local_start_24h: formatHHMM(start, safeTz),
+    local_end_24h: formatHHMM(end, safeTz),
     local_time_display: `${localStart} – ${localEnd} ${abbr}`,
     timezone: safeTz,
     timezone_abbr: abbr,

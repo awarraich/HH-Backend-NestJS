@@ -33,6 +33,11 @@ export class UpdateEmployeeShiftDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(50)
+  role?: string;
+
+  @IsOptional()
+  @IsString()
   notes?: string;
 
   @IsOptional()

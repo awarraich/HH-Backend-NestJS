@@ -54,6 +54,9 @@ export class EmployeeShift {
   @Column({ type: 'varchar', length: 20, default: 'SCHEDULED' })
   status: string;
 
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  role: string | null;
+
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 

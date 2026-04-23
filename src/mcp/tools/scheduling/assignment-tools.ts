@@ -29,7 +29,16 @@ const assignSchema = {
       'For ONE_TIME shifts, omit this and it will be derived from the shift start_at.',
     ),
   department_id: z.string().uuid().optional(),
-  station_id: z.string().uuid().optional(),
+  station_id: z
+    .string()
+    .uuid()
+    .optional()
+    .describe(
+      'Station this assignment belongs to. If the shift is offered at exactly ' +
+      'one station the backend auto-fills this; if multiple, it is required and ' +
+      'the tool will return an error listing the valid stations. Department is ' +
+      'derived from the station.',
+    ),
   room_id: z.string().uuid().optional(),
   bed_id: z.string().uuid().optional(),
   chair_id: z.string().uuid().optional(),
@@ -38,6 +47,15 @@ const assignSchema = {
     .max(20)
     .optional()
     .describe('Default SCHEDULED. Other examples: CONFIRMED, CANCELLED.'),
+  role: z
+    .string()
+    .max(50)
+    .optional()
+    .describe(
+      "First-class role column (e.g. 'LN', 'RC', 'CHARGE NURSE'). Prefer " +
+      "this over embedding role in notes. If omitted, the backend falls back " +
+      "to the employee's provider role.",
+    ),
   notes: z.string().optional(),
 };
 
@@ -57,9 +75,31 @@ export function buildAssignmentTools(
     bed_id?: string;
     chair_id?: string;
     status?: string;
+    role?: string;
     notes?: string;
   }): SchedulingToolResult => {
+    // Hoisted so the catch block can report context injection alongside errors.
+    const appliedContext: Record<string, string> = {};
     try {
+      // The LLM sometimes passes a user_id (from the nested user.id field
+      // in employee tool responses) instead of the top-level employee id.
+      // Resolve ambiguity up-front so the rest of the handler always uses
+      // the canonical employee.id.
+      const resolvedId = await employeesService.resolveEmployeeId(
+        ctx.organizationId,
+        args.employee_id,
+      );
+      if (!resolvedId) {
+        return jsonResult({
+          success: false,
+          error:
+            `employee_id ${args.employee_id} does not exist in this organization. ` +
+            `Do NOT retry with a fabricated UUID. Call search_available_employees or ` +
+            `get_employee_availability to get real employee_ids, then retry.`,
+        });
+      }
+      const employeeId = resolvedId;
+
       // Reject scheduled_date values where the employee has no matching
       // availability rule. Without this guard, the agent can (and has)
       // pick a weekday the employee isn't available on — e.g. assigning a
@@ -67,7 +107,7 @@ export function buildAssignmentTools(
       // error message so the agent can correct itself.
       if (args.scheduled_date) {
         const availability = await availabilityService.findAvailability({
-          employeeId: args.employee_id,
+          employeeId,
           organizationId: ctx.organizationId,
           status: 'available',
         });
@@ -104,22 +144,61 @@ export function buildAssignmentTools(
       // axis is wrong even if station_id is populated.
       const displayMap = await employeesService.findDisplayInfoByIds(
         ctx.organizationId,
-        [args.employee_id],
+        [employeeId],
       );
-      const display = displayMap.get(args.employee_id);
+      const display = displayMap.get(employeeId);
 
+      // Context fallbacks — when the agent omits a location field, fall back
+      // to whatever the frontend said the user is looking at. EXCEPT for
+      // station_id: a shift may be "org-level" (no station_shift_assignments
+      // links), in which case the backend rejects any station_id. Blindly
+      // injecting ctx.stationId for such shifts turns a retry-without-station
+      // into a silent re-inject and the agent loops on an unwinnable error.
+      // Preflight: only fall back if the context station is actually linked
+      // to this shift.
       const department_id = args.department_id ?? ctx.departmentId;
-      const station_id = args.station_id ?? ctx.stationId;
-      const room_id = args.room_id ?? ctx.roomId;
-      const bed_id = args.bed_id ?? ctx.bedId;
-      const chair_id = args.chair_id ?? ctx.chairId;
+      if (!args.department_id && ctx.departmentId) {
+        appliedContext.department_id = 'from_page_context';
+      }
 
-      // The frontend grid is keyed by notes.role × date. LLM callers tend
-      // to guess a role from the shift's eligible roles list, which lands
-      // the row in the wrong column — so always override `role` with the
-      // employee's real providerRole, preserving any other caller fields
-      // (e.g. `rooms`). Also guard against `null` — zod allows only string
-      // | undefined, but callers occasionally send literal null.
+      let station_id: string | undefined = args.station_id;
+      if (!station_id && ctx.stationId) {
+        const stationLinks = await employeeShiftService.getStationLinksForShift(
+          args.shift_id,
+        );
+        if (stationLinks.includes(ctx.stationId)) {
+          station_id = ctx.stationId;
+          appliedContext.station_id = 'from_page_context';
+        } else if (stationLinks.length === 0) {
+          // Org-level shift — leave station_id unset so the backend accepts it.
+          appliedContext.station_id =
+            'context_ignored_shift_has_no_stations_linked';
+        } else {
+          // Shift is linked to other stations, but not the context one.
+          // Leave station_id unset and let the backend's "multiple stations"
+          // error guide the agent to ask the user.
+          appliedContext.station_id =
+            'context_ignored_not_linked_to_this_shift';
+        }
+      }
+
+      const room_id = args.room_id ?? ctx.roomId;
+      if (!args.room_id && ctx.roomId) appliedContext.room_id = 'from_page_context';
+      const bed_id = args.bed_id ?? ctx.bedId;
+      if (!args.bed_id && ctx.bedId) appliedContext.bed_id = 'from_page_context';
+      const chair_id = args.chair_id ?? ctx.chairId;
+      if (!args.chair_id && ctx.chairId) appliedContext.chair_id = 'from_page_context';
+
+      // The effective role is: caller-supplied > employee's provider role.
+      // We always prefer the real provider role over a caller guess because
+      // LLMs tend to pick from the shift's eligible-roles list, which can
+      // land the row in the wrong column on any grid keyed by role.
+      const effectiveRole = display?.role_code ?? args.role;
+
+      // Dual-write notes for FE backward compatibility: the current grid
+      // reads `notes.role`. Once the frontend migrates to the new `role`
+      // column this block can be deleted. Guard against `null` — zod allows
+      // only string | undefined, but callers occasionally send literal null.
       let notes = args.notes;
       let notesObj: Record<string, unknown> | null = null;
       if (notes != null && notes.trim() !== '') {
@@ -134,9 +213,9 @@ export function buildAssignmentTools(
           notesObj = { text: notes };
         }
       }
-      if (display?.role_code) {
+      if (effectiveRole) {
         const merged: Record<string, unknown> = { ...(notesObj ?? {}) };
-        merged.role = display.role_code;
+        merged.role = effectiveRole;
         if (!Array.isArray(merged.rooms)) merged.rooms = [];
         notes = JSON.stringify(merged);
       } else if (notes == null) {
@@ -147,7 +226,7 @@ export function buildAssignmentTools(
         ctx.organizationId,
         args.shift_id,
         {
-          employee_id: args.employee_id,
+          employee_id: employeeId,
           scheduled_date: args.scheduled_date,
           department_id,
           station_id,
@@ -155,6 +234,7 @@ export function buildAssignmentTools(
           bed_id,
           chair_id,
           status: args.status,
+          role: effectiveRole,
           notes,
         },
         ctx.userId,
@@ -179,10 +259,19 @@ export function buildAssignmentTools(
         employee_shift: { ...hydrated, shift: enrichedShift },
         employee_name: display?.name ?? 'Unknown employee',
         employee_email: display?.email ?? null,
+        applied_context:
+          Object.keys(appliedContext).length > 0 ? appliedContext : undefined,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return jsonResult({ success: false, error: message });
+      return jsonResult({
+        success: false,
+        error: message,
+        // Surface context injection so the agent can see whether a failure
+        // was caused by an auto-filled field vs. one it passed explicitly.
+        applied_context:
+          Object.keys(appliedContext).length > 0 ? appliedContext : undefined,
+      });
     }
   };
 

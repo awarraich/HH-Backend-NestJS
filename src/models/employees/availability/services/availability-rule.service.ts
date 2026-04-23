@@ -12,6 +12,14 @@ export class AvailabilityRuleService {
     private readonly availabilityRuleRepository: Repository<AvailabilityRule>,
   ) {}
 
+  /**
+   * Derive day_of_week (0=SUN … 6=SAT) from a YYYY-MM-DD date string.
+   * Always uses UTC so timezone differences never shift the day.
+   */
+  private deriveDayOfWeek(dateStr: string): number {
+    return new Date(`${dateStr}T00:00:00Z`).getUTCDay();
+  }
+
   async findByUser(
     userId: string,
     organizationId?: string | null,
@@ -32,10 +40,16 @@ export class AvailabilityRuleService {
     userId: string,
     dto: CreateAvailabilityRuleDto,
   ): Promise<AvailabilityRule> {
+    // Auto-derive day_of_week from date when date is provided
+    const dayOfWeek = dto.date
+      ? this.deriveDayOfWeek(dto.date)
+      : dto.day_of_week;
+
     const rule = this.availabilityRuleRepository.create({
       user_id: userId,
       organization_id: dto.organization_id ?? null,
-      day_of_week: dto.day_of_week,
+      date: dto.date ?? null,
+      day_of_week: dayOfWeek,
       start_time: dto.start_time,
       end_time: dto.end_time,
       is_available: dto.is_available ?? true,
@@ -113,19 +127,24 @@ export class AvailabilityRuleService {
 
     if (dto.rules.length === 0) return [];
 
-    const entities = dto.rules.map((rule) =>
-      this.availabilityRuleRepository.create({
+    const entities = dto.rules.map((rule) => {
+      const dayOfWeek = rule.date
+        ? this.deriveDayOfWeek(rule.date)
+        : rule.day_of_week;
+
+      return this.availabilityRuleRepository.create({
         user_id: userId,
         organization_id: orgId,
-        day_of_week: rule.day_of_week,
+        date: rule.date ?? null,
+        day_of_week: dayOfWeek,
         start_time: rule.start_time,
         end_time: rule.end_time,
         is_available: rule.is_available ?? true,
         shift_type: rule.shift_type ?? null,
         effective_from: rule.effective_from ? new Date(rule.effective_from) : null,
         effective_until: rule.effective_until ? new Date(rule.effective_until) : null,
-      }),
-    );
+      });
+    });
 
     return this.availabilityRuleRepository.save(entities);
   }
@@ -155,11 +174,16 @@ export class AvailabilityRuleService {
 
     if (dto.rules.length === 0) return [];
 
+    // The URL date param is the source of truth — always derive day_of_week
+    // from it so a frontend timezone bug can never store the wrong day.
+    const dayOfWeek = this.deriveDayOfWeek(date);
+
     const entities = dto.rules.map((rule) =>
       this.availabilityRuleRepository.create({
         user_id: userId,
         organization_id: orgId,
-        day_of_week: rule.day_of_week,
+        date,
+        day_of_week: dayOfWeek,
         start_time: rule.start_time,
         end_time: rule.end_time,
         is_available: rule.is_available ?? true,

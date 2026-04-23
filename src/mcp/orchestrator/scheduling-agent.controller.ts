@@ -67,10 +67,10 @@ class SchedulingAgentDto {
   organizationId: string;
 
   /**
-   * Client-supplied IANA timezone (e.g. "Asia/Karachi"). The frontend
+   * Client-supplied IANA timezone (e.g. "America/Los_Angeles"). The frontend
    * should derive this from `Intl.DateTimeFormat().resolvedOptions().timeZone`
    * and send it on every request so shift times render in the user's local
-   * time. Falls back to UTC if missing or invalid.
+   * time. Falls back to America/Los_Angeles (US Pacific) if missing or invalid.
    */
   @IsOptional()
   @IsString()
