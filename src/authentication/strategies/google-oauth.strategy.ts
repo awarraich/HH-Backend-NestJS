@@ -10,7 +10,12 @@ export class GoogleOAuthStrategy extends PassportStrategy(Strategy, 'google') {
       clientID: googleOAuthConfigService.clientId,
       clientSecret: googleOAuthConfigService.clientSecret,
       callbackURL: googleOAuthConfigService.callbackURL,
-      scope: ['email', 'profile'],
+      scope: [
+        'openid',
+        'email',
+        'profile',
+        'https://www.googleapis.com/auth/calendar'
+      ]
     });
   }
 
