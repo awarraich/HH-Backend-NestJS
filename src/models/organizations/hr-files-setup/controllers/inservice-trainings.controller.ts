@@ -1,29 +1,25 @@
 import {
+  Body,
   Controller,
-  Get,
-  Post,
-  Patch,
   Delete,
-  Param,
-  Query,
-  UseGuards,
-  Req,
-  Res,
+  Get,
   HttpCode,
   HttpStatus,
-  BadRequestException,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  UseGuards,
 } from '@nestjs/common';
-import type { FastifyRequest, FastifyReply } from 'fastify';
-import { validate } from 'class-validator';
-import { plainToInstance } from 'class-transformer';
+import type { FastifyRequest } from 'fastify';
 import { JwtAuthGuard } from '../../../../common/guards/jwt-auth.guard';
-import { OrganizationRoleGuard } from '../../../../common/guards/organization-role.guard';
-import { Roles } from '../../../../common/decorators/roles.decorator';
 import { SuccessHelper } from '../../../../common/helpers/responses/success.helper';
 import { InserviceTrainingService } from '../services/inservice-training.service';
 import { CreateInserviceTrainingDto } from '../dto/create-inservice-training.dto';
 import { UpdateInserviceTrainingDto } from '../dto/update-inservice-training.dto';
 import { QueryInserviceTrainingDto } from '../dto/query-inservice-training.dto';
+import { PresignInserviceUploadDto } from '../dto/presign-inservice-upload.dto';
 
 type MultipartField =
   | { value?: string }
@@ -90,8 +86,6 @@ function getMultipartFiles(
 
 @Controller('v1/api/organizations/:organizationId/inservice-trainings')
 @UseGuards(JwtAuthGuard)
-// OrganizationRoleGuard
-// @Roles('OWNER', 'HR', 'MANAGER')
 export class InserviceTrainingsController {
   constructor(private readonly inserviceTrainingService: InserviceTrainingService) {}
 
@@ -102,7 +96,7 @@ export class InserviceTrainingsController {
     @Query() query: QueryInserviceTrainingDto,
     @Req() req: FastifyRequest & { user?: { userId?: string; sub?: string } },
   ) {
-    const userId = req.user?.userId ?? req.user?.sub ?? '';
+    const userId = userIdFromReq(req);
     const result = await this.inserviceTrainingService.findAll(organizationId, query, userId);
     return SuccessHelper.createPaginatedResponse(
       result.data,
@@ -112,31 +106,41 @@ export class InserviceTrainingsController {
     );
   }
 
-  @Get(':id/pdf')
+  @Post('presign-upload')
   @HttpCode(HttpStatus.OK)
-  async downloadPdf(
+  async presignUpload(
+    @Param('organizationId') organizationId: string,
+    @Body() dto: PresignInserviceUploadDto,
+    @Req() req: FastifyRequest & { user?: { userId?: string; sub?: string } },
+  ) {
+    const userId = userIdFromReq(req);
+    const data = await this.inserviceTrainingService.presignUpload(
+      organizationId,
+      dto.inservice_id ?? 'new',
+      dto.filename,
+      dto.contentType,
+      userId,
+    );
+    return SuccessHelper.createSuccessResponse(data);
+  }
+
+  @Get(':id/pdf-url')
+  @HttpCode(HttpStatus.OK)
+  async getPdfUrl(
     @Param('organizationId') organizationId: string,
     @Param('id') id: string,
     @Query('fileIndex') fileIndexStr: string,
-    @Res() reply: FastifyReply,
     @Req() req: FastifyRequest & { user?: { userId?: string; sub?: string } },
   ) {
-    const userId = req.user?.userId ?? req.user?.sub ?? '';
+    const userId = userIdFromReq(req);
     const fileIndex = parseInt(fileIndexStr, 10) || 0;
-    const { stream, contentType, file_name } = await this.inserviceTrainingService.getPdfStream(
+    const data = await this.inserviceTrainingService.getPdfFileUrl(
       organizationId,
       id,
       userId,
       fileIndex,
     );
-    const safeName = file_name.replace(/[^\x20-\x7E]/g, '_').replace(/["\\]/g, '_');
-    const encodedName = encodeURIComponent(file_name);
-    reply.header('Content-Type', contentType);
-    reply.header(
-      'Content-Disposition',
-      `attachment; filename="${safeName}"; filename*=UTF-8''${encodedName}`,
-    );
-    return reply.send(stream);
+    return SuccessHelper.createSuccessResponse(data);
   }
 
   @Get(':id')
@@ -146,7 +150,7 @@ export class InserviceTrainingsController {
     @Param('id') id: string,
     @Req() req: FastifyRequest & { user?: { userId?: string; sub?: string } },
   ) {
-    const userId = req.user?.userId ?? req.user?.sub ?? '';
+    const userId = userIdFromReq(req);
     const result = await this.inserviceTrainingService.findOne(organizationId, id, userId);
     return SuccessHelper.createSuccessResponse(result);
   }
@@ -155,11 +159,8 @@ export class InserviceTrainingsController {
   @HttpCode(HttpStatus.CREATED)
   async create(
     @Param('organizationId') organizationId: string,
-    @Req()
-    req: FastifyRequest & {
-      isMultipart?: () => boolean;
-      body?: Record<string, MultipartField | MultipartField[]>;
-    },
+    @Body() dto: CreateInserviceTrainingDto,
+    @Req() req: FastifyRequest & { user?: { userId?: string; sub?: string } },
   ) {
     const userId = (req as any).user?.userId ?? (req as any).user?.sub ?? '';
 
@@ -227,7 +228,7 @@ export class InserviceTrainingsController {
       organizationId,
       dto,
       userId,
-      files.length ? files : undefined,
+      dto.pdf_files,
     );
     return SuccessHelper.createSuccessResponse(result, 'Inservice training created successfully');
   }
@@ -237,11 +238,8 @@ export class InserviceTrainingsController {
   async update(
     @Param('organizationId') organizationId: string,
     @Param('id') id: string,
-    @Req()
-    req: FastifyRequest & {
-      isMultipart?: () => boolean;
-      body?: Record<string, MultipartField | MultipartField[]>;
-    },
+    @Body() dto: UpdateInserviceTrainingDto,
+    @Req() req: FastifyRequest & { user?: { userId?: string; sub?: string } },
   ) {
     const userId = (req as any).user?.userId ?? (req as any).user?.sub ?? '';
 
@@ -340,7 +338,7 @@ export class InserviceTrainingsController {
       id,
       dto,
       userId,
-      files.length ? files : undefined,
+      dto.pdf_files,
     );
     return SuccessHelper.createSuccessResponse(result, 'Inservice training updated successfully');
   }
@@ -352,7 +350,7 @@ export class InserviceTrainingsController {
     @Param('id') id: string,
     @Req() req: FastifyRequest & { user?: { userId?: string; sub?: string } },
   ) {
-    const userId = req.user?.userId ?? req.user?.sub ?? '';
+    const userId = userIdFromReq(req);
     await this.inserviceTrainingService.remove(organizationId, id, userId);
     return SuccessHelper.createSuccessResponse(null, 'Inservice training deleted successfully');
   }

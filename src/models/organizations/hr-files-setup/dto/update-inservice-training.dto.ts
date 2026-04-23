@@ -85,4 +85,10 @@ export class UpdateInserviceTrainingDto {
   @Min(0)
   @Max(100)
   passing_score_percent?: number | null;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InserviceTrainingPdfFileDto)
+  pdf_files?: InserviceTrainingPdfFileDto[];
 }

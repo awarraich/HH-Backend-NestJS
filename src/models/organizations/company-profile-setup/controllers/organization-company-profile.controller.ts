@@ -10,14 +10,13 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
-  Req,
   BadRequestException,
   UnauthorizedException,
   InternalServerErrorException,
   HttpException,
   Logger,
 } from '@nestjs/common';
-import type { FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyReply } from 'fastify';
 import { JwtAuthGuard } from '../../../../common/guards/jwt-auth.guard';
 import { OrganizationRoleGuard } from '../../../../common/guards/organization-role.guard';
 import { Roles } from '../../../../common/decorators/roles.decorator';
@@ -26,6 +25,9 @@ import type { UserWithRolesInterface } from '../../../../common/interfaces/user-
 import { SuccessHelper } from '../../../../common/helpers/responses/success.helper';
 import { OrganizationCompanyProfileService } from '../services/organization-company-profile.service';
 import { UpdateOrganizationCompanyProfileDto } from '../dto/update-organization-company-profile.dto';
+import { PresignCompanyProfileUploadDto } from '../dto/presign-company-profile-upload.dto';
+import { ConfirmCompanyProfileGalleryUploadDto } from '../dto/confirm-company-profile-gallery-upload.dto';
+import { ConfirmCompanyProfileVideoUploadDto } from '../dto/confirm-company-profile-video-upload.dto';
 
 @Controller('v1/api/organizations/:organizationId/company-profile')
 export class OrganizationCompanyProfileController {
@@ -130,140 +132,117 @@ export class OrganizationCompanyProfileController {
     }
   }
 
-  @Post('gallery/upload')
+  @Post('gallery/presign-upload')
   @UseGuards(JwtAuthGuard, OrganizationRoleGuard)
   @Roles('OWNER', 'HR', 'MANAGER')
-  @HttpCode(HttpStatus.CREATED)
-  async uploadGalleryImage(
+  @HttpCode(HttpStatus.OK)
+  async presignGalleryUpload(
     @Param('organizationId') organizationId: string,
-    @Req() request: FastifyRequest,
+    @Body() dto: PresignCompanyProfileUploadDto,
     @LoggedInUser() user: UserWithRolesInterface,
   ) {
     try {
       this.ensureOrganizationId(organizationId);
       const userId = user?.userId;
       if (!userId) throw new UnauthorizedException('User not found');
-
-      const multipartRequest = request as FastifyRequest & {
-        isMultipart?: () => boolean;
-        body?: Record<
-          string,
-          | { value?: string; toBuffer?: () => Promise<Buffer>; filename?: string }
-          | Array<{ value?: string; toBuffer?: () => Promise<Buffer>; filename?: string }>
-        >;
-      };
-
-      if (!multipartRequest.isMultipart?.()) {
-        throw new BadRequestException(
-          'Use multipart/form-data with field "file", optional "caption", "category".',
-        );
-      }
-
-      const body = multipartRequest.body;
-      const filePart = body?.file;
-      const singleFile = Array.isArray(filePart) ? filePart[0] : filePart;
-      const captionRaw = body?.caption;
-      const categoryRaw = body?.category;
-      const caption =
-        typeof captionRaw === 'object' && captionRaw && 'value' in captionRaw
-          ? ((captionRaw as { value?: string }).value ?? '')
-          : typeof captionRaw === 'string'
-            ? captionRaw
-            : '';
-      const category =
-        typeof categoryRaw === 'object' && categoryRaw && 'value' in categoryRaw
-          ? ((categoryRaw as { value?: string }).value ?? '')
-          : typeof categoryRaw === 'string'
-            ? categoryRaw
-            : '';
-
-      if (!singleFile?.toBuffer || !singleFile?.filename) {
-        throw new BadRequestException('No file uploaded. Send a field named "file".');
-      }
-
-      const buffer = await singleFile.toBuffer();
-      const result = await this.companyProfileService.uploadGalleryImage(
+      const data = await this.companyProfileService.presignGalleryUpload(
         organizationId,
-        { buffer, originalFilename: singleFile.filename },
-        caption,
-        category,
+        dto.filename,
+        dto.contentType,
+        userId,
+      );
+      return SuccessHelper.createSuccessResponse(data);
+    } catch (error) {
+      this.handleError(error, 'presignGalleryUpload');
+    }
+  }
+
+  @Post('gallery')
+  @UseGuards(JwtAuthGuard, OrganizationRoleGuard)
+  @Roles('OWNER', 'HR', 'MANAGER')
+  @HttpCode(HttpStatus.CREATED)
+  async confirmGalleryUpload(
+    @Param('organizationId') organizationId: string,
+    @Body() dto: ConfirmCompanyProfileGalleryUploadDto,
+    @LoggedInUser() user: UserWithRolesInterface,
+  ) {
+    try {
+      this.ensureOrganizationId(organizationId);
+      const userId = user?.userId;
+      if (!userId) throw new UnauthorizedException('User not found');
+      const result = await this.companyProfileService.confirmGalleryUpload(
+        organizationId,
+        { key: dto.key, caption: dto.caption ?? '', category: dto.category ?? '' },
         userId,
       );
       return SuccessHelper.createSuccessResponse(result, 'Gallery image uploaded successfully');
     } catch (error) {
-      this.handleError(error, 'uploadGalleryImage');
+      this.handleError(error, 'confirmGalleryUpload');
     }
   }
 
-  @Post('videos/upload')
+  @Post('videos/presign-upload')
   @UseGuards(JwtAuthGuard, OrganizationRoleGuard)
   @Roles('OWNER', 'HR', 'MANAGER')
-  @HttpCode(HttpStatus.CREATED)
-  async uploadVideo(
+  @HttpCode(HttpStatus.OK)
+  async presignVideoUpload(
     @Param('organizationId') organizationId: string,
-    @Req() request: FastifyRequest,
+    @Body() dto: PresignCompanyProfileUploadDto,
     @LoggedInUser() user: UserWithRolesInterface,
   ) {
     try {
       this.ensureOrganizationId(organizationId);
       const userId = user?.userId;
       if (!userId) throw new UnauthorizedException('User not found');
-
-      const multipartRequest = request as FastifyRequest & {
-        isMultipart?: () => boolean;
-        body?: Record<
-          string,
-          | { value?: string; toBuffer?: () => Promise<Buffer>; filename?: string }
-          | Array<{ value?: string; toBuffer?: () => Promise<Buffer>; filename?: string }>
-        >;
-      };
-
-      if (!multipartRequest.isMultipart?.()) {
-        throw new BadRequestException(
-          'Use multipart/form-data with field "file", "title", optional "description", "duration", "category".',
-        );
-      }
-
-      const body = multipartRequest.body;
-      const filePart = body?.file;
-      const singleFile = Array.isArray(filePart) ? filePart[0] : filePart;
-      const getStr = (key: string): string => {
-        const raw = body?.[key];
-        if (typeof raw === 'object' && raw && 'value' in raw)
-          return (raw as { value?: string }).value ?? '';
-        return typeof raw === 'string' ? raw : '';
-      };
-      const title = getStr('title');
-      if (!title?.trim()) {
-        throw new BadRequestException('"title" is required.');
-      }
-
-      if (!singleFile?.toBuffer || !singleFile?.filename) {
-        throw new BadRequestException('No file uploaded. Send a field named "file".');
-      }
-
-      const buffer = await singleFile.toBuffer();
-      const result = await this.companyProfileService.uploadVideo(
+      const data = await this.companyProfileService.presignVideoUpload(
         organizationId,
-        { buffer, originalFilename: singleFile.filename },
+        dto.filename,
+        dto.contentType,
+        userId,
+      );
+      return SuccessHelper.createSuccessResponse(data);
+    } catch (error) {
+      this.handleError(error, 'presignVideoUpload');
+    }
+  }
+
+  @Post('videos')
+  @UseGuards(JwtAuthGuard, OrganizationRoleGuard)
+  @Roles('OWNER', 'HR', 'MANAGER')
+  @HttpCode(HttpStatus.CREATED)
+  async confirmVideoUpload(
+    @Param('organizationId') organizationId: string,
+    @Body() dto: ConfirmCompanyProfileVideoUploadDto,
+    @LoggedInUser() user: UserWithRolesInterface,
+  ) {
+    try {
+      this.ensureOrganizationId(organizationId);
+      const userId = user?.userId;
+      if (!userId) throw new UnauthorizedException('User not found');
+      const result = await this.companyProfileService.confirmVideoUpload(
+        organizationId,
         {
-          title: title.trim(),
-          description: getStr('description') || undefined,
-          duration: getStr('duration') || undefined,
-          category: getStr('category') || undefined,
+          key: dto.key,
+          title: dto.title,
+          description: dto.description,
+          duration: dto.duration,
+          category: dto.category,
         },
         userId,
       );
       return SuccessHelper.createSuccessResponse(result, 'Video uploaded successfully');
     } catch (error) {
-      this.handleError(error, 'uploadVideo');
+      this.handleError(error, 'confirmVideoUpload');
     }
   }
 
+  /**
+   * Preserves the existing /media/:type/:fileId URL pattern — now 302-redirects
+   * to a short-TTL presigned S3 GET URL. <img src> / <video src> / fetch all work.
+   */
   @Get('media/:type/:fileId')
   @UseGuards(JwtAuthGuard, OrganizationRoleGuard)
   @Roles('OWNER', 'HR', 'MANAGER')
-  @HttpCode(HttpStatus.OK)
   async getMedia(
     @Param('organizationId') organizationId: string,
     @Param('type') type: string,
@@ -281,25 +260,20 @@ export class OrganizationCompanyProfileController {
       if (!fileId?.trim()) {
         throw new BadRequestException('fileId is required.');
       }
-      const { stream, contentType, file_name } = await this.companyProfileService.getMediaStream(
+      const { url } = await this.companyProfileService.getMediaSignedUrl(
         organizationId,
         type as 'gallery' | 'video',
         fileId,
         userId,
       );
-      const safeName = (file_name ?? 'file').replace(/["\\]/g, '_');
-      return reply
-        .header('Content-Type', contentType)
-        .header('Content-Disposition', `inline; filename="${safeName}"`)
-        .send(stream);
+      return reply.redirect(url, 302);
     } catch (error) {
       this.handleError(error, 'getMedia');
     }
   }
 
-  /** Public media URL for embedded gallery/video on public profile page (no auth). */
+  /** Public media URL for embedded gallery/video on public profile page (no auth). 302 redirect to signed URL. */
   @Get('public-media/:type/:fileId')
-  @HttpCode(HttpStatus.OK)
   async getPublicMedia(
     @Param('organizationId') organizationId: string,
     @Param('type') type: string,
@@ -314,17 +288,12 @@ export class OrganizationCompanyProfileController {
       if (!fileId?.trim()) {
         throw new BadRequestException('fileId is required.');
       }
-      const { stream, contentType, file_name } =
-        await this.companyProfileService.getMediaStreamPublic(
-          organizationId,
-          type as 'gallery' | 'video',
-          fileId,
-        );
-      const safeName = (file_name ?? 'file').replace(/["\\]/g, '_');
-      return reply
-        .header('Content-Type', contentType)
-        .header('Content-Disposition', `inline; filename="${safeName}"`)
-        .send(stream);
+      const { url } = await this.companyProfileService.getMediaSignedUrlPublic(
+        organizationId,
+        type as 'gallery' | 'video',
+        fileId,
+      );
+      return reply.redirect(url, 302);
     } catch (error) {
       this.handleError(error, 'getPublicMedia');
     }

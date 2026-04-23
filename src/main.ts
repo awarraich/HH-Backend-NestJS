@@ -75,10 +75,8 @@ async function bootstrap(): Promise<void> {
     },
   );
 
-  await fastifyInstance.register(require('@fastify/multipart'), {
-    limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
-    attachFieldsToBody: true, // so multipart create can read "data" field from body
-  });
+  // Multipart uploads removed: uploads now go directly to S3 via presigned PUT URLs.
+  // See src/common/services/s3 for the S3 utility and the /presign-upload endpoints on each feature.
 
   await app.init();
   const moduleRef = app.select(AuthenticationModule);

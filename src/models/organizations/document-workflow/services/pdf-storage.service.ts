@@ -1,19 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
-import { StorageConfigService } from '../../../../config/storage/config.service';
+import { S3Service, PresignedUploadResult } from '../../../../common/services/s3/s3.service';
 
 const DOCUMENT_WORKFLOW_SUBDIR = 'document-workflow';
 
 @Injectable()
 export class PdfStorageService {
-  constructor(
-    private readonly storageConfig: StorageConfigService,
-    private readonly configService: ConfigService,
-  ) {}
+  constructor(private readonly s3: S3Service) {}
 
   async upload(
     buffer: Buffer,
@@ -22,100 +16,44 @@ export class PdfStorageService {
     templateId: string,
   ): Promise<{ file_key: string; original_name: string; size_bytes: number }> {
     const ext = path.extname(originalFilename) || '.pdf';
-    const storedName = `${Date.now()}_${randomUUID()}${ext}`;
-    const relativePath = `${DOCUMENT_WORKFLOW_SUBDIR}/${organizationId}/${templateId}/${storedName}`;
+    const key = `${DOCUMENT_WORKFLOW_SUBDIR}/${organizationId}/${templateId}/${Date.now()}_${randomUUID()}${ext}`;
 
-    if (this.storageConfig.isS3) {
-      await this.saveToS3(buffer, relativePath, originalFilename);
-    } else {
-      await this.saveToLocal(buffer, relativePath);
-    }
+    await this.s3.putObject({
+      key,
+      body: buffer,
+      contentType: this.guessContentType(originalFilename),
+    });
 
     return {
-      file_key: relativePath,
+      file_key: key,
       original_name: originalFilename,
       size_bytes: buffer.length,
     };
   }
 
-  async getPresignedUrl(key: string): Promise<string> {
-    if (this.storageConfig.isS3) {
-      const bucket = this.storageConfig.s3Bucket;
-      const region = this.storageConfig.s3Region;
-      return `https://${bucket}.s3.${region}.amazonaws.com/${key}`;
-    }
-
-    return path.join(this.storageConfig.path, key);
-  }
-
-  async delete(key: string): Promise<void> {
-    if (this.storageConfig.isS3) {
-      const client = this.createS3Client();
-      await client.send(
-        new DeleteObjectCommand({ Bucket: this.storageConfig.s3Bucket, Key: key }),
-      );
-      return;
-    }
-
-    const fullPath = path.join(this.storageConfig.path, key);
-    if (fs.existsSync(fullPath)) {
-      fs.unlinkSync(fullPath);
-    }
-  }
-
-  async getFileStream(
-    key: string,
-    fileName: string,
-  ): Promise<{ stream: NodeJS.ReadableStream; contentType: string }> {
-    if (this.storageConfig.isS3) {
-      const client = this.createS3Client();
-      const response = await client.send(
-        new GetObjectCommand({ Bucket: this.storageConfig.s3Bucket, Key: key }),
-      );
-      if (!response.Body) throw new Error('File not found in storage');
-      const contentType = response.ContentType ?? this.guessContentType(fileName);
-      return { stream: response.Body as NodeJS.ReadableStream, contentType };
-    }
-
-    const fullPath = path.join(this.storageConfig.path, key);
-    if (!fs.existsSync(fullPath)) throw new Error('File not found in storage');
-    const stream = fs.createReadStream(fullPath);
-    const contentType = this.guessContentType(fileName);
-    return { stream, contentType };
-  }
-
-  private createS3Client(): S3Client {
-    return new S3Client({
-      region: this.storageConfig.s3Region,
-      credentials:
-        this.storageConfig.s3AccessKeyId && this.storageConfig.s3SecretAccessKey
-          ? {
-              accessKeyId: this.storageConfig.s3AccessKeyId,
-              secretAccessKey: this.storageConfig.s3SecretAccessKey,
-            }
-          : undefined,
+  presignUpload(
+    organizationId: string,
+    templateId: string,
+    filename: string,
+    contentType: string,
+  ): Promise<PresignedUploadResult> {
+    return this.s3.generatePresignedPutUrl({
+      folder: `${DOCUMENT_WORKFLOW_SUBDIR}/${organizationId}/${templateId}`,
+      filename,
+      contentType,
     });
   }
 
-  private async saveToS3(buffer: Buffer, key: string, originalFilename: string): Promise<void> {
-    const bucket = this.storageConfig.s3Bucket;
-    if (!bucket) throw new Error('S3 bucket not configured (STORAGE_TYPE=s3 requires S3_BUCKET_NAME)');
-
-    const client = this.createS3Client();
-    await client.send(
-      new PutObjectCommand({
-        Bucket: bucket,
-        Key: key,
-        Body: buffer,
-        ContentType: this.guessContentType(originalFilename),
-      }),
-    );
+  verifyUploaded(key: string): Promise<boolean> {
+    return this.s3.objectExists(key);
   }
 
-  private async saveToLocal(buffer: Buffer, relativePath: string): Promise<void> {
-    const fullPath = path.join(this.storageConfig.path, relativePath);
-    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-    fs.writeFileSync(fullPath, buffer);
+  getPresignedUrl(key: string, expiresIn?: number): Promise<string> {
+    return this.s3.generatePresignedGetUrl(key, expiresIn);
+  }
+
+  delete(key: string): Promise<boolean> {
+    return this.s3.deleteObject(key);
   }
 
   private guessContentType(filename: string): string {

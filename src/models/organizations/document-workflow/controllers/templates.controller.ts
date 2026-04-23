@@ -141,6 +141,33 @@ export class TemplatesController {
     return SuccessHelper.createSuccessResponse(null, 'User unassigned from template.');
   }
 
+  /**
+   * Returns the signed S3 URL as JSON.
+   * Prefer this for pdf.js / react-pdf / any fetch()-based viewer:
+   * a redirect would taint the request origin to `null` during CORS preflight
+   * and S3 would reject it.
+   */
+  @Get(':id/pdf/file-url')
+  @Roles()
+  async getPdfFileUrl(
+    @Param('organizationId') orgId: string,
+    @Param('id') id: string,
+  ) {
+    const data = await this.service.getPdfSignedUrl(orgId, id);
+    return SuccessHelper.createSuccessResponse(data);
+  }
+
+  /**
+   * Streams the PDF bytes through the backend.
+   *
+   * Note on the earlier 302-to-S3 approach: a cross-origin redirect during a
+   * fetch()-based viewer's CORS request taints the request origin to `null`,
+   * which S3 can't match against the bucket's per-origin CORS rules. Proxying
+   * the bytes through the backend keeps the response same-origin-friendly
+   * (our app-level CORS applies) and unblocks react-pdf / pdf.js range reads.
+   * For public media (images, videos via <img>/<video>) the redirect pattern
+   * is fine — use /pdf/file-url when you want the signed S3 URL as JSON.
+   */
   @Get(':id/pdf/view')
   @Roles()
   async viewPdf(
@@ -148,44 +175,51 @@ export class TemplatesController {
     @Param('id') id: string,
     @Res() reply: FastifyReply,
   ) {
-    const { stream, contentType, fileName } = await this.service.getPdfStream(orgId, id);
-    const safeName = encodeURIComponent(fileName).replace(/%20/g, '+');
+    const { buffer, contentType, fileName } = await this.service.getPdfBuffer(orgId, id);
+    const safeName = fileName.replace(/["\\]/g, '_');
     return reply
       .header('Content-Type', contentType)
       .header('Content-Disposition', `inline; filename="${safeName}"`)
-      .send(stream);
+      .header('Accept-Ranges', 'bytes')
+      .header('Cache-Control', 'private, max-age=60')
+      .send(buffer);
+  }
+
+  @Post(':id/pdf/presign-upload')
+  @HttpCode(HttpStatus.OK)
+  async presignPdfUpload(
+    @Param('organizationId') orgId: string,
+    @Param('id') id: string,
+    @Body() body: { filename: string; contentType: string },
+  ) {
+    if (!body?.filename || typeof body.filename !== 'string') {
+      throw new BadRequestException('filename is required');
+    }
+    if (!body?.contentType || typeof body.contentType !== 'string') {
+      throw new BadRequestException('contentType is required');
+    }
+    const data = await this.service.presignPdfUpload(orgId, id, body.filename, body.contentType);
+    return SuccessHelper.createSuccessResponse(data);
   }
 
   @Post(':id/pdf')
   @HttpCode(HttpStatus.OK)
-  async uploadPdf(
+  async confirmPdfUpload(
     @Param('organizationId') orgId: string,
     @Param('id') id: string,
-    @Req() request: RequestWithUser,
+    @Body() body: { key: string; file_name: string; size_bytes?: number },
   ) {
-    const multipartRequest = request as RequestWithUser & {
-      isMultipart?: () => boolean;
-      body?: Record<
-        string,
-        | { value?: string; toBuffer?: () => Promise<Buffer>; filename?: string }
-        | Array<{ toBuffer?: () => Promise<Buffer>; filename?: string }>
-      >;
-    };
-
-    if (!multipartRequest.isMultipart?.()) {
-      throw new BadRequestException('Expected multipart form data.');
+    if (!body?.key || typeof body.key !== 'string') {
+      throw new BadRequestException('key is required');
     }
-
-    const body = multipartRequest.body;
-    const filePart = body?.file ?? body?.document;
-    const singleFile = Array.isArray(filePart) ? filePart[0] : filePart;
-
-    if (!singleFile?.toBuffer || !singleFile?.filename) {
-      throw new BadRequestException('No file uploaded. Send a field named "file" or "document".');
+    if (!body?.file_name || typeof body.file_name !== 'string') {
+      throw new BadRequestException('file_name is required');
     }
-
-    const buffer = await singleFile.toBuffer();
-    const data = await this.service.uploadPdf(orgId, id, buffer, singleFile.filename, buffer.length);
+    const data = await this.service.confirmPdfUpload(orgId, id, {
+      key: body.key,
+      fileName: body.file_name,
+      ...(body.size_bytes != null ? { sizeBytes: body.size_bytes } : {}),
+    });
     return SuccessHelper.createSuccessResponse(data, 'PDF uploaded.');
   }
 }

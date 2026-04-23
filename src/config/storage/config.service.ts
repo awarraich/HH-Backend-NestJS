@@ -5,14 +5,6 @@ import { ConfigService } from '@nestjs/config';
 export class StorageConfigService {
   constructor(private configService: ConfigService) {}
 
-  get type(): string {
-    return this.configService.get<string>('storage.type', 'local');
-  }
-
-  get path(): string {
-    return this.configService.get<string>('storage.path', './storage');
-  }
-
   get s3Region(): string {
     return this.configService.get<string>('storage.s3.region', 'us-east-1');
   }
@@ -27,9 +19,5 @@ export class StorageConfigService {
 
   get s3SecretAccessKey(): string {
     return this.configService.get<string>('storage.s3.secretAccessKey', '');
-  }
-
-  get isS3(): boolean {
-    return this.type === 's3';
   }
 }
