@@ -36,10 +36,18 @@ export class InserviceTraining {
   expiry_months: number | null;
 
   @Column({ type: 'jsonb', default: [] })
-  pdf_files: Array<{ file_name: string; file_path: string; file_size_bytes: number }>;
+  pdf_files: Array<{
+    file_name: string;
+    file_path: string;
+    file_size_bytes: number;
+    title?: string;
+  }>;
 
   @Column({ type: 'jsonb', default: [] })
   video_urls: string[];
+
+  @Column({ type: 'jsonb', default: [] })
+  video_titles: string[];
 
   @Column({ type: 'integer', default: 0 })
   sort_order: number;

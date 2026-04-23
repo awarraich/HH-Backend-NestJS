@@ -57,6 +57,17 @@ function parseJsonStringArray(raw: string): string[] | undefined {
   return [raw];
 }
 
+function parseJsonArray<T>(raw: string): T[] | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed as T[];
+  } catch {
+    /* not valid JSON */
+  }
+  return undefined;
+}
+
 function isFilePart(field: MultipartField): field is MultipartFilePart {
   return (
     !!field &&
@@ -165,6 +176,10 @@ export class InserviceTrainingsController {
     const completion_frequency = getMultipartString(body.completion_frequency);
     const video_urlsRaw = getMultipartString(body.video_urls);
     const video_urls = parseJsonStringArray(video_urlsRaw);
+    const video_titlesRaw = getMultipartString(body.video_titles);
+    const video_titles = parseJsonArray<string>(video_titlesRaw);
+    const file_titlesRaw = getMultipartString(body.file_titles);
+    const file_titles = parseJsonArray<string>(file_titlesRaw);
     const sort_orderStr = getMultipartString(body.sort_order);
     const has_quizStr = getMultipartString(body.has_quiz);
     const passing_score_percentStr = getMultipartString(body.passing_score_percent);
@@ -180,6 +195,8 @@ export class InserviceTrainingsController {
       description: description || undefined,
       completion_frequency: completion_frequency || undefined,
       video_urls: video_urls?.length ? video_urls : undefined,
+      video_titles: video_titles ?? undefined,
+      file_titles: file_titles ?? undefined,
       sort_order: Number.isFinite(sort_order) ? sort_order : undefined,
       has_quiz,
       passing_score_percent: Number.isFinite(passing_score_percent)
@@ -241,6 +258,14 @@ export class InserviceTrainingsController {
     const completion_frequencyVal =
       body.completion_frequency != null ? getMultipartString(body.completion_frequency) : undefined;
     const video_urlsRaw = body.video_urls != null ? getMultipartString(body.video_urls) : undefined;
+    const video_titlesRaw =
+      body.video_titles != null ? getMultipartString(body.video_titles) : undefined;
+    const file_titlesRaw =
+      body.file_titles != null ? getMultipartString(body.file_titles) : undefined;
+    const existing_file_titlesRaw =
+      body.existing_file_titles != null ? getMultipartString(body.existing_file_titles) : undefined;
+    const remove_file_pathsRaw =
+      body.remove_file_paths != null ? getMultipartString(body.remove_file_paths) : undefined;
     const sort_orderStr = body.sort_order != null ? getMultipartString(body.sort_order) : undefined;
     const is_activeStr = body.is_active != null ? getMultipartString(body.is_active) : undefined;
     const has_quizStr = body.has_quiz != null ? getMultipartString(body.has_quiz) : undefined;
@@ -267,6 +292,19 @@ export class InserviceTrainingsController {
       }),
       ...(video_urlsRaw !== undefined && {
         video_urls: parseJsonStringArray(video_urlsRaw) ?? [],
+      }),
+      ...(video_titlesRaw !== undefined && {
+        video_titles: parseJsonArray<string>(video_titlesRaw) ?? [],
+      }),
+      ...(file_titlesRaw !== undefined && {
+        file_titles: parseJsonArray<string>(file_titlesRaw) ?? [],
+      }),
+      ...(existing_file_titlesRaw !== undefined && {
+        existing_file_titles:
+          parseJsonArray<{ file_path: string; title: string }>(existing_file_titlesRaw) ?? [],
+      }),
+      ...(remove_file_pathsRaw !== undefined && {
+        remove_file_paths: parseJsonArray<string>(remove_file_pathsRaw) ?? [],
       }),
       ...(Number.isFinite(sort_order) && { sort_order }),
       ...(is_active !== undefined && { is_active }),

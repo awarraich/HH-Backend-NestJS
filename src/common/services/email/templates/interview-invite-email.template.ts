@@ -17,6 +17,13 @@ export interface InterviewInviteOptions {
   contactName?: string;
   contactEmail?: string;
   contactPhone?: string;
+  /**
+   * Base URL of the employee portal's My Applications view.
+   * When provided, the Confirm / Can't Attend buttons link here so the
+   * candidate responds inside the app instead of via mailto.
+   */
+  confirmUrl?: string;
+  declineUrl?: string;
 }
 
 export class InterviewInviteEmailTemplate {
@@ -42,6 +49,8 @@ export class InterviewInviteEmailTemplate {
       contactName,
       contactEmail,
       contactPhone,
+      confirmUrl,
+      declineUrl,
     } = opts;
 
     const brandName = organizationName?.trim() || 'homehealth.ai';
@@ -276,20 +285,45 @@ export class InterviewInviteEmailTemplate {
                   </td>
                 </tr>
 
-                <!-- Confirm CTA -->
+                <!-- Response CTAs — confirm / can't attend -->
                 <tr>
                   <td align="center" style="padding: 4px 0 8px 0;">
                     <table role="presentation" cellspacing="0" cellpadding="0" border="0">
                       <tr>
-                        <td style="border-radius: 6px; background: #0f172a;">
-                          <a href="mailto:${hrEmail}?subject=Interview%20Confirmation%20%E2%80%93%20${encodeURIComponent(jobTitle)}"
+                        <td style="border-radius: 6px; background: #16a34a; padding-right: 10px;">
+                          <a href="${escapeHtml(
+                            confirmUrl ||
+                              `mailto:${hrEmail}?subject=Interview%20Confirmation%20%E2%80%93%20${encodeURIComponent(jobTitle)}`,
+                          )}"
                              target="_blank"
-                             style="display: inline-block; padding: 14px 36px; color: #ffffff; font-size: 14px; font-weight: 600; text-decoration: none; border-radius: 6px; letter-spacing: 0.2px;">
-                            Confirm Attendance
+                             style="display: inline-block; padding: 14px 28px; color: #ffffff; font-size: 14px; font-weight: 600; text-decoration: none; border-radius: 6px; letter-spacing: 0.2px; background: #16a34a;">
+                            ✓ Confirm Attendance
+                          </a>
+                        </td>
+                        <td style="width: 12px;">&nbsp;</td>
+                        <td style="border-radius: 6px; background: #ffffff; border: 1px solid #fca5a5;">
+                          <a href="${escapeHtml(
+                            declineUrl ||
+                              `mailto:${hrEmail}?subject=Interview%20%E2%80%93%20Can%27t%20Attend%20%E2%80%93%20${encodeURIComponent(jobTitle)}&body=${encodeURIComponent(
+                                'Hello,\n\nUnfortunately I am not available at the scheduled time. My availability is:\n\n',
+                              )}`,
+                          )}"
+                             target="_blank"
+                             style="display: inline-block; padding: 13px 28px; color: #b91c1c; font-size: 14px; font-weight: 600; text-decoration: none; border-radius: 6px; letter-spacing: 0.2px;">
+                            ✗ I can't make it
                           </a>
                         </td>
                       </tr>
                     </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center" style="padding: 6px 0 8px 0;">
+                    <p style="margin: 0; color: #6b7280; font-size: 12px;">
+                      ${confirmUrl
+                        ? "You'll be taken to your applications page to confirm."
+                        : 'Click a button above to reply by email.'}
+                    </p>
                   </td>
                 </tr>
 

@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { StorageConfigService } from '../../../../config/storage/config.service';
 
 const HR_DOCUMENTS_SUBDIR = 'hr-documents';
@@ -116,6 +116,38 @@ export class EmployeeDocumentStorageService {
       return { file_name: originalFilename, file_path: relativePath };
     }
     return this.saveToLocal(buffer, relativePath, originalFilename);
+  }
+
+  async deleteInserviceDocument(relativePath: string): Promise<void> {
+    if (!relativePath) return;
+    if (this.storageConfig.isS3) {
+      const bucket = this.storageConfig.s3Bucket;
+      if (!bucket) return;
+      const client = new S3Client({
+        region: this.storageConfig.s3Region,
+        credentials:
+          this.storageConfig.s3AccessKeyId && this.storageConfig.s3SecretAccessKey
+            ? {
+                accessKeyId: this.storageConfig.s3AccessKeyId,
+                secretAccessKey: this.storageConfig.s3SecretAccessKey,
+              }
+            : undefined,
+      });
+      try {
+        await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: relativePath }));
+      } catch {
+        /* swallow — storage cleanup is best-effort */
+      }
+      return;
+    }
+    const fullPath = this.getLocalFilePath(relativePath);
+    if (fullPath) {
+      try {
+        fs.unlinkSync(fullPath);
+      } catch {
+        /* swallow — storage cleanup is best-effort */
+      }
+    }
   }
 
   /**

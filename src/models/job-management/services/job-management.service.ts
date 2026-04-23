@@ -787,6 +787,31 @@ export class JobManagementService {
         );
       }
       application.status = next;
+
+      // Stamp the first time the app enters each milestone — power the
+      // activity timeline. `?? new Date()` preserves original stamps on
+      // status bounces (e.g. reject → reinstate → reject again keeps the
+      // original rejection time unless we explicitly reset on reinstate).
+      const now = new Date();
+      if (next === 'interview') {
+        application.interview_scheduled_at =
+          application.interview_scheduled_at ?? now;
+      } else if (next === 'offer_sent') {
+        application.offer_sent_at = application.offer_sent_at ?? now;
+      } else if (next === 'offer_accepted') {
+        application.offer_accepted_at = application.offer_accepted_at ?? now;
+      } else if (next === 'offer_declined') {
+        application.offer_declined_at = application.offer_declined_at ?? now;
+      } else if (next === 'rejected') {
+        application.rejected_at = now; // refresh on each reject so the
+        // timeline shows the latest decision
+      } else if (next === 'hired') {
+        application.hired_at = application.hired_at ?? now;
+      } else if (next === 'pending' || next === 'not_seen') {
+        // Reinstatement clears the rejection stamp so the timeline doesn't
+        // lie about terminal state.
+        application.rejected_at = null;
+      }
     }
     if (dto.interview_details !== undefined) {
       // Full replace — the frontend sends the complete snapshot on schedule.
@@ -799,6 +824,9 @@ export class JobManagementService {
         ...(application.offer_details ?? {}),
         ...dto.offer_details,
       };
+    }
+    if (dto.hr_notes !== undefined) {
+      application.hr_notes = dto.hr_notes == null ? null : String(dto.hr_notes);
     }
     return this.jobApplicationRepository.save(application);
   }
@@ -1248,6 +1276,13 @@ export class JobManagementService {
     const orgLogo = await this.companyProfileService.getOrganizationLogoBytes(
       organizationId,
     );
+    const frontendUrl =
+      process.env.HOME_HEALTH_AI_URL || process.env.FRONTEND_URL || '';
+    const portalBase = frontendUrl
+      ? `${frontendUrl.replace(/\/$/, '')}/employee/jobs?view=applications&app=${encodeURIComponent(applicationId)}`
+      : '';
+    const confirmUrl = portalBase ? `${portalBase}&response=confirmed` : undefined;
+    const declineUrl = portalBase ? `${portalBase}&response=unavailable` : undefined;
     try {
       await this.emailService.sendInterviewInviteEmail(
         dto.toEmail,
@@ -1268,6 +1303,8 @@ export class JobManagementService {
           contactName: dto.contactName,
           contactEmail: dto.contactEmail,
           contactPhone: dto.contactPhone,
+          confirmUrl,
+          declineUrl,
         },
         orgLogo,
       );

@@ -51,6 +51,18 @@ export class CreateInserviceTrainingDto {
   video_urls?: string[];
 
   @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(255, { each: true })
+  video_titles?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(255, { each: true })
+  file_titles?: string[];
+
+  @IsOptional()
   @IsInt()
   @Min(0)
   sort_order?: number;

@@ -29,6 +29,7 @@ export interface PdfFileEntry {
   file_name: string;
   file_path: string;
   file_size_bytes: number;
+  title?: string;
 }
 
 export interface InserviceTrainingResponse {
@@ -41,6 +42,7 @@ export interface InserviceTrainingResponse {
   expiry_months: number | null;
   pdf_files: PdfFileEntry[];
   video_urls: string[];
+  video_titles: string[];
   sort_order: number;
   is_active: boolean;
   has_quiz: boolean;
@@ -94,8 +96,14 @@ export class InserviceTrainingService {
         file_name: f.file_name,
         file_path: f.file_path,
         file_size_bytes: Number(f.file_size_bytes),
+        title: f.title,
       })),
       video_urls: inservice.video_urls ?? [],
+      video_titles: (() => {
+        const urls = inservice.video_urls ?? [];
+        const titles = inservice.video_titles ?? [];
+        return urls.map((_, i) => titles[i] ?? '');
+      })(),
       sort_order: inservice.sort_order,
       is_active: inservice.is_active,
       has_quiz: inservice.has_quiz,
@@ -230,6 +238,9 @@ export class InserviceTrainingService {
     const frequency = dto.completion_frequency;
     const expiryMonths = COMPLETION_FREQUENCY_EXPIRY_MONTHS[frequency] ?? null;
 
+    const videoTitles = (dto.video_titles ?? []).map((t) => (t ?? '').trim());
+    const alignedVideoTitles = videoUrls.map((_, i) => videoTitles[i] ?? '');
+
     const inservice = this.inserviceTrainingRepository.create({
       organization_id: organizationId,
       code: dto.code,
@@ -238,6 +249,7 @@ export class InserviceTrainingService {
       completion_frequency: dto.completion_frequency,
       expiry_months: expiryMonths,
       video_urls: videoUrls,
+      video_titles: alignedVideoTitles,
       pdf_files: validFiles.length
         ? [{ file_name: 'pending', file_path: 'pending', file_size_bytes: 0 }]
         : [],
@@ -250,15 +262,24 @@ export class InserviceTrainingService {
     const saved = await this.inserviceTrainingRepository.save(inservice);
 
     if (validFiles.length) {
+      const fileTitles = (dto.file_titles ?? []).map((t) => (t ?? '').trim());
       const pdfFiles: PdfFileEntry[] = [];
-      for (const f of validFiles) {
+      for (let i = 0; i < validFiles.length; i++) {
+        const f = validFiles[i];
         const { file_name, file_path } = await this.storageService.saveInserviceDocument(
           f.buffer,
           f.originalFilename,
           organizationId,
           saved.id,
         );
-        pdfFiles.push({ file_name, file_path, file_size_bytes: f.buffer.length });
+        const entry: PdfFileEntry = {
+          file_name,
+          file_path,
+          file_size_bytes: f.buffer.length,
+        };
+        const titleForFile = fileTitles[i];
+        if (titleForFile) entry.title = titleForFile;
+        pdfFiles.push(entry);
       }
       saved.pdf_files = pdfFiles;
       await this.inserviceTrainingRepository.save(saved);
@@ -298,7 +319,20 @@ export class InserviceTrainingService {
       inservice.expiry_months = COMPLETION_FREQUENCY_EXPIRY_MONTHS[freq] ?? null;
     }
     if (dto.video_urls !== undefined) {
-      inservice.video_urls = dto.video_urls.map((u) => u.trim()).filter(Boolean);
+      const trimmedUrls: string[] = [];
+      const alignedTitles: string[] = [];
+      const incomingTitles = dto.video_titles ?? [];
+      dto.video_urls.forEach((u, i) => {
+        const trimmed = u.trim();
+        if (!trimmed) return;
+        trimmedUrls.push(trimmed);
+        alignedTitles.push((incomingTitles[i] ?? '').trim());
+      });
+      inservice.video_urls = trimmedUrls;
+      inservice.video_titles = alignedTitles;
+    } else if (dto.video_titles !== undefined) {
+      const urls = inservice.video_urls ?? [];
+      inservice.video_titles = urls.map((_, i) => (dto.video_titles?.[i] ?? '').trim());
     }
     if (dto.sort_order !== undefined) inservice.sort_order = dto.sort_order;
     if (dto.is_active !== undefined) inservice.is_active = dto.is_active;
@@ -308,19 +342,53 @@ export class InserviceTrainingService {
         dto.passing_score_percent == null ? null : dto.passing_score_percent;
     }
 
+    let pdfFiles = [...(inservice.pdf_files ?? [])];
+
+    if (dto.remove_file_paths?.length) {
+      const toRemove = new Set(dto.remove_file_paths);
+      const removed = pdfFiles.filter((f) => toRemove.has(f.file_path));
+      pdfFiles = pdfFiles.filter((f) => !toRemove.has(f.file_path));
+      for (const r of removed) {
+        await this.storageService.deleteInserviceDocument(r.file_path);
+      }
+    }
+
+    if (dto.existing_file_titles?.length) {
+      const titleByPath = new Map<string, string>();
+      for (const e of dto.existing_file_titles) {
+        titleByPath.set(e.file_path, (e.title ?? '').trim());
+      }
+      pdfFiles = pdfFiles.map((f) => {
+        if (!titleByPath.has(f.file_path)) return f;
+        const t = titleByPath.get(f.file_path) ?? '';
+        return t ? { ...f, title: t } : { ...f, title: undefined };
+      });
+    }
+
     if (validFiles.length) {
+      const fileTitles = (dto.file_titles ?? []).map((t) => (t ?? '').trim());
       const newEntries: PdfFileEntry[] = [];
-      for (const f of validFiles) {
+      for (let i = 0; i < validFiles.length; i++) {
+        const f = validFiles[i];
         const { file_name, file_path } = await this.storageService.saveInserviceDocument(
           f.buffer,
           f.originalFilename,
           organizationId,
           inservice.id,
         );
-        newEntries.push({ file_name, file_path, file_size_bytes: f.buffer.length });
+        const entry: PdfFileEntry = {
+          file_name,
+          file_path,
+          file_size_bytes: f.buffer.length,
+        };
+        const titleForFile = fileTitles[i];
+        if (titleForFile) entry.title = titleForFile;
+        newEntries.push(entry);
       }
-      inservice.pdf_files = [...(inservice.pdf_files ?? []), ...newEntries];
+      pdfFiles = [...pdfFiles, ...newEntries];
     }
+
+    inservice.pdf_files = pdfFiles;
 
     if (!inservice.pdf_files?.length && !inservice.video_urls?.length) {
       throw new BadRequestException(INSERVICE_CONTENT_REQUIRED_MESSAGE);
