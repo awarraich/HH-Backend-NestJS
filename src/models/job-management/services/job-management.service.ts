@@ -438,9 +438,36 @@ export class JobManagementService {
       'offer_accepted',
       'offer_declined',
     ];
+    // Bucket keys are the frontend's normalized status chips ("not_seen",
+    // "interview", …). The DB may store finer-grained raw statuses that
+    // collapse INTO these buckets via `normalizeStatusKey` (e.g. 'pending'
+    // and NULL → 'not_seen', 'interview_scheduled' → 'interview'). Counts
+    // already follow that bucketing, so the list filter has to match — or
+    // HR sees "Not Seen 1" up top but an empty list when they click it.
+    const STATUS_BUCKET_TO_RAW: Record<string, string[]> = {
+      not_seen: ['not_seen', 'pending', ''],
+      interview: ['interview', 'interview_scheduled'],
+      offer_sent: ['offer_sent', 'offer'],
+    };
     if (query.status && query.status !== 'all') {
       if (query.status === 'offers') {
         base.andWhere('ja.status IN (:...offerStates)', { offerStates: OFFER_STATES });
+      } else if (STATUS_BUCKET_TO_RAW[query.status]) {
+        const raws = STATUS_BUCKET_TO_RAW[query.status];
+        const hasEmpty = raws.includes('');
+        const concreteRaws = raws.filter((v) => v !== '');
+        if (hasEmpty && concreteRaws.length > 0) {
+          base.andWhere(
+            '(ja.status IS NULL OR ja.status IN (:...statusBucketRaws))',
+            { statusBucketRaws: concreteRaws },
+          );
+        } else if (hasEmpty) {
+          base.andWhere('ja.status IS NULL');
+        } else {
+          base.andWhere('ja.status IN (:...statusBucketRaws)', {
+            statusBucketRaws: concreteRaws,
+          });
+        }
       } else {
         base.andWhere('ja.status = :status', { status: query.status });
       }
@@ -757,7 +784,11 @@ export class JobManagementService {
     // flips the linked application from `hired` to `terminated` so the
     // applications list stops showing a stale Hired badge.
     hired: ['terminated'],
-    terminated: [],
+    // `terminated → pending` lets HR reinstate a former employee back into
+    // the applications pipeline (Reinstate button). The soft-deleted
+    // Employee row stays put with `deleted_at` set; it only gets revived
+    // later when HR actually re-hires them via the hireApplicant flow.
+    terminated: ['pending'],
   };
 
   /**
@@ -1093,13 +1124,35 @@ export class JobManagementService {
       const userRepo = queryRunner.manager.getRepository(User);
 
       // Idempotent create: upsert-on-unique(user_id, organization_id).
+      // Includes soft-deleted rows (`withDeleted: true`) so a re-hire of a
+      // previously terminated employee revives the original row instead
+      // of creating a brand-new one — keeps the employee id stable for
+      // anything that references it (documents, shift history, etc).
       let existingEmployee = await employeeRepo.findOne({
         where: {
           user_id: application.applicant_user_id,
           organization_id: organizationId,
         },
+        withDeleted: true,
       });
-      if (!existingEmployee) {
+      if (existingEmployee && existingEmployee.deleted_at) {
+        // Revive: clear soft-delete markers and refresh employment fields
+        // with whatever the new hire carries. Preserves the historical
+        // `notes` field (HR's own commentary) unless a new note is
+        // explicitly provided.
+        existingEmployee.deleted_at = null;
+        existingEmployee.deleted_by = null;
+        existingEmployee.deletion_reason = null;
+        existingEmployee.status = 'active';
+        existingEmployee.employment_type = employmentType;
+        existingEmployee.start_date = startDate;
+        existingEmployee.end_date = null;
+        existingEmployee.department = department;
+        existingEmployee.position_title = positionTitle;
+        if (notes) existingEmployee.notes = notes;
+        existingEmployee.provider_role_id = providerRoleId;
+        existingEmployee = await employeeRepo.save(existingEmployee);
+      } else if (!existingEmployee) {
         const newEmployee = employeeRepo.create({
           user_id: application.applicant_user_id,
           organization_id: organizationId,
@@ -1123,6 +1176,7 @@ export class JobManagementService {
                 user_id: application.applicant_user_id,
                 organization_id: organizationId,
               },
+              withDeleted: true,
             });
             if (raced) {
               existingEmployee = raced;
@@ -1252,6 +1306,79 @@ export class JobManagementService {
     }
 
     return { application: freshApp, employee, alreadyHired };
+  }
+
+  /**
+   * Applicant-triggered self-hire. The signed-in applicant converts their own
+   * accepted+signed offer into an Employee row and transitions the application
+   * to `hired`. Delegates to `hireApplicant` once ownership and signing
+   * preconditions are verified.
+   *
+   * Ownership is proven via email match (applications may be filed as a guest
+   * and later linked to a user on first sign-in). If `applicant_user_id` is
+   * still null at self-hire time we link it to the caller before delegating,
+   * which satisfies the downstream `applicant_user_id is required` guard.
+   */
+  async selfHireApplicant(
+    userId: string,
+    applicationId: string,
+  ): Promise<{
+    application: JobApplication;
+    employee: Employee;
+    alreadyHired: boolean;
+  }> {
+    if (!userId) throw new NotFoundException('User not found');
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+    if (!user?.email) throw new NotFoundException('User not found');
+
+    const application = await this.jobApplicationRepository.findOne({
+      where: { id: applicationId, applicant_email: user.email },
+      relations: ['job_posting'],
+    });
+    if (!application) {
+      throw new NotFoundException(
+        `Job application ${applicationId} not found`,
+      );
+    }
+
+    // Gate: applicant must have e-signed or uploaded a signed copy of the
+    // offer letter. Without this the applicant could self-promote before
+    // HR has a legally binding signature on file.
+    const offer = (application.offer_details ?? {}) as Record<string, unknown>;
+    const sig = offer.applicantSignature as
+      | { dataUrl?: unknown }
+      | null
+      | undefined;
+    const hasESignature =
+      !!sig && typeof (sig as { dataUrl?: unknown }).dataUrl === 'string';
+    const hasUploadedCopy = !!offer.uploadedSignedOfferLetter;
+    if (!hasESignature && !hasUploadedCopy) {
+      throw new BadRequestException(
+        'You must e-sign or upload a signed copy of the offer letter before continuing to onboarding.',
+      );
+    }
+
+    const organizationId = application.job_posting?.organization_id;
+    if (!organizationId) {
+      throw new BadRequestException(
+        'This application has no organization associated.',
+      );
+    }
+
+    // Link the caller's user_id to the application if missing, so the
+    // downstream hire flow can create an Employee row keyed to this user.
+    if (!application.applicant_user_id) {
+      application.applicant_user_id = userId;
+      await this.jobApplicationRepository.save(application);
+    } else if (application.applicant_user_id !== userId) {
+      // Email match found the row but it's linked to a different user —
+      // refuse rather than silently overwrite.
+      throw new NotFoundException(
+        `Job application ${applicationId} not found`,
+      );
+    }
+
+    return this.hireApplicant(organizationId, applicationId);
   }
 
   /**

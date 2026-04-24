@@ -170,6 +170,12 @@ export class EmployeesController {
     return SuccessHelper.createSuccessResponse(result, 'Employee status updated successfully');
   }
 
+  /**
+   * Soft-delete an employee. The service marks `deleted_at` on the row
+   * (keeping profile/history intact) and flips any linked hired
+   * applications to `terminated`. HR can optionally pass a short reason
+   * in the body — stored on `deletion_reason` for audit.
+   */
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
   @Roles('OWNER', 'HR')
@@ -178,11 +184,19 @@ export class EmployeesController {
     @Param('id') id: string,
     @LoggedInUser() user: UserWithRolesInterface,
     @Req() request: FastifyRequest,
+    @Body() body?: { reason?: string },
   ) {
     const ipAddress = this.getIpAddress(request);
     const userAgent = this.getUserAgent(request);
 
-    await this.employeesService.remove(organizationId, id, user.userId, ipAddress, userAgent);
+    await this.employeesService.remove(
+      organizationId,
+      id,
+      user.userId,
+      ipAddress,
+      userAgent,
+      body?.reason ?? null,
+    );
 
     return SuccessHelper.createSuccessResponse(null, 'Employee removed successfully');
   }

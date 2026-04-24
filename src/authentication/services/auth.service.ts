@@ -1284,8 +1284,11 @@ export class AuthService {
         queryBuilder.setParameter('organizationNamePattern', orgNamePattern);
       }
     } else if (hasOrgFilter && userType === 'employee') {
+      // Soft-deleted employees (e.deleted_at NOT NULL) are terminated and
+      // shouldn't match — otherwise ex-staff would still surface on admin
+      // employee filters.
       const empCondition =
-        'EXISTS (SELECT 1 FROM employees e INNER JOIN organizations o ON e.organization_id = o.id WHERE e.user_id = user.id' +
+        'EXISTS (SELECT 1 FROM employees e INNER JOIN organizations o ON e.organization_id = o.id WHERE e.user_id = user.id AND e.deleted_at IS NULL' +
         (orgNamePattern ? ' AND o.organization_name ILIKE :organizationNamePattern)' : ')');
       queryBuilder.andWhere(empCondition);
       if (orgNamePattern) {
@@ -1303,7 +1306,7 @@ export class AuthService {
       const anyOrgCondition =
         '(EXISTS (SELECT 1 FROM organizations o WHERE o.user_id = user.id AND o.organization_name ILIKE :organizationNamePattern) OR ' +
         "EXISTS (SELECT 1 FROM organization_staff os INNER JOIN organizations o ON os.organization_id = o.id WHERE os.user_id = user.id AND os.status = 'ACTIVE' AND o.organization_name ILIKE :organizationNamePattern) OR " +
-        'EXISTS (SELECT 1 FROM employees e INNER JOIN organizations o ON e.organization_id = o.id WHERE e.user_id = user.id AND o.organization_name ILIKE :organizationNamePattern))';
+        'EXISTS (SELECT 1 FROM employees e INNER JOIN organizations o ON e.organization_id = o.id WHERE e.user_id = user.id AND e.deleted_at IS NULL AND o.organization_name ILIKE :organizationNamePattern))';
       queryBuilder.andWhere(anyOrgCondition);
       queryBuilder.setParameter('organizationNamePattern', orgNamePattern);
     }
@@ -1402,7 +1405,7 @@ export class AuthService {
       { organization_id: string; user_id: string }[]
     >(
       `SELECT e.organization_id, e.user_id FROM employees e
-       WHERE e.organization_id = ANY($1::uuid[])`,
+       WHERE e.organization_id = ANY($1::uuid[]) AND e.deleted_at IS NULL`,
       [organizationIds],
     );
     const map = new Map<string, string[]>();
@@ -1479,7 +1482,7 @@ export class AuthService {
     >(
       `SELECT e.user_id, o.id, o.organization_name FROM employees e
        INNER JOIN organizations o ON e.organization_id = o.id
-       WHERE e.user_id = ANY($1::uuid[])`,
+       WHERE e.user_id = ANY($1::uuid[]) AND e.deleted_at IS NULL`,
       [userIds],
     );
     const map = new Map<
