@@ -1,5 +1,6 @@
 import { Employee } from '../../entities/employee.entity';
 import { EmployeeProfile } from '../../entities/employee-profile.entity';
+import { User } from '../../../../authentication/entities/user.entity';
 
 export interface OrganizationContextItem {
   organization_id: string;
@@ -44,6 +45,33 @@ export class EmployeeContextSerializer {
         profile: this.serializeProfile(employee.profile),
       },
       organizations,
+    };
+  }
+
+  /**
+   * Serialize context for an "independent employee": a user who signed up
+   * as a provider but has no Employee row yet (not linked to any org).
+   * Returns the same shape as `serializeContext` so the frontend contract
+   * stays stable, with `employee.id = ''` (no Employee row exists),
+   * `profile = null`, and `organizations: []`.
+   */
+  serializeIndependentContext(
+    user: User,
+  ): ReturnType<EmployeeContextSerializer['serializeContext']> {
+    return {
+      employee: {
+        id: '',
+        user_id: user.id,
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          is_active: user.is_active,
+        },
+        profile: null,
+      },
+      organizations: [],
     };
   }
 
