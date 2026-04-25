@@ -1,4 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+
+type DependentRow = {
+  status: string;
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;
+};
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { CompetencyTemplate } from '../entities/competency-template.entity';
@@ -229,16 +236,155 @@ export class TemplatesService {
     t.pdf_size_bytes = payload.sizeBytes ?? null;
     const saved = await this.repo.save(t);
     if (previousKey && previousKey !== payload.key) {
-      this.pdfStorage.delete(previousKey).catch(() => {});
+      // Offer-letter and competency assignments freeze a `template_snapshot`
+      // that includes `pdf_file_key` at send time. If we nuke the old S3
+      // object after a "Replace PDF", any applicant viewing their
+      // already-sent offer letter would 404 on the PDF because their
+      // snapshot still points at the deleted key. Check both snapshot
+      // tables and only garbage-collect the file when nothing references
+      // it anymore — even voided/completed rows hold a claim because HR
+      // may still need to audit the signed document.
+      const stillReferenced = await this.isPdfKeyReferencedBySnapshot(previousKey);
+      if (!stillReferenced) {
+        this.pdfStorage.delete(previousKey).catch(() => {});
+      }
     }
     return saved;
   }
 
+  /**
+   * Does any frozen assignment snapshot still point at this S3 key? Queries
+   * the two jsonb snapshot tables via raw SQL so we don't need to pull the
+   * job-management entities into this module's DI graph.
+   */
+  private async isPdfKeyReferencedBySnapshot(key: string): Promise<boolean> {
+    const offerRows = await this.repo.manager.query(
+      `SELECT 1 FROM offer_letter_assignments
+         WHERE template_snapshot->>'pdf_file_key' = $1 LIMIT 1`,
+      [key],
+    );
+    if (offerRows.length > 0) return true;
+    const competencyRows = await this.repo.manager.query(
+      `SELECT 1 FROM competency_assignments
+         WHERE template_snapshot->>'pdf_file_key' = $1 LIMIT 1`,
+      [key],
+    );
+    return competencyRows.length > 0;
+  }
+
   async delete(orgId: string, id: string) {
     const t = await this.findOne(orgId, id);
-    if (t.pdf_file_key) {
-      await this.pdfStorage.delete(t.pdf_file_key);
+    const pdfKey = t.pdf_file_key;
+
+    // Pre-check for RESTRICT-blocked parents so HR sees exactly which
+    // recipients are holding the template in place ("Can't delete — sent
+    // to Jane Doe, John Smith, and 2 more") rather than a generic FK
+    // error. The catch below stays as a safety net in case a concurrent
+    // send races past the pre-check.
+    const dependents = await this.findTemplateDependents(id);
+    if (
+      dependents.offerRows.length > 0 ||
+      dependents.competencyRows.length > 0
+    ) {
+      throw new ConflictException(this.formatDependentMessage(dependents));
     }
-    await this.repo.remove(t);
+
+    // Clean up template-scoped per-user field fills before the template row
+    // itself. Job-application submissions and in-progress fills live in
+    // document_field_values without a CASCADE constraint, so leaving them
+    // would either orphan junk or trigger a FK violation depending on the
+    // DB-level constraint. Voiding these here is safe — the owning template
+    // is about to be gone.
+    await this.fieldValueRepo.delete({ template_id: id });
+
+    try {
+      await this.repo.remove(t);
+    } catch (err) {
+      // 23503 = foreign_key_violation. Shouldn't fire after the pre-check
+      // but keep a readable fallback in case a race slips one through.
+      const code =
+        (err as { driverError?: { code?: string } })?.driverError?.code ??
+        (err as { code?: string })?.code;
+      if (code === '23503') {
+        const fresh = await this.findTemplateDependents(id);
+        throw new ConflictException(this.formatDependentMessage(fresh));
+      }
+      throw err;
+    }
+
+    if (pdfKey) {
+      // Best-effort: the DB is now consistent, don't surface a storage
+      // failure to the caller just to avoid leaving a PDF blob in S3.
+      this.pdfStorage.delete(pdfKey).catch(() => {});
+    }
+  }
+
+  /**
+   * Collect the rows in `offer_letter_assignments` and
+   * `competency_assignments` that point at this template, joined to the
+   * user they were sent to (applicant for offers, supervisor for
+   * assignments). Used to produce a specific delete-blocked message.
+   */
+  private async findTemplateDependents(templateId: string): Promise<{
+    offerRows: DependentRow[];
+    competencyRows: DependentRow[];
+  }> {
+    const offerRows: DependentRow[] = await this.repo.manager.query(
+      `SELECT ola.status AS status,
+              u."firstName" AS "firstName",
+              u."lastName"  AS "lastName",
+              u.email       AS email
+         FROM offer_letter_assignments ola
+         LEFT JOIN job_applications ja ON ja.id = ola.job_application_id
+         LEFT JOIN users u ON u.id = ja.applicant_user_id
+         WHERE ola.template_id = $1
+         ORDER BY ola.created_at DESC`,
+      [templateId],
+    );
+    const competencyRows: DependentRow[] = await this.repo.manager.query(
+      `SELECT ca.status AS status,
+              u."firstName" AS "firstName",
+              u."lastName"  AS "lastName",
+              u.email       AS email
+         FROM competency_assignments ca
+         LEFT JOIN users u ON u.id = ca.supervisor_id
+         WHERE ca.template_id = $1
+         ORDER BY ca.created_at DESC`,
+      [templateId],
+    );
+    return { offerRows, competencyRows };
+  }
+
+  private formatDependentMessage(dependents: {
+    offerRows: DependentRow[];
+    competencyRows: DependentRow[];
+  }): string {
+    const displayName = (row: DependentRow): string => {
+      const name = [row.firstName, row.lastName]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+      return name || row.email || 'an unnamed recipient';
+    };
+
+    const describe = (rows: DependentRow[], noun: string): string => {
+      const n = rows.length;
+      const preview = rows.slice(0, 3).map(displayName);
+      const extra = n - preview.length;
+      const tail = extra > 0 ? ` and ${extra} more` : '';
+      const label = n === 1 ? noun : `${noun}s`;
+      return `${n} ${label} sent to ${preview.join(', ')}${tail}`;
+    };
+
+    const parts: string[] = [];
+    if (dependents.offerRows.length > 0) {
+      parts.push(describe(dependents.offerRows, 'offer letter'));
+    }
+    if (dependents.competencyRows.length > 0) {
+      parts.push(describe(dependents.competencyRows, 'assignment'));
+    }
+    const joined = parts.join(' and ');
+    const them = parts.length > 1 ? 'those' : 'it';
+    return `Can't delete this template — it's still tied to ${joined}. Void or complete ${them} first, then try again.`;
   }
 }
