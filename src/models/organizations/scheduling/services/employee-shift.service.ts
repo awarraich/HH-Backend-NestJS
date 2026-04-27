@@ -23,16 +23,6 @@ import { UpdateEmployeeShiftDto } from '../dto/update-employee-shift.dto';
 import { QueryEmployeeShiftDto } from '../dto/query-employee-shift.dto';
 import { QueryEmployeeShiftsByEmployeeDto } from '../dto/query-employee-shifts-by-employee.dto';
 
-/**
- * Format a Postgres DATE value (returned by pg as a midnight-local Date, or
- * a pre-formatted string) as YYYY-MM-DD using LOCAL components.
- *
- * Why: pg parses `date` columns at midnight in the server's local timezone.
- * With TZ=America/Los_Angeles set, `.getFullYear()/.getMonth()/.getDate()`
- * return Pacific-local components, which correctly match the calendar date
- * stored in the database. We avoid `.toISOString()` because it shifts the
- * day for non-UTC zones.
- */
 function formatDateOnly(d: string | Date): string {
   if (typeof d === 'string') return d.slice(0, 10);
   const year = d.getFullYear();
@@ -67,23 +57,7 @@ export class EmployeeShiftService {
     private readonly organizationRoleService: OrganizationRoleService,
   ) {}
 
-  /**
-   * Resolve which station an assignment belongs to, given a shift.
-   *
-   * Why: a Shift is an org-level template and gets linked to locations via
-   * the `station_shift_assignments` junction. The MCP agent (and any other
-   * write caller) was happily inserting employee_shift rows with station_id
-   * null, which rendered as orphans in the frontend grid. This method makes
-   * station resolution explicit:
-   *   - If caller passed a station_id, validate it's actually linked to the
-   *     shift. Reject with the list of valid stations if not.
-   *   - If caller didn't, look up the shift's station links:
-   *       * exactly one  → auto-fill (the common case)
-   *       * more than one → reject with the list — caller must pick
-   *       * zero          → return null (genuinely org-level shift; allowed)
-   *
-   * Returns the resolved Station entity (with department preloaded) or null.
-   */
+
   private async resolveStationForShift(
     shiftId: string,
     providedStationId?: string,
@@ -97,9 +71,10 @@ export class EmployeeShiftService {
       const match = links.find((l) => l.station_id === providedStationId);
       if (!match) {
         if (links.length === 0) {
-          throw new BadRequestException(
-            'This shift has no stations linked; do not pass station_id for it.',
-          );
+          return this.stationRepository.findOne({
+            where: { id: providedStationId },
+            relations: ['department'],
+          });
         }
         const valid = links
           .map((l) => `${l.station?.name ?? 'unnamed'} (${l.station_id})`)
@@ -122,13 +97,7 @@ export class EmployeeShiftService {
     );
   }
 
-  /**
-   * Return the station_ids linked to a shift via `station_shift_assignments`.
-   * Used by callers (e.g. the MCP assignment-tool wrapper) that want to
-   * preflight a station fallback decision before invoking `create`: a shift
-   * with zero links is genuinely org-level and must NOT receive an injected
-   * station_id, otherwise `resolveStationForShift` will reject it.
-   */
+
   async getStationLinksForShift(shiftId: string): Promise<string[]> {
     const links = await this.stationShiftAssignmentRepository.find({
       where: { shift_id: shiftId },
@@ -322,9 +291,6 @@ export class EmployeeShiftService {
       );
     }
 
-    // Resolve the station first so we can derive department_id from it when
-    // the caller didn't pass one. This is the fix for orphan employee_shift
-    // rows that were invisible in the frontend grid.
     const resolvedStation = await this.resolveStationForShift(
       shiftId,
       dto.station_id,
