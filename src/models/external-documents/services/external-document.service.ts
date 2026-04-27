@@ -125,6 +125,11 @@ export class ExternalDocumentService {
         name: template.name,
         description: template.description,
         assignedRoles: userRoleIds,
+        // Ship the full role list so the filler UI can compute
+        // sequential-signing state client-side (whose turn is it, who's
+        // already signed) without a second round-trip. Each role carries
+        // `{ id, name, color, order }`.
+        roles: template.roles ?? [],
         pdfUrl: template.pdf_file_key
           ? `/v1/api/organizations/${template.organization_id}/document-workflow/templates/${template.id}/pdf/view`
           : null,

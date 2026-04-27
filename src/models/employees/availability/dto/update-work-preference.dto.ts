@@ -83,4 +83,12 @@ export class UpdateWorkPreferenceDto {
   @IsOptional()
   @IsObject()
   weekly_notes?: Record<string, string>;
+
+  // Per-org availability-page UI state. Shape is
+  // `Record<orgId, { activePresetId, fourTwoStartDate, fourTwoShifts }>`,
+  // but the backend treats it as an opaque jsonb blob — no per-key
+  // validation beyond "it's an object."
+  @IsOptional()
+  @IsObject()
+  availability_ui_by_org?: Record<string, Record<string, unknown>>;
 }

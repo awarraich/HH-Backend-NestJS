@@ -69,6 +69,18 @@ export class WorkPreference {
   @Column({ type: 'jsonb', default: '{}' })
   weekly_notes: Record<string, string>;
 
+  /**
+   * Per-org UI state for the availability page — which preset chip is
+   * active, and (for 4-on-2-off) the rotation start date + shift
+   * toggles. Shape: `Record<orgId, { activePresetId, fourTwoStartDate,
+   * fourTwoShifts }>`. Stored here instead of its own table because the
+   * work-preferences row already round-trips on every save and the data
+   * is cheap JSON. The backend treats this as opaque — no validation
+   * beyond "it's a JSON object."
+   */
+  @Column({ type: 'jsonb', default: '{}' })
+  availability_ui_by_org: Record<string, Record<string, unknown>>;
+
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
 

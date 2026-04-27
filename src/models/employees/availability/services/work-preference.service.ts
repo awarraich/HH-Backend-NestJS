@@ -35,6 +35,7 @@ export class WorkPreferenceService {
       'double_shift_preference', 'double_shift_conditions',
       'work_type', 'travel_radius', 'has_own_vehicle', 'use_company_vehicle',
       'preferred_areas', 'facilities', 'weekly_notes',
+      'availability_ui_by_org',
     ];
 
     const updates: Record<string, unknown> = {};

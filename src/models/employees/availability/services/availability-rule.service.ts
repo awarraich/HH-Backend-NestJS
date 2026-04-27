@@ -109,6 +109,18 @@ export class AvailabilityRuleService {
   ): Promise<AvailabilityRule[]> {
     const orgId = dto.organization_id ?? null;
 
+    // Refuse empty-body PUTs. The previous contract deleted all weekly
+    // rules first and only then short-circuited on empty input, which
+    // meant a frontend bug or a truncated request body silently wiped
+    // the user's entire weekly availability. Callers that genuinely
+    // want to clear availability should delete rules individually via
+    // DELETE /availability/:id — empty bulk upsert is never intentional.
+    if (dto.rules.length === 0) {
+      throw new BadRequestException(
+        'Cannot save an empty availability list. Provide at least one rule, or delete individual rules with DELETE /availability/:id.',
+      );
+    }
+
     this.validateNoOverlaps(dto.rules);
 
     // Only remove weekly rules (effective_from IS NULL) for this user + org scope
@@ -124,8 +136,6 @@ export class AvailabilityRuleService {
       deleteQb.andWhere('organization_id IS NULL');
     }
     await deleteQb.execute();
-
-    if (dto.rules.length === 0) return [];
 
     const entities = dto.rules.map((rule) => {
       const dayOfWeek = rule.date

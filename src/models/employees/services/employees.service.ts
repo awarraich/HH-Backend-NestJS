@@ -644,7 +644,12 @@ export class EmployeesService {
       });
     }
     if (status) {
-      queryBuilder.andWhere('employee.status = :status', { status });
+      // Case-insensitive match: historical rows are a mix of 'active' and
+      // 'ACTIVE' (hire flow writes lowercase, createExternal wrote UPPERCASE,
+      // entity default is lowercase). Without LOWER() on both sides, a filter
+      // for 'ACTIVE' hides every hired employee. See pending canonicalization
+      // ticket for the proper fix; this is the unblocking stopgap.
+      queryBuilder.andWhere('LOWER(employee.status) = LOWER(:status)', { status });
     }
 
     queryBuilder.orderBy('employee.created_at', 'DESC').skip(skip).take(limit);
