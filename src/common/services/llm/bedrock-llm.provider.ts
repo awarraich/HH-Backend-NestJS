@@ -175,7 +175,7 @@ function normalizeResponse(response: ConverseCommandOutput): LlmGenerateResult {
       toolCalls.push({
         id: block.toolUse.toolUseId ?? randomUUID(),
         name: block.toolUse.name ?? '',
-        arguments: JSON.stringify(block.toolUse.input ?? {}),
+        arguments: JSON.stringify(sanitizeLlamaArgs(block.toolUse.input ?? {})),
       });
     }
   }
@@ -310,8 +310,34 @@ function parseToolCallObject(json: string): LlmToolCall | null {
   return {
     id: randomUUID(),
     name,
-    arguments: JSON.stringify(args),
+    arguments: JSON.stringify(sanitizeLlamaArgs(args)),
   };
+}
+
+/**
+ * Llama-specific quirk: instead of omitting an optional tool parameter or
+ * sending JSON null, Llama 3.3 fills unfilled fields with the literal string
+ * "null" / "undefined" / "none". Those then land in TypeORM/Postgres as
+ * 'null' and explode (invalid date, skip not a number, etc.). OpenAI omits
+ * the keys outright, which the tool handlers already cope with.
+ *
+ * Drop those keys recursively to match OpenAI's "absent means absent"
+ * behavior. Empty strings are preserved — they can be a legitimate value.
+ */
+function sanitizeLlamaArgs(input: unknown): unknown {
+  if (input === null || typeof input !== 'object') return input;
+  if (Array.isArray(input)) return input.map((v) => sanitizeLlamaArgs(v));
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    if (typeof value === 'string') {
+      const trimmed = value.trim().toLowerCase();
+      if (trimmed === 'null' || trimmed === 'undefined' || trimmed === 'none') {
+        continue;
+      }
+    }
+    out[key] = sanitizeLlamaArgs(value);
+  }
+  return out;
 }
 
 function mapStopReason(reason: string | undefined): LlmFinishReason {

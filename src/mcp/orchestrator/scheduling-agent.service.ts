@@ -307,6 +307,74 @@ function buildPriorToolCallsBlock(
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
+ * Tool argument keys whose value MUST be a real UUID. We check these
+ * pre-flight on every call so a fabricated string like
+ * "shift_id_of_Evening_Shift" never reaches Postgres.
+ */
+const UUID_REQUIRED_KEYS = new Set([
+  'shift_id',
+  'employee_id',
+  'role_id',
+  'station_id',
+  'department_id',
+  'room_id',
+  'bed_id',
+  'chair_id',
+  'organization_id',
+  'document_id',
+  'category_id',
+]);
+
+/**
+ * Map a *_id argument to the discovery tool that returns real UUIDs for it.
+ * Used to point the agent at the right next action when it fabricates a UUID.
+ */
+const DISCOVERY_TOOL_FOR_KEY: Record<string, string> = {
+  shift_id: 'search_shifts',
+  employee_id: 'list_employees / search_employees',
+  role_id: 'search_roles',
+  station_id: 'get_shift_details (stations are linked to shifts)',
+  department_id: 'list_departments',
+  room_id: 'get_shift_details',
+  bed_id: 'get_shift_details',
+  chair_id: 'get_shift_details',
+};
+
+interface PlaceholderHit {
+  key: string;
+  value: string;
+}
+
+function detectPlaceholderUuids(args: unknown): PlaceholderHit[] {
+  if (!args || typeof args !== 'object') return [];
+  const out: PlaceholderHit[] = [];
+  for (const [key, value] of Object.entries(args as Record<string, unknown>)) {
+    if (!UUID_REQUIRED_KEYS.has(key)) continue;
+    if (typeof value !== 'string') continue;
+    if (!UUID_RE.test(value)) {
+      out.push({ key, value });
+    }
+  }
+  return out;
+}
+
+function buildUuidDiscoveryDirective(
+  toolName: string,
+  placeholders: PlaceholderHit[],
+): string {
+  const lines = placeholders.map((p) => {
+    const next = DISCOVERY_TOOL_FOR_KEY[p.key] ?? 'the appropriate search tool';
+    return `  - ${p.key}=${JSON.stringify(p.value)} → call ${next} first to get the real UUID`;
+  });
+  return (
+    `Refused: ${toolName} was called with non-UUID placeholder strings. ` +
+    `Real UUIDs look like 29053b9b-b788-40e3-be51-8d4b87df3f05. Take this exact next action:\n` +
+    lines.join('\n') +
+    `\nThen retry ${toolName} with the real UUIDs from those tool results. Do NOT invent UUIDs.`
+  );
+}
+
+/**
  * Post-process the agent's final answer to fix the ASSIGNMENTS HTML comment.
  *
  * GPT-4o-mini sometimes emits placeholder strings like `<uuid_for_AM1>` or
@@ -906,6 +974,42 @@ export class SchedulingAgentService {
           args = JSON.parse(call.arguments || '{}');
         } catch {
           args = {};
+        }
+
+        // Pre-flight: refuse calls with placeholder strings in *_id fields.
+        // Bedrock/Llama sometimes invents values like "shift_id_of_Evening_Shift"
+        // instead of calling search_shifts first. Running the tool would crash
+        // Postgres ("invalid input syntax for type uuid"). The directive
+        // message names the discovery tool so the agent retries correctly.
+        const placeholders = detectPlaceholderUuids(args);
+        if (placeholders.length > 0) {
+          const directive = buildUuidDiscoveryDirective(tool.name, placeholders);
+          this.logger.warn(
+            `[step ${step}] refused ${tool.name} due to placeholder UUIDs: ${placeholders
+              .map((p) => `${p.key}=${JSON.stringify(p.value)}`)
+              .join(', ')}`,
+          );
+          const errorPayload = { success: false, error: directive };
+          trace.push({ name: tool.name, arguments: args, result: errorPayload });
+          messages.push({
+            role: 'tool',
+            toolCallId: call.id,
+            content: JSON.stringify(errorPayload),
+          });
+          // Reuse the same loop-detection key so an agent that keeps re-issuing
+          // the same fabricated UUIDs trips the existing budget cap.
+          const key = `${tool.name}|${stableArgs(args)}|${directive}`;
+          const count = (errorRepeats.get(key) ?? 0) + 1;
+          errorRepeats.set(key, count);
+          if (count >= MAX_IDENTICAL_ERROR_RETRIES) {
+            return {
+              answer:
+                `I could not complete this action because I kept inventing IDs that don't exist. ` +
+                `Please rephrase the request with a specific shift name or pick the shift from the UI.`,
+              toolCalls: trace,
+            };
+          }
+          continue;
         }
 
         try {
