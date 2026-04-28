@@ -325,12 +325,25 @@ function parseToolCallObject(json: string): LlmToolCall | null {
  * behavior. Empty strings are preserved — they can be a legitimate value.
  */
 function sanitizeLlamaArgs(input: unknown): unknown {
-  if (input === null || typeof input !== 'object') return input;
-  if (Array.isArray(input)) return input.map((v) => sanitizeLlamaArgs(v));
+  // Unbox JSON-Schema-style envelopes Llama mirrors back from the tool spec
+  // (e.g. { "type": "string", "value": "2026-04-28" } instead of just the
+  // date). Done at the top so all downstream logic sees plain values.
+  const unboxed = unboxSchemaEnvelope(input);
+  if (unboxed === undefined) return undefined;
+
+  if (unboxed === null || typeof unboxed !== 'object') return unboxed;
+  if (Array.isArray(unboxed)) {
+    return unboxed
+      .map((v) => sanitizeLlamaArgs(v))
+      .filter((v) => v !== undefined);
+  }
+
   const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
-    if (typeof value === 'string') {
-      const trimmed = value.trim();
+  for (const [key, rawValue] of Object.entries(unboxed as Record<string, unknown>)) {
+    const cleaned = sanitizeLlamaArgs(rawValue);
+    if (cleaned === undefined || cleaned === null) continue;
+    if (typeof cleaned === 'string') {
+      const trimmed = cleaned.trim();
       const lowered = trimmed.toLowerCase();
       // Drop Llama's "absence" placeholders so the tool's defaults apply.
       if (lowered === 'null' || lowered === 'undefined' || lowered === 'none') {
@@ -339,16 +352,46 @@ function sanitizeLlamaArgs(input: unknown): unknown {
       // Coerce strict numeric strings ("50", "-3", "3.14") to real numbers.
       // Llama frequently stringifies numeric tool arguments, which then fall
       // through arithmetic as NaN and crash TypeORM ("skip is not a number").
-      // The pattern is intentionally strict — it won't touch "50px", "+50",
-      // dates ("2026-04-28"), or UUIDs (which contain hyphens).
+      // Strict regex so dates ("2026-04-28") and UUIDs (which contain hyphens)
+      // are never touched.
       if (/^-?\d+(?:\.\d+)?$/.test(trimmed)) {
         out[key] = Number(trimmed);
         continue;
       }
     }
-    out[key] = sanitizeLlamaArgs(value);
+    out[key] = cleaned;
   }
   return out;
+}
+
+const ENVELOPE_ALLOWED_KEYS = new Set([
+  'type',
+  'value',
+  'description',
+  'format',
+  'enum',
+]);
+
+/**
+ * Detect Llama's "schema-as-value" pattern:
+ *   { type: "string", value: "2026-04-28" }
+ *   { type: "integer", value: 50 }
+ *   { type: "string", value: null }     // absent, return undefined
+ *   { type: "string" }                   // absent, return undefined
+ *
+ * Returns the unboxed value, or `undefined` if the envelope represents an
+ * absent value, or the original input if it isn't an envelope.
+ */
+function unboxSchemaEnvelope(input: unknown): unknown {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return input;
+  const obj = input as Record<string, unknown>;
+  if (typeof obj.type !== 'string') return input;
+  for (const k of Object.keys(obj)) {
+    if (!ENVELOPE_ALLOWED_KEYS.has(k)) return input;
+  }
+  // It IS an envelope. Resolve to the inner value, or undefined if absent.
+  if (!('value' in obj) || obj.value === null) return undefined;
+  return obj.value;
 }
 
 function mapStopReason(reason: string | undefined): LlmFinishReason {

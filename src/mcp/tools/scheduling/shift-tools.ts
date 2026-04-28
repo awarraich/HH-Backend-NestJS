@@ -7,6 +7,7 @@ import {
   SchedulingToolContext,
   SchedulingToolDescriptor,
   SchedulingToolResult,
+  toBoundedInt,
 } from './types';
 import { enrichShiftWithLocalTime } from './format-shift-times';
 
@@ -63,7 +64,7 @@ export function buildShiftTools(
       ctx.organizationId,
       {
         page: 1,
-        limit: args.limit ?? 50,
+        limit: toBoundedInt(args.limit, { fallback: 50, min: 1, max: 100 }),
         shift_type: args.shift_type,
         status: args.status ?? 'ACTIVE',
         from_date: args.from_date,
@@ -98,7 +99,7 @@ export function buildShiftTools(
       ctx.organizationId,
       args.query,
       ctx.userId,
-      args.limit,
+      toBoundedInt(args.limit, { fallback: 25, min: 1, max: 100 }),
     );
     return jsonResult({
       count: shifts.length,
@@ -119,7 +120,7 @@ export function buildShiftTools(
       args.employee_id,
       {
         page: 1,
-        limit: args.limit ?? 25,
+        limit: toBoundedInt(args.limit, { fallback: 25, min: 1, max: 100 }),
         status: args.status,
         from_date: args.from_date,
         to_date: args.to_date,

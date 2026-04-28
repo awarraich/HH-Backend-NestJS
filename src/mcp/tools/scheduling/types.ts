@@ -39,3 +39,28 @@ export function jsonResult(data: unknown): {
     content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }],
   };
 }
+
+/**
+ * Coerce a tool-call argument to a bounded positive integer with a fallback.
+ * Models sometimes pass numeric arguments as strings ("50"), as alphabetic
+ * placeholders ("all"), as floats, or out of range. Defensive coercion at
+ * every tool entry prevents one bad token from crashing TypeORM downstream.
+ */
+export function toBoundedInt(
+  value: unknown,
+  opts: { fallback: number; min?: number; max?: number },
+): number {
+  const min = opts.min ?? 1;
+  const max = opts.max ?? Number.MAX_SAFE_INTEGER;
+  const n =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string'
+        ? Number(value.trim())
+        : NaN;
+  if (!Number.isFinite(n)) return opts.fallback;
+  const floored = Math.floor(n);
+  if (floored < min) return opts.fallback;
+  if (floored > max) return max;
+  return floored;
+}
