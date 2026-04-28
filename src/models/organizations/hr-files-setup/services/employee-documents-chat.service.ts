@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import OpenAI from 'openai';
 import { EmployeeDocumentsService } from './employee-documents.service';
+import { LlmRouter, type LlmMessage, type LlmTool } from '../../../../common/services/llm';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -16,48 +16,42 @@ You have full access to the document content via the chat_with_employee_document
 
 If the tool returns "No relevant content found", say so briefly. Answer only from tool results. If the question is unrelated to HR documents, say you can only help with document-related questions.`;
 
-const TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
+const TOOLS: LlmTool[] = [
   {
-    type: 'function',
-    function: {
-      name: 'get_document_expiration_status',
-      description:
-        "For a list of employee document IDs, returns whether each document is expired and its expiration date (derived from document content). Use when the user asks which documents are expired or about expiration status. Input: document_ids from the employee's required documents.",
-      parameters: {
-        type: 'object',
-        properties: {
-          document_ids: {
-            type: 'array',
-            items: { type: 'string', format: 'uuid' },
-            description: 'Array of document UUIDs',
-          },
+    name: 'get_document_expiration_status',
+    description:
+      "For a list of employee document IDs, returns whether each document is expired and its expiration date (derived from document content). Use when the user asks which documents are expired or about expiration status. Input: document_ids from the employee's required documents.",
+    parameters: {
+      type: 'object',
+      properties: {
+        document_ids: {
+          type: 'array',
+          items: { type: 'string', format: 'uuid' },
+          description: 'Array of document UUIDs',
         },
-        required: ['document_ids'],
       },
+      required: ['document_ids'],
     },
   },
   {
-    type: 'function',
-    function: {
-      name: 'chat_with_employee_document',
-      description:
-        "Full access to the employee's document content. Use for ANY question about the document: content, summary, expiration date, dates, or other details. Pass the user's message; the backend uses the current document in context. Answer only from the tool result.",
-      parameters: {
-        type: 'object',
-        properties: {
-          message: {
-            type: 'string',
-            description:
-              "The user's question or message (e.g. 'What is the expiration date?', 'Summarize this document')",
-          },
-          document_ids: {
-            type: 'array',
-            items: { type: 'string', format: 'uuid' },
-            description: 'Optional: restrict to these document IDs',
-          },
+    name: 'chat_with_employee_document',
+    description:
+      "Full access to the employee's document content. Use for ANY question about the document: content, summary, expiration date, dates, or other details. Pass the user's message; the backend uses the current document in context. Answer only from the tool result.",
+    parameters: {
+      type: 'object',
+      properties: {
+        message: {
+          type: 'string',
+          description:
+            "The user's question or message (e.g. 'What is the expiration date?', 'Summarize this document')",
         },
-        required: ['message'],
+        document_ids: {
+          type: 'array',
+          items: { type: 'string', format: 'uuid' },
+          description: 'Optional: restrict to these document IDs',
+        },
       },
+      required: ['message'],
     },
   },
 ];
@@ -65,17 +59,12 @@ const TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
 @Injectable()
 export class EmployeeDocumentsChatService {
   private readonly logger = new Logger(EmployeeDocumentsChatService.name);
-  private readonly openai: OpenAI | null = null;
 
   constructor(
     private readonly configService: ConfigService,
     private readonly employeeDocumentsService: EmployeeDocumentsService,
-  ) {
-    const apiKey = this.configService.get<string>('apiKeys.openai')?.trim();
-    if (apiKey) {
-      this.openai = new OpenAI({ apiKey });
-    }
-  }
+    private readonly llm: LlmRouter,
+  ) {}
 
   async chat(
     organizationId: string,
@@ -88,67 +77,45 @@ export class EmployeeDocumentsChatService {
     message: string;
     sources?: { document_id: string; file_name: string; snippet: string }[];
   }> {
-    if (!this.openai) {
-      return {
-        message: 'Chat is not available. Please set OPENAI_API_KEY.',
-      };
-    }
-
-    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    const messages: LlmMessage[] = [
       { role: 'system', content: SYSTEM_PROMPT },
-      ...(history ?? []).map(
-        (h) =>
-          ({
-            role: h.role,
-            content: h.content,
-          }) as OpenAI.Chat.Completions.ChatCompletionMessageParam,
+      ...(history ?? []).map<LlmMessage>((h) =>
+        h.role === 'assistant'
+          ? { role: 'assistant', content: h.content }
+          : { role: 'user', content: h.content },
       ),
       { role: 'user', content: message },
     ];
 
     const model = this.configService.get<string>('llm.model') ?? 'gpt-4o-mini';
+    const providerName = await this.llm.resolveName(organizationId);
     let lastSources: { document_id: string; file_name: string; snippet: string }[] | undefined;
     let iteration = 0;
     const maxIterations = 10;
 
     while (iteration < maxIterations) {
-      const response = await this.openai.chat.completions.create({
-        model,
-        messages,
-        tools: TOOLS,
-        tool_choice: 'auto',
-      });
+      const response = await this.llm.generate(
+        {
+          messages,
+          tools: TOOLS,
+          toolChoice: 'auto',
+          model: providerName === 'openai' ? model : undefined,
+        },
+        { organizationId },
+      );
 
-      const choice = response.choices?.[0];
-      if (!choice?.message) {
-        return { message: 'I could not generate a response. Please try again.' };
-      }
-
-      const assistantMessage = choice.message;
+      const assistantMessage = response.message;
       messages.push(assistantMessage);
 
-      if (!assistantMessage.tool_calls?.length) {
-        const raw = assistantMessage.content;
-        const reply =
-          typeof raw === 'string'
-            ? raw
-            : Array.isArray(raw)
-              ? (raw as Array<{ type?: string; text?: string } | string>)
-                  .map((c) => (typeof c === 'string' ? c : (c?.text ?? '')))
-                  .join('')
-              : '';
-        return { message: reply || '', sources: lastSources };
+      if (!assistantMessage.toolCalls?.length) {
+        return { message: assistantMessage.content ?? '', sources: lastSources };
       }
 
-      for (const tc of assistantMessage.tool_calls) {
-        if (tc.type !== 'function' || tc.function?.name == null) continue;
-        const name = tc.function.name;
+      for (const tc of assistantMessage.toolCalls) {
+        const name = tc.name;
         let args: Record<string, unknown> = {};
         try {
-          args = (tc.function.arguments ? JSON.parse(tc.function.arguments) : {}) as Record<
-            string,
-            unknown
-          >;
+          args = (tc.arguments ? JSON.parse(tc.arguments) : {}) as Record<string, unknown>;
         } catch {
           this.logger.warn(`Invalid tool arguments for ${name}`);
         }
@@ -169,7 +136,7 @@ export class EmployeeDocumentsChatService {
         }
         messages.push({
           role: 'tool',
-          tool_call_id: tc.id,
+          toolCallId: tc.id,
           content,
         });
       }

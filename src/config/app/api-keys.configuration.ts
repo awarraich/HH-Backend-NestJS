@@ -6,9 +6,15 @@ export default () => ({
   llm: {
     provider: process.env.LLM_PROVIDER || 'openai',
     model: process.env.LLM_MODEL || 'gpt-4o-mini',
+    openai: {
+      model: process.env.OPENAI_REASONING_MODEL || 'gpt-4o',
+    },
+    bedrock: {
+      region: process.env.AWS_REGION,
+      modelId: process.env.LLM_BEDROCK_MODEL_ID,
+    },
   },
   embedding: {
-    // 'openai' = use OpenAI (OPENAI_API_KEY) for embedding generation; 'none' = no external API (pgvector storage only)
     provider: process.env.EMBEDDING_PROVIDER || 'openai',
     model: process.env.EMBEDDING_MODEL || 'text-embedding-3-small',
   },
