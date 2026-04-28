@@ -180,15 +180,28 @@ function normalizeResponse(response: ConverseCommandOutput): LlmGenerateResult {
     }
   }
 
+  if (toolCalls.length === 0 && text) {
+    const recovered = extractTextEncodedToolCalls(text);
+    if (recovered.calls.length > 0) {
+      toolCalls.push(...recovered.calls);
+      text = recovered.remainder;
+    }
+  }
+
   const message: LlmAssistantMessage = {
     role: 'assistant',
     content: text.length > 0 ? text : null,
   };
   if (toolCalls.length) message.toolCalls = toolCalls;
 
+  let finishReason = mapStopReason(response.stopReason);
+  if (toolCalls.length > 0 && finishReason === 'stop') {
+    finishReason = 'tool_calls';
+  }
+
   return {
     message,
-    finishReason: mapStopReason(response.stopReason),
+    finishReason,
     usage: response.usage
       ? {
           promptTokens: response.usage.inputTokens ?? 0,
@@ -197,6 +210,107 @@ function normalizeResponse(response: ConverseCommandOutput): LlmGenerateResult {
         }
       : undefined,
     raw: response,
+  };
+}
+
+/**
+ * Detect text that contains one or more Llama-style JSON tool calls and lift
+ * them into LlmToolCall entries. Recognized shapes (most common first):
+ *   {"type":"function","name":"X","parameters":{...}}
+ *   {"name":"X","parameters":{...}}
+ *   {"name":"X","arguments":{...}}
+ * Optionally wrapped in ```json … ``` fences. Multiple objects in the same
+ * content (separated by whitespace or newlines) are all extracted.
+ */
+function extractTextEncodedToolCalls(text: string): {
+  calls: LlmToolCall[];
+  remainder: string;
+} {
+  const calls: LlmToolCall[] = [];
+  let s = text.trim();
+
+  const fenceMatch = s.match(/^```(?:json|tool|tool_call|tool_use)?\s*\n?([\s\S]*?)\n?```$/);
+  if (fenceMatch) s = fenceMatch[1].trim();
+
+  // Walk the string finding balanced JSON objects starting at '{'.
+  let i = 0;
+  let preamble = '';
+  while (i < s.length) {
+    const start = s.indexOf('{', i);
+    if (start < 0) {
+      preamble += s.slice(i);
+      break;
+    }
+    preamble += s.slice(i, start);
+
+    const end = findMatchingBrace(s, start);
+    if (end < 0) {
+      preamble += s.slice(start);
+      break;
+    }
+
+    const candidate = s.slice(start, end + 1);
+    const parsed = parseToolCallObject(candidate);
+    if (parsed) {
+      calls.push(parsed);
+      i = end + 1;
+      continue;
+    }
+    // Not a tool call shape — keep it as text and move past this brace.
+    preamble += candidate;
+    i = end + 1;
+  }
+
+  return {
+    calls,
+    remainder: calls.length > 0 ? preamble.trim() : text,
+  };
+}
+
+function findMatchingBrace(s: string, openIdx: number): number {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = openIdx; i < s.length; i++) {
+    const ch = s[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (inString) {
+      if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+function parseToolCallObject(json: string): LlmToolCall | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object') return null;
+  const obj = parsed as Record<string, unknown>;
+  const name = typeof obj.name === 'string' ? obj.name.trim() : null;
+  if (!name) return null;
+  const args =
+    (obj.parameters && typeof obj.parameters === 'object' && obj.parameters) ||
+    (obj.arguments && typeof obj.arguments === 'object' && obj.arguments) ||
+    {};
+  return {
+    id: randomUUID(),
+    name,
+    arguments: JSON.stringify(args),
   };
 }
 
