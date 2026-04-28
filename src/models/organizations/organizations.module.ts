@@ -75,6 +75,7 @@ import { OrganizationCompanyProfileController } from './company-profile-setup/co
 import { EmployeeDocumentAccessGuard } from '../../common/guards/employee-document-access.guard';
 import { EmployeeDocumentTypeAccessGuard } from '../../common/guards/employee-document-type-access.guard';
 import { EmbeddingModule } from '../../common/services/embedding/embedding.module';
+import { LlmModule } from '../../common/services/llm';
 import { OrganizationRepository } from './repositories/organization.repository';
 import { ReferralRepository } from './repositories/referral.repository';
 import { ReferralMessagesGateway } from './gateways/referral-messages.gateway';
@@ -232,6 +233,7 @@ import { FilledDocumentTemplatesController } from './document-workflow/controlle
     AuditLogModule,
     PatientsModule,
     EmbeddingModule,
+    LlmModule,
   ],
   controllers: [
     OrganizationsController,

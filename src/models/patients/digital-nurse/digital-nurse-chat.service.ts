@@ -1,73 +1,64 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import OpenAI from 'openai';
 import {
   MedicationsService,
   type MedicationAuditContext,
   type MedicationResponse,
 } from '../medications/medications.service';
+import { LlmRouter, type LlmMessage, type LlmTool } from '../../../common/services/llm';
 
 const SYSTEM_PROMPT = `You are a helpful digital nurse. Use the provided tools to list, search, or record the patient's medications. Answer briefly and in a friendly way. If the user asks something unrelated to medications, say you can only help with medication information and logging.`;
 
-const TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
+const TOOLS: LlmTool[] = [
   {
-    type: 'function',
-    function: {
-      name: 'list_medications',
-      description:
-        "List the patient's current medications with today's taken status. Use for 'what meds do I take', 'medication list', 'today's doses'.",
-      parameters: {
-        type: 'object',
-        properties: {
-          date: {
-            type: 'string',
-            description: 'Date in YYYY-MM-DD format. Defaults to today.',
-          },
+    name: 'list_medications',
+    description:
+      "List the patient's current medications with today's taken status. Use for 'what meds do I take', 'medication list', 'today's doses'.",
+    parameters: {
+      type: 'object',
+      properties: {
+        date: {
+          type: 'string',
+          description: 'Date in YYYY-MM-DD format. Defaults to today.',
         },
       },
     },
   },
   {
-    type: 'function',
-    function: {
-      name: 'search_medications',
-      description:
-        "Semantic search over the patient's medications. Use for finding medications by purpose, time, or condition (e.g. 'blood pressure', 'evening pills').",
-      parameters: {
-        type: 'object',
-        properties: {
-          query: {
-            type: 'string',
-            description: 'Search query (e.g. "blood pressure", "evening pills")',
-          },
+    name: 'search_medications',
+    description:
+      "Semantic search over the patient's medications. Use for finding medications by purpose, time, or condition (e.g. 'blood pressure', 'evening pills').",
+    parameters: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Search query (e.g. "blood pressure", "evening pills")',
         },
-        required: ['query'],
       },
+      required: ['query'],
     },
   },
   {
-    type: 'function',
-    function: {
-      name: 'mark_medication_taken',
-      description:
-        "Record that the patient took a medication at a time slot on a given date. Use when the user says they took a dose or to log adherence. For medicationId use the UUID from list_medications/search_medications (the id: value in each line), or the medication name (e.g. 'Panando') and the backend will resolve it.",
-      parameters: {
-        type: 'object',
-        properties: {
-          medicationId: {
-            type: 'string',
-            description:
-              'Medication UUID from list/search result (id: ...) or medication name (e.g. Panando)',
-          },
-          timeSlot: {
-            type: 'string',
-            description:
-              'Time slot from the medication list (e.g. 08:00, 8:00, 20:00). Must be one of the times shown in parentheses for that medication.',
-          },
-          date: { type: 'string', description: 'Date in YYYY-MM-DD format' },
+    name: 'mark_medication_taken',
+    description:
+      "Record that the patient took a medication at a time slot on a given date. Use when the user says they took a dose or to log adherence. For medicationId use the UUID from list_medications/search_medications (the id: value in each line), or the medication name (e.g. 'Panando') and the backend will resolve it.",
+    parameters: {
+      type: 'object',
+      properties: {
+        medicationId: {
+          type: 'string',
+          description:
+            'Medication UUID from list/search result (id: ...) or medication name (e.g. Panando)',
         },
-        required: ['medicationId', 'timeSlot', 'date'],
+        timeSlot: {
+          type: 'string',
+          description:
+            'Time slot from the medication list (e.g. 08:00, 8:00, 20:00). Must be one of the times shown in parentheses for that medication.',
+        },
+        date: { type: 'string', description: 'Date in YYYY-MM-DD format' },
       },
+      required: ['medicationId', 'timeSlot', 'date'],
     },
   },
 ];
@@ -114,18 +105,14 @@ function formatMedicationList(list: MedicationResponse[]): string {
 @Injectable()
 export class DigitalNurseChatService {
   private readonly logger = new Logger(DigitalNurseChatService.name);
-  private readonly openai: OpenAI | null = null;
   private readonly model: string;
 
   constructor(
     private readonly configService: ConfigService,
     private readonly medicationsService: MedicationsService,
+    private readonly llm: LlmRouter,
   ) {
-    const apiKey = this.configService.get<string>('apiKeys.openai')?.trim();
     this.model = this.configService.get<string>('llm.model') ?? 'gpt-4o-mini';
-    if (apiKey) {
-      this.openai = new OpenAI({ apiKey });
-    }
   }
 
   async chat(
@@ -134,72 +121,55 @@ export class DigitalNurseChatService {
     auditContext: MedicationAuditContext,
     history?: { role: 'user' | 'assistant'; content: string }[],
   ): Promise<{ reply: string }> {
-    if (!this.openai) {
-      return {
-        reply: 'Chat is not available. Please set OPENAI_API_KEY.',
-      };
-    }
-
-    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    const messages: LlmMessage[] = [
       { role: 'system', content: SYSTEM_PROMPT },
-      ...(history ?? []).map(
-        (h) =>
-          ({
-            role: h.role,
-            content: h.content,
-          }) as OpenAI.Chat.Completions.ChatCompletionMessageParam,
+      ...(history ?? []).map<LlmMessage>((h) =>
+        h.role === 'assistant'
+          ? { role: 'assistant', content: h.content }
+          : { role: 'user', content: h.content },
       ),
       { role: 'user', content: message },
     ];
+
+    // Patient-facing path; no organization context, so resolution falls back
+    // to global → env → default. Resolve once per chat call so all iterations
+    // see the same provider even if a setting toggles mid-loop.
+    const providerName = await this.llm.resolveName(null);
 
     let iteration = 0;
     const maxIterations = 10;
 
     while (iteration < maxIterations) {
-      const response = await this.openai.chat.completions.create({
-        model: this.model,
-        messages,
-        tools: TOOLS,
-        tool_choice: 'auto',
-      });
+      const response = await this.llm.generate(
+        {
+          messages,
+          tools: TOOLS,
+          toolChoice: 'auto',
+          // OpenAI uses gpt-4o-mini for chat; Bedrock has its own modelId.
+          model: providerName === 'openai' ? this.model : undefined,
+        },
+        { organizationId: null },
+      );
 
-      const choice = response.choices?.[0];
-      if (!choice?.message) {
-        return { reply: 'I could not generate a response. Please try again.' };
-      }
-
-      const assistantMessage = choice.message;
+      const assistantMessage = response.message;
       messages.push(assistantMessage);
 
-      if (!assistantMessage.tool_calls?.length) {
-        const raw = assistantMessage.content;
-        const reply =
-          typeof raw === 'string'
-            ? raw
-            : Array.isArray(raw)
-              ? (raw as Array<{ type?: string; text?: string } | string>)
-                  .map((c) => (typeof c === 'string' ? c : (c?.text ?? '')))
-                  .join('')
-              : '';
-        return { reply: reply || '' };
+      if (!assistantMessage.toolCalls?.length) {
+        return { reply: assistantMessage.content ?? '' };
       }
 
-      for (const tc of assistantMessage.tool_calls) {
-        if (tc.type !== 'function' || tc.function?.name === undefined) continue;
-        const name = tc.function.name;
+      for (const tc of assistantMessage.toolCalls) {
+        const name = tc.name;
         let args: Record<string, unknown> = {};
         try {
-          args = (tc.function.arguments ? JSON.parse(tc.function.arguments) : {}) as Record<
-            string,
-            unknown
-          >;
+          args = (tc.arguments ? JSON.parse(tc.arguments) : {}) as Record<string, unknown>;
         } catch {
           this.logger.warn(`Invalid tool arguments for ${name}`);
         }
         const result = await this.runTool(patientId, auditContext, name, args);
         messages.push({
           role: 'tool',
-          tool_call_id: tc.id,
+          toolCallId: tc.id,
           content: result,
         });
       }

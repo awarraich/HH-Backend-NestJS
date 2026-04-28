@@ -1,9 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions';
 import { McpServerFactory } from '../server/mcp-server.factory';
-import { OpenAiClient } from './openai.client';
-import { toOpenAiTools } from './tool-bridge';
+import { toLlmTools } from './tool-bridge';
 import { FALLBACK_TIMEZONE } from '../tools/scheduling/timezone';
+import { LlmRouter, type LlmMessage } from '../../common/services/llm';
 
 const SYSTEM_PROMPT = `You are a scheduling assistant for a home-health platform.
 You have read tools for shifts, employee shift assignments, roles, and employee availability, plus ONE write tool: assign_employee_to_shift.
@@ -191,7 +190,6 @@ Cross-checking with prior turns:
   inconsistency rather than confidently denying yourself.`;
 
 const MAX_STEPS = 12;
-const MODEL = 'gpt-4o';
 
 /**
  * Render the optional UI context object as a system-prompt block. The agent
@@ -679,7 +677,7 @@ function findBestMatch(
   }
 
   // If only one entry in the map, use it (common case: one shift, one employee).
-  if (nameMap.size === 1) return nameMap.values().next().value;
+  if (nameMap.size === 1) return nameMap.values().next().value ?? null;
 
   return null;
 }
@@ -803,7 +801,7 @@ export class SchedulingAgentService {
 
   constructor(
     private readonly mcpFactory: McpServerFactory,
-    private readonly openai: OpenAiClient,
+    private readonly llm: LlmRouter,
   ) {}
 
   async chat(req: SchedulingAgentRequest): Promise<SchedulingAgentResponse> {
@@ -817,7 +815,7 @@ export class SchedulingAgentService {
       bedId: req.context?.bedId,
       chairId: req.context?.chairId,
     });
-    const openAiTools = toOpenAiTools(tools);
+    const llmTools = toLlmTools(tools);
     const toolByName = new Map(tools.map((t) => [t.name, t]));
 
     const contextBlock = buildContextBlock(req.context);
@@ -829,11 +827,15 @@ export class SchedulingAgentService {
     // Build the conversation: [system, ...history, (priorToolContext?), user query]
     // History gives the LLM multi-turn memory so it can resolve references
     // like "this shift" or "the one we just assigned".
-    const historyMessages: ChatCompletionMessageParam[] = (req.history ?? [])
+    const historyMessages: LlmMessage[] = (req.history ?? [])
       .filter((m) => m && typeof m.content === 'string' && m.content.trim().length > 0)
-      .map((m) => ({ role: m.role, content: m.content }));
+      .map((m) =>
+        m.role === 'assistant'
+          ? { role: 'assistant', content: m.content }
+          : { role: 'user', content: m.content },
+      );
 
-    const messages: ChatCompletionMessageParam[] = [
+    const messages: LlmMessage[] = [
       { role: 'system', content: systemContent },
       ...historyMessages,
     ];
@@ -859,17 +861,19 @@ export class SchedulingAgentService {
     const MAX_IDENTICAL_ERROR_RETRIES = 2;
 
     for (let step = 0; step < MAX_STEPS; step++) {
-      const completion = await this.openai.client.chat.completions.create({
-        model: MODEL,
-        messages,
-        tools: openAiTools,
-        tool_choice: 'auto',
-      });
+      const result = await this.llm.generate(
+        {
+          messages,
+          tools: llmTools,
+          toolChoice: 'auto',
+        },
+        { organizationId: req.organizationId },
+      );
 
-      const msg = completion.choices[0].message;
+      const msg = result.message;
       messages.push(msg);
 
-      if (!msg.tool_calls?.length) {
+      if (!msg.toolCalls?.length) {
         this.logger.debug(
           `agent finished in ${step + 1} step(s); ${trace.length} tool call(s): ${trace.map((t) => t.name).join(', ') || '(none)'}`,
         );
@@ -884,22 +888,22 @@ export class SchedulingAgentService {
       // NOT push system/user messages in the middle of handling a
       // multi-tool_call assistant turn. Collect any post-turn reminders
       // here and flush them after the tool-response loop finishes.
-      const postTurnReminders: ChatCompletionMessageParam[] = [];
+      const postTurnReminders: LlmMessage[] = [];
 
-      for (const call of msg.tool_calls) {
-        const tool = toolByName.get(call.function.name);
+      for (const call of msg.toolCalls) {
+        const tool = toolByName.get(call.name);
         if (!tool) {
           messages.push({
             role: 'tool',
-            tool_call_id: call.id,
-            content: JSON.stringify({ error: 'tool_not_found', name: call.function.name }),
+            toolCallId: call.id,
+            content: JSON.stringify({ error: 'tool_not_found', name: call.name }),
           });
           continue;
         }
 
         let args: unknown;
         try {
-          args = JSON.parse(call.function.arguments || '{}');
+          args = JSON.parse(call.arguments || '{}');
         } catch {
           args = {};
         }
@@ -919,7 +923,7 @@ export class SchedulingAgentService {
           );
           messages.push({
             role: 'tool',
-            tool_call_id: call.id,
+            toolCallId: call.id,
             content: text,
           });
 
@@ -989,7 +993,7 @@ export class SchedulingAgentService {
           this.logger.error(`Tool ${tool.name} failed`, err);
           messages.push({
             role: 'tool',
-            tool_call_id: call.id,
+            toolCallId: call.id,
             content: JSON.stringify({
               error: 'tool_execution_failed',
               message: err instanceof Error ? err.message : 'unknown',

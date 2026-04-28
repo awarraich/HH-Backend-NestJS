@@ -2,10 +2,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, IsNull, Repository } from 'typeorm';
-import OpenAI from 'openai';
 import { OrganizationDocument } from '../entities/organization-document.entity';
 import { OrganizationDocumentsService } from './organization-documents.service';
 import { EmbeddingService } from '../../../../common/services/embedding/embedding.service';
+import { LlmRouter, type LlmMessage, type LlmTool } from '../../../../common/services/llm';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const VECTOR_SEARCH_LIMIT = 10;
@@ -55,215 +55,185 @@ When calling get_compliance_document_details or analyze_compliance_document, use
 Do NOT make up information—only answer from tool results. If a tool returns no results, say so briefly.`;
 }
 
-const SINGLE_DOCUMENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
+const SINGLE_DOCUMENT_TOOLS: LlmTool[] = [
   {
-    type: 'function',
-    function: {
-      name: 'get_compliance_document_details',
-      description:
-        'Get full details of the document including extracted text, status, and expiration info. Call this first to answer questions about the document.',
-      parameters: {
-        type: 'object',
-        properties: {
-          document_id: {
-            type: 'string',
-            format: 'uuid',
-            description: 'UUID of the document (use the one from context)',
-          },
+    name: 'get_compliance_document_details',
+    description:
+      'Get full details of the document including extracted text, status, and expiration info. Call this first to answer questions about the document.',
+    parameters: {
+      type: 'object',
+      properties: {
+        document_id: {
+          type: 'string',
+          format: 'uuid',
+          description: 'UUID of the document (use the one from context)',
         },
-        required: ['document_id'],
       },
+      required: ['document_id'],
     },
   },
   {
-    type: 'function',
-    function: {
-      name: 'search_compliance_documents',
-      description:
-        'Search the document content semantically. Use for specific questions about what the document contains.',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: {
-            type: 'string',
-            description: 'Natural language search query',
-          },
+    name: 'search_compliance_documents',
+    description:
+      'Search the document content semantically. Use for specific questions about what the document contains.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Natural language search query',
         },
-        required: ['query'],
       },
+      required: ['query'],
     },
   },
   {
-    type: 'function',
-    function: {
-      name: 'analyze_compliance_document',
-      description:
-        'AI analysis: extract dates, key terms, parties, obligations, summary, or compliance check.',
-      parameters: {
-        type: 'object',
-        properties: {
-          document_id: {
-            type: 'string',
-            format: 'uuid',
-            description: 'UUID of the document (use the one from context)',
-          },
-          analysis_type: {
-            type: 'string',
-            enum: ['full', 'expiration', 'key_terms', 'summary', 'compliance_check'],
-            description: 'Type of analysis (default: full)',
-          },
+    name: 'analyze_compliance_document',
+    description:
+      'AI analysis: extract dates, key terms, parties, obligations, summary, or compliance check.',
+    parameters: {
+      type: 'object',
+      properties: {
+        document_id: {
+          type: 'string',
+          format: 'uuid',
+          description: 'UUID of the document (use the one from context)',
         },
-        required: ['document_id'],
+        analysis_type: {
+          type: 'string',
+          enum: ['full', 'expiration', 'key_terms', 'summary', 'compliance_check'],
+          description: 'Type of analysis (default: full)',
+        },
       },
+      required: ['document_id'],
     },
   },
 ];
 
-const TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
+const TOOLS: LlmTool[] = [
   {
-    type: 'function',
-    function: {
-      name: 'list_compliance_documents',
-      description:
-        'List compliance documents, optionally filtered by category or status. Use when asked to show, list, or find documents.',
-      parameters: {
-        type: 'object',
-        properties: {
-          category_id: {
-            type: 'string',
-            description: 'Filter by category UUID',
-          },
-          status: {
-            type: 'string',
-            enum: ['valid', 'expired', 'expiring_soon', 'missing'],
-            description: 'Filter by status',
-          },
-          limit: {
-            type: 'number',
-            description: 'Max results (default 50)',
-          },
+    name: 'list_compliance_documents',
+    description:
+      'List compliance documents, optionally filtered by category or status. Use when asked to show, list, or find documents.',
+    parameters: {
+      type: 'object',
+      properties: {
+        category_id: {
+          type: 'string',
+          description: 'Filter by category UUID',
+        },
+        status: {
+          type: 'string',
+          enum: ['valid', 'expired', 'expiring_soon', 'missing'],
+          description: 'Filter by status',
+        },
+        limit: {
+          type: 'number',
+          description: 'Max results (default 50)',
         },
       },
     },
   },
   {
-    type: 'function',
-    function: {
-      name: 'get_compliance_stats',
-      description:
-        'Get compliance stats: total, valid, expiring soon, expired, missing counts with per-category breakdown. Use for overview questions.',
-      parameters: { type: 'object', properties: {} },
-    },
+    name: 'get_compliance_stats',
+    description:
+      'Get compliance stats: total, valid, expiring soon, expired, missing counts with per-category breakdown. Use for overview questions.',
+    parameters: { type: 'object', properties: {} },
   },
   {
-    type: 'function',
-    function: {
-      name: 'get_compliance_document_details',
-      description:
-        'Get full details of a specific document including extracted text content, status, and expiration info.',
-      parameters: {
-        type: 'object',
-        properties: {
-          document_id: {
-            type: 'string',
-            format: 'uuid',
-            description: 'UUID of the document',
-          },
+    name: 'get_compliance_document_details',
+    description:
+      'Get full details of a specific document including extracted text content, status, and expiration info.',
+    parameters: {
+      type: 'object',
+      properties: {
+        document_id: {
+          type: 'string',
+          format: 'uuid',
+          description: 'UUID of the document',
         },
-        required: ['document_id'],
       },
+      required: ['document_id'],
     },
   },
   {
-    type: 'function',
-    function: {
-      name: 'search_compliance_documents',
-      description:
-        'Semantic search across document content. Finds relevant passages even without exact keyword matches. Use for any question about what documents contain.',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: {
-            type: 'string',
-            description: 'Natural language search query',
-          },
-          category_id: {
-            type: 'string',
-            description: 'Optional: restrict to a category',
-          },
-          limit: {
-            type: 'number',
-            description: 'Max results (default 10)',
-          },
+    name: 'search_compliance_documents',
+    description:
+      'Semantic search across document content. Finds relevant passages even without exact keyword matches. Use for any question about what documents contain.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Natural language search query',
         },
-        required: ['query'],
+        category_id: {
+          type: 'string',
+          description: 'Optional: restrict to a category',
+        },
+        limit: {
+          type: 'number',
+          description: 'Max results (default 10)',
+        },
       },
+      required: ['query'],
     },
   },
   {
-    type: 'function',
-    function: {
-      name: 'get_expiring_documents_alert',
-      description:
-        'Get prioritized alerts: expired, expiring soon, and missing documents sorted by urgency. Use when asked what needs attention.',
-      parameters: {
-        type: 'object',
-        properties: {
-          days_ahead: {
-            type: 'number',
-            description: 'Look-ahead window in days (default 90)',
-          },
+    name: 'get_expiring_documents_alert',
+    description:
+      'Get prioritized alerts: expired, expiring soon, and missing documents sorted by urgency. Use when asked what needs attention.',
+    parameters: {
+      type: 'object',
+      properties: {
+        days_ahead: {
+          type: 'number',
+          description: 'Look-ahead window in days (default 90)',
         },
       },
     },
   },
   {
-    type: 'function',
-    function: {
-      name: 'analyze_compliance_document',
-      description:
-        'AI analysis of a document: extract dates, key terms, parties, obligations, or check compliance. Use when asked to analyze, scan, or review a document.',
-      parameters: {
-        type: 'object',
-        properties: {
-          document_id: {
-            type: 'string',
-            format: 'uuid',
-            description: 'UUID of the document to analyze',
-          },
-          analysis_type: {
-            type: 'string',
-            enum: ['full', 'expiration', 'key_terms', 'summary', 'compliance_check'],
-            description: 'Type of analysis (default: full)',
-          },
+    name: 'analyze_compliance_document',
+    description:
+      'AI analysis of a document: extract dates, key terms, parties, obligations, or check compliance. Use when asked to analyze, scan, or review a document.',
+    parameters: {
+      type: 'object',
+      properties: {
+        document_id: {
+          type: 'string',
+          format: 'uuid',
+          description: 'UUID of the document to analyze',
         },
-        required: ['document_id'],
+        analysis_type: {
+          type: 'string',
+          enum: ['full', 'expiration', 'key_terms', 'summary', 'compliance_check'],
+          description: 'Type of analysis (default: full)',
+        },
       },
+      required: ['document_id'],
     },
   },
   {
-    type: 'function',
-    function: {
-      name: 'compare_compliance_documents',
-      description:
-        'Compare 2-5 documents side by side. Use when asked to compare policies, find differences, or check which document is better.',
-      parameters: {
-        type: 'object',
-        properties: {
-          document_ids: {
-            type: 'array',
-            items: { type: 'string', format: 'uuid' },
-            minItems: 2,
-            maxItems: 5,
-            description: 'Document UUIDs to compare',
-          },
-          comparison_focus: {
-            type: 'string',
-            description: 'Optional aspect to focus on',
-          },
+    name: 'compare_compliance_documents',
+    description:
+      'Compare 2-5 documents side by side. Use when asked to compare policies, find differences, or check which document is better.',
+    parameters: {
+      type: 'object',
+      properties: {
+        document_ids: {
+          type: 'array',
+          items: { type: 'string', format: 'uuid' },
+          minItems: 2,
+          maxItems: 5,
+          description: 'Document UUIDs to compare',
         },
-        required: ['document_ids'],
+        comparison_focus: {
+          type: 'string',
+          description: 'Optional aspect to focus on',
+        },
       },
+      required: ['document_ids'],
     },
   },
 ];
@@ -271,7 +241,6 @@ const TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
 @Injectable()
 export class OrganizationDocumentsChatService {
   private readonly logger = new Logger(OrganizationDocumentsChatService.name);
-  private readonly openai: OpenAI | null = null;
 
   constructor(
     @InjectRepository(OrganizationDocument)
@@ -280,12 +249,8 @@ export class OrganizationDocumentsChatService {
     private readonly embeddingService: EmbeddingService,
     private readonly configService: ConfigService,
     private readonly dataSource: DataSource,
-  ) {
-    const apiKey = this.configService.get<string>('apiKeys.openai')?.trim();
-    if (apiKey) {
-      this.openai = new OpenAI({ apiKey });
-    }
-  }
+    private readonly llm: LlmRouter,
+  ) {}
 
   async chat(
     organizationId: string,
@@ -296,10 +261,6 @@ export class OrganizationDocumentsChatService {
     message: string;
     sources?: ComplianceChatSource[];
   }> {
-    if (!this.openai) {
-      return { message: 'Chat is not available. Please set OPENAI_API_KEY.' };
-    }
-
     let systemPrompt = GENERAL_SYSTEM_PROMPT;
     let activeTools = TOOLS;
 
@@ -320,62 +281,48 @@ export class OrganizationDocumentsChatService {
       }
     }
 
-    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    const messages: LlmMessage[] = [
       { role: 'system', content: systemPrompt },
-      ...(history ?? []).map(
-        (h) =>
-          ({ role: h.role, content: h.content }) as OpenAI.Chat.Completions.ChatCompletionMessageParam,
+      ...(history ?? []).map<LlmMessage>((h) =>
+        h.role === 'assistant'
+          ? { role: 'assistant', content: h.content }
+          : { role: 'user', content: h.content },
       ),
       { role: 'user', content: message },
     ];
 
     const model = this.configService.get<string>('llm.model') ?? 'gpt-4o-mini';
+    const providerName = await this.llm.resolveName(organizationId);
     let lastSources: ComplianceChatSource[] | undefined;
     let iteration = 0;
 
     while (iteration < MAX_ITERATIONS) {
-      const response = await this.openai.chat.completions.create({
-        model,
-        messages,
-        tools: activeTools,
-        tool_choice: 'auto',
-      });
+      const response = await this.llm.generate(
+        {
+          messages,
+          tools: activeTools,
+          toolChoice: 'auto',
+          model: providerName === 'openai' ? model : undefined,
+        },
+        { organizationId },
+      );
 
-      const choice = response.choices?.[0];
-      if (!choice?.message) {
-        return { message: 'I could not generate a response. Please try again.' };
-      }
-
-      const assistantMessage = choice.message;
+      const assistantMessage = response.message;
       messages.push(assistantMessage);
 
-      if (!assistantMessage.tool_calls?.length) {
-        const raw = assistantMessage.content;
-        const reply =
-          typeof raw === 'string'
-            ? raw
-            : Array.isArray(raw)
-              ? (raw as Array<{ type?: string; text?: string } | string>)
-                  .map((c) => (typeof c === 'string' ? c : (c?.text ?? '')))
-                  .join('')
-              : '';
-        return { message: reply || '', sources: lastSources };
+      if (!assistantMessage.toolCalls?.length) {
+        return { message: assistantMessage.content ?? '', sources: lastSources };
       }
 
-      for (const tc of assistantMessage.tool_calls) {
-        if (tc.type !== 'function' || tc.function?.name == null) continue;
-
+      for (const tc of assistantMessage.toolCalls) {
         let args: Record<string, unknown> = {};
         try {
-          args = (tc.function.arguments ? JSON.parse(tc.function.arguments) : {}) as Record<
-            string,
-            unknown
-          >;
+          args = (tc.arguments ? JSON.parse(tc.arguments) : {}) as Record<string, unknown>;
         } catch {
-          this.logger.warn(`Invalid tool arguments for ${tc.function.name}`);
+          this.logger.warn(`Invalid tool arguments for ${tc.name}`);
         }
 
-        const result = await this.runTool(organizationId, tc.function.name, args, documentIds);
+        const result = await this.runTool(organizationId, tc.name, args, documentIds);
 
         let content: string;
         if (typeof result === 'object' && result && 'text' in result) {
@@ -385,7 +332,7 @@ export class OrganizationDocumentsChatService {
           content = typeof result === 'string' ? result : JSON.stringify(result);
         }
 
-        messages.push({ role: 'tool', tool_call_id: tc.id, content });
+        messages.push({ role: 'tool', toolCallId: tc.id, content });
       }
 
       iteration++;
@@ -408,7 +355,6 @@ export class OrganizationDocumentsChatService {
     });
     if (!doc) return { error: 'Document not found' };
     if (!doc.extracted_text) return { error: 'Document has not been scanned yet' };
-    if (!this.openai) return { error: 'LLM is not configured' };
 
     const promptMap: Record<string, string> = {
       full: 'Analyze this document thoroughly. Extract: summary, key dates (effective, expiration, renewal deadlines), key parties, key terms/obligations, and any compliance concerns.',
@@ -420,17 +366,22 @@ export class OrganizationDocumentsChatService {
 
     const systemPrompt = promptMap[analysisType] ?? promptMap.full;
     const truncatedText = doc.extracted_text.slice(0, 12000);
+    const model = this.configService.get<string>('llm.model') ?? 'gpt-4o-mini';
+    const providerName = await this.llm.resolveName(organizationId);
 
-    const response = await this.openai.chat.completions.create({
-      model: this.configService.get<string>('llm.model') ?? 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: `${systemPrompt} Respond in structured JSON format.` },
-        { role: 'user', content: truncatedText },
-      ],
-      response_format: { type: 'json_object' },
-    });
+    const response = await this.llm.generate(
+      {
+        messages: [
+          { role: 'system', content: `${systemPrompt} Respond in structured JSON format.` },
+          { role: 'user', content: truncatedText },
+        ],
+        responseFormat: 'json_object',
+        model: providerName === 'openai' ? model : undefined,
+      },
+      { organizationId },
+    );
 
-    const content = response.choices?.[0]?.message?.content?.trim() ?? '{}';
+    const content = response.message.content?.trim() ?? '{}';
     let analysis: Record<string, unknown>;
     try {
       analysis = JSON.parse(content);
@@ -457,7 +408,6 @@ export class OrganizationDocumentsChatService {
     });
 
     if (docs.length < 2) return { error: 'Need at least 2 valid documents to compare' };
-    if (!this.openai) return { error: 'LLM is not configured' };
 
     const docsContext = docs
       .map((d, i) => {
@@ -470,19 +420,24 @@ export class OrganizationDocumentsChatService {
       ? `Focus the comparison on: ${comparisonFocus}.`
       : 'Compare all relevant aspects.';
 
-    const response = await this.openai.chat.completions.create({
-      model: this.configService.get<string>('llm.model') ?? 'gpt-4o-mini',
-      messages: [
-        {
-          role: 'system',
-          content: `Compare the following compliance documents. ${focusInstruction} Provide a structured comparison with differences, similarities, and a summary. Respond in JSON format.`,
-        },
-        { role: 'user', content: docsContext },
-      ],
-      response_format: { type: 'json_object' },
-    });
+    const model = this.configService.get<string>('llm.model') ?? 'gpt-4o-mini';
+    const providerName = await this.llm.resolveName(organizationId);
+    const response = await this.llm.generate(
+      {
+        messages: [
+          {
+            role: 'system',
+            content: `Compare the following compliance documents. ${focusInstruction} Provide a structured comparison with differences, similarities, and a summary. Respond in JSON format.`,
+          },
+          { role: 'user', content: docsContext },
+        ],
+        responseFormat: 'json_object',
+        model: providerName === 'openai' ? model : undefined,
+      },
+      { organizationId },
+    );
 
-    const content = response.choices?.[0]?.message?.content?.trim() ?? '{}';
+    const content = response.message.content?.trim() ?? '{}';
     let comparison: Record<string, unknown>;
     try {
       comparison = JSON.parse(content);

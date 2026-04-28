@@ -2,9 +2,10 @@ import { Module } from '@nestjs/common';
 import { MedicationsModule } from '../medications/medications.module';
 import { DigitalNurseChatService } from './digital-nurse-chat.service';
 import { DigitalNurseChatController } from './digital-nurse-chat.controller';
+import { LlmModule } from '../../../common/services/llm';
 
 @Module({
-  imports: [MedicationsModule],
+  imports: [MedicationsModule, LlmModule],
   controllers: [DigitalNurseChatController],
   providers: [DigitalNurseChatService],
 })

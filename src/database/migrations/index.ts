@@ -93,6 +93,7 @@ import { AddStatusTimestampsToJobApplications20260423110000 } from './2026042311
 import { CreateUserOAuthAccounts20260423120000 } from './20260423120000-create-user-oauth-accounts.js';
 import { AddSoftDeleteToEmployees20260424100000 } from './20260424100000-add-soft-delete-to-employees.js';
 import { AddAvailabilityUiToWorkPreferences20260425100000 } from './20260425100000-add-availability-ui-to-work-preferences.js';
+import { CreateAppSettings20260428100000 } from './20260428100000-create-app-settings.js';
 
 type MigrationConstructor = new () => MigrationInterface;
 
@@ -191,4 +192,5 @@ export const migrations: MigrationConstructor[] = [
   CreateUserOAuthAccounts20260423120000,
   AddSoftDeleteToEmployees20260424100000,
   AddAvailabilityUiToWorkPreferences20260425100000,
+  CreateAppSettings20260428100000,
 ];

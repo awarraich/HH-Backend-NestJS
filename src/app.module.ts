@@ -19,6 +19,7 @@ import { AppController } from './app.controller';
 import { ExternalDocumentsModule } from './models/external-documents/external-documents.module';
 import { McpModule } from './mcp/mcp.module';
 import { S3Module } from './common/services/s3/s3.module';
+import { AppSettingsModule } from './common/services/settings/app-settings.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { S3Module } from './common/services/s3/s3.module';
     ExternalDocumentsModule,
     McpModule,
     S3Module,
+    AppSettingsModule,
   ],
   controllers: [AppController],
   providers: [],
