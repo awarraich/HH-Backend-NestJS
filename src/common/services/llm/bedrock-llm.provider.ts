@@ -330,8 +330,19 @@ function sanitizeLlamaArgs(input: unknown): unknown {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
     if (typeof value === 'string') {
-      const trimmed = value.trim().toLowerCase();
-      if (trimmed === 'null' || trimmed === 'undefined' || trimmed === 'none') {
+      const trimmed = value.trim();
+      const lowered = trimmed.toLowerCase();
+      // Drop Llama's "absence" placeholders so the tool's defaults apply.
+      if (lowered === 'null' || lowered === 'undefined' || lowered === 'none') {
+        continue;
+      }
+      // Coerce strict numeric strings ("50", "-3", "3.14") to real numbers.
+      // Llama frequently stringifies numeric tool arguments, which then fall
+      // through arithmetic as NaN and crash TypeORM ("skip is not a number").
+      // The pattern is intentionally strict — it won't touch "50px", "+50",
+      // dates ("2026-04-28"), or UUIDs (which contain hyphens).
+      if (/^-?\d+(?:\.\d+)?$/.test(trimmed)) {
+        out[key] = Number(trimmed);
         continue;
       }
     }

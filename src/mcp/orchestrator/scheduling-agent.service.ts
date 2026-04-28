@@ -1095,14 +1095,37 @@ export class SchedulingAgentService {
           }
         } catch (err) {
           this.logger.error(`Tool ${tool.name} failed`, err);
+          const errorMessage = err instanceof Error ? err.message : 'unknown';
+          const errorPayload = {
+            success: false,
+            error: 'tool_execution_failed',
+            message: errorMessage,
+          };
+          // Push the exception into the trace + loop-detection budget so an
+          // agent that keeps re-issuing the same broken call (e.g. Llama
+          // sending a non-numeric "limit" that crashes TypeORM) hits the
+          // existing 2-strike abort instead of looping forever.
+          trace.push({ name: tool.name, arguments: args, result: errorPayload });
           messages.push({
             role: 'tool',
             toolCallId: call.id,
-            content: JSON.stringify({
-              error: 'tool_execution_failed',
-              message: err instanceof Error ? err.message : 'unknown',
-            }),
+            content: JSON.stringify(errorPayload),
           });
+          const key = `${tool.name}|${stableArgs(args)}|${errorMessage}`;
+          const count = (errorRepeats.get(key) ?? 0) + 1;
+          errorRepeats.set(key, count);
+          if (count >= MAX_IDENTICAL_ERROR_RETRIES) {
+            this.logger.warn(
+              `[step ${step}] detected identical exception loop on ${tool.name}: ${errorMessage}`,
+            );
+            return {
+              answer:
+                `I was unable to complete this action. The tool \`${tool.name}\` ` +
+                `kept failing with the same error: "${errorMessage}". ` +
+                `Please rephrase the request or try a more specific filter.`,
+              toolCalls: trace,
+            };
+          }
         }
       }
 
