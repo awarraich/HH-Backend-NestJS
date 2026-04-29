@@ -16,7 +16,10 @@ import { JobManagementController } from './controllers/job-management.controller
 import { JobApplicationsController } from './controllers/job-applications.controller';
 import { ApplicantJobManagementController } from './controllers/applicant-job-management.controller';
 import { CareersController } from './controllers/careers.controller';
-import { OfferLetterAssignmentController } from './controllers/offer-letter-assignment.controller';
+import {
+  OfferLetterAssignmentController,
+  EmployeeOfferLetterAssignmentsController,
+} from './controllers/offer-letter-assignment.controller';
 import { OfferLetterMyAssignmentsController } from './controllers/offer-letter-my-assignments.controller';
 import { OfferLetterFillController } from './controllers/offer-letter-fill.controller';
 import { JobManagementService } from './services/job-management.service';
@@ -54,6 +57,7 @@ import { MeetingIntegrationModule } from '../../common/services/meeting-integrat
     ApplicantJobManagementController,
     CareersController,
     OfferLetterAssignmentController,
+    EmployeeOfferLetterAssignmentsController,
     OfferLetterMyAssignmentsController,
     OfferLetterFillController,
   ],

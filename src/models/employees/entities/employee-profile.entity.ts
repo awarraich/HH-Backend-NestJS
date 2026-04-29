@@ -64,6 +64,22 @@ export class EmployeeProfile {
   @Column({ type: 'jsonb', nullable: true })
   board_certifications: Record<string, unknown> | null;
 
+  // Onboarding-completion timestamps. All four start as null and are set
+  // when the employee finishes (or skips) the first-login wizard. They
+  // double as a compliance audit trail — HR can pull "who has acknowledged
+  // HIPAA" / "who hasn't completed I-9" reports straight off these columns.
+  @Column({ type: 'timestamptz', nullable: true })
+  portal_wizard_completed_at: Date | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  hipaa_acknowledged_at: Date | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  background_check_acknowledged_at: Date | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  i9_acknowledged_at: Date | null;
+
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
 

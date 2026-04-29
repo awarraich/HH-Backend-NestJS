@@ -82,4 +82,24 @@ export class UpdateEmployeeProfileDto {
 
   @IsOptional()
   board_certifications?: Record<string, unknown>;
+
+  // Onboarding-completion timestamps set by the first-login wizard. All
+  // four are optional ISO date strings — the wizard sends them on Finish,
+  // and HR-side edits never touch them. We accept them through the same
+  // DTO so a single PUT covers the whole profile flow.
+  @IsOptional()
+  @IsDateString()
+  portal_wizard_completed_at?: string;
+
+  @IsOptional()
+  @IsDateString()
+  hipaa_acknowledged_at?: string;
+
+  @IsOptional()
+  @IsDateString()
+  background_check_acknowledged_at?: string;
+
+  @IsOptional()
+  @IsDateString()
+  i9_acknowledged_at?: string;
 }

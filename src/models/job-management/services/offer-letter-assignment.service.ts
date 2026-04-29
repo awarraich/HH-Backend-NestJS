@@ -890,6 +890,82 @@ export class OfferLetterAssignmentService {
    * correct filler without having to reconcile client-side user ids against
    * backend role rows.
    */
+  /**
+   * Admin-scoped equivalent of `findForUser` — returns role-filler assignments
+   * for a specific user, but constrained to a single organization. Powers the
+   * org admin's Signed Documents tab so HR can see what offer letters an
+   * employee has signed *as a role filler* (e.g. as a Manager signing for
+   * someone else's offer). Uses the same `myRoles` decoration so the frontend
+   * can reuse the same DTO shape.
+   */
+  async findForUserInOrganization(
+    orgId: string,
+    userId: string,
+  ): Promise<Array<OfferLetterAssignment & { myRoles: OfferLetterAssignmentRole[] }>> {
+    const roleRows = await this.roleRepo.find({
+      where: { user_id: userId },
+      order: { created_at: 'DESC' },
+    });
+    if (!roleRows.length) return [];
+    const assignmentIds = [...new Set(roleRows.map((r) => r.assignment_id))];
+    const assignments = await this.assignmentRepo.find({
+      where: { id: In(assignmentIds), organization_id: orgId },
+      relations: ['roleAssignments', 'roleAssignments.role', 'fieldValues'],
+      order: { created_at: 'DESC' },
+    });
+
+    // Dedup against assignments where the same user is the candidate on the
+    // underlying job application — the org admin sees those via the candidate
+    // path (job applications API) so we don't want to surface them twice.
+    const applicationIds = [
+      ...new Set(
+        assignments
+          .map((a) => a.job_application_id)
+          .filter((id): id is string => !!id),
+      ),
+    ];
+    const [user, applications] = await Promise.all([
+      this.userRepo.findOne({ where: { id: userId } }),
+      applicationIds.length
+        ? this.applicationRepo.find({
+            where: { id: In(applicationIds) },
+            select: ['id', 'applicant_user_id', 'applicant_email'],
+          })
+        : Promise.resolve([] as JobApplication[]),
+    ]);
+    const userEmail = user?.email?.toLowerCase() ?? null;
+    const ownedApplicationIds = new Set(
+      applications
+        .filter((app) => {
+          if (app.applicant_user_id && app.applicant_user_id === userId) return true;
+          if (userEmail && app.applicant_email?.toLowerCase() === userEmail) {
+            return true;
+          }
+          return false;
+        })
+        .map((app) => app.id),
+    );
+
+    return assignments
+      .filter((a) => {
+        if (a.status === 'voided') return false;
+        if (
+          a.job_application_id &&
+          ownedApplicationIds.has(a.job_application_id)
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .map((a) => {
+        const decorated = this.decorate(a);
+        const myRoles = decorated.roleAssignments.filter(
+          (r) => r.user_id === userId,
+        );
+        return Object.assign(decorated, { myRoles });
+      });
+  }
+
   async findForUser(
     userId: string,
   ): Promise<Array<OfferLetterAssignment & { myRoles: OfferLetterAssignmentRole[] }>> {
