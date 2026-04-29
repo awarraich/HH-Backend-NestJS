@@ -93,6 +93,10 @@ export class EmployeeContextSerializer {
     certification: string | null;
     board_certifications: Record<string, unknown> | null;
     emergency_contact: Record<string, unknown> | null;
+    portal_wizard_completed_at: Date | null;
+    hipaa_acknowledged_at: Date | null;
+    background_check_acknowledged_at: Date | null;
+    i9_acknowledged_at: Date | null;
     created_at: Date;
     updated_at: Date;
   } | null {
@@ -115,6 +119,10 @@ export class EmployeeContextSerializer {
       certification: profile.certification,
       board_certifications: profile.board_certifications,
       emergency_contact: profile.emergency_contact,
+      portal_wizard_completed_at: profile.portal_wizard_completed_at,
+      hipaa_acknowledged_at: profile.hipaa_acknowledged_at,
+      background_check_acknowledged_at: profile.background_check_acknowledged_at,
+      i9_acknowledged_at: profile.i9_acknowledged_at,
       created_at: profile.created_at,
       updated_at: profile.updated_at,
     };

@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  NotFoundException,
   Param,
   Patch,
   Post,
@@ -13,6 +14,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { OrganizationRoleGuard } from '../../../common/guards/organization-role.guard';
 import { Roles } from '../../../common/decorators/roles.decorator';
@@ -21,6 +24,7 @@ import { extractRequestSignatureMetadata } from '../../../common/utils/extract-r
 import { OfferLetterAssignmentService } from '../services/offer-letter-assignment.service';
 import { CreateOfferLetterAssignmentDto } from '../dto/create-offer-letter-assignment.dto';
 import { FillOfferLetterFieldsDto } from '../dto/fill-offer-letter-fields.dto';
+import { Employee } from '../../employees/entities/employee.entity';
 
 type RequestWithUser = FastifyRequest & {
   user?: { userId?: string; sub?: string };
@@ -109,5 +113,44 @@ export class OfferLetterAssignmentController {
   ) {
     await this.service.delete(orgId, id);
     return SuccessHelper.createSuccessResponse(null, 'Assignment deleted.');
+  }
+}
+
+/**
+ * Admin-scoped read of an employee's role-filler offer letter assignments.
+ * Returns the same DTO shape as `/me/offer-letter-assignments` (with `myRoles`
+ * populated for the target employee), so the org admin's Signed Documents tab
+ * can render role-filler signatures alongside the candidate-side signatures
+ * (which come from the job applications endpoint).
+ */
+@Controller(
+  'v1/api/organizations/:organizationId/employees/:employeeId/offer-letter-assignments',
+)
+@UseGuards(JwtAuthGuard, OrganizationRoleGuard)
+@Roles('OWNER', 'HR', 'ADMIN', 'MANAGER')
+export class EmployeeOfferLetterAssignmentsController {
+  constructor(
+    private readonly service: OfferLetterAssignmentService,
+    @InjectRepository(Employee)
+    private readonly employeeRepo: Repository<Employee>,
+  ) {}
+
+  @Get()
+  @HttpCode(HttpStatus.OK)
+  async list(
+    @Param('organizationId') orgId: string,
+    @Param('employeeId') employeeId: string,
+  ) {
+    const employee = await this.employeeRepo.findOne({
+      where: { id: employeeId, organization_id: orgId },
+    });
+    if (!employee) {
+      throw new NotFoundException('Employee not found in this organization');
+    }
+    const data = await this.service.findForUserInOrganization(
+      orgId,
+      employee.user_id,
+    );
+    return SuccessHelper.createSuccessResponse(data);
   }
 }
