@@ -22,6 +22,8 @@ import { Organization } from '../../organizations/entities/organization.entity';
 import { OrganizationCompanyProfileService } from '../../organizations/company-profile-setup/services/organization-company-profile.service';
 import { JobApplication } from '../entities/job-application.entity';
 import { User } from '../../../authentication/entities/user.entity';
+import { Employee } from '../../employees/entities/employee.entity';
+import { OrganizationStaff } from '../../organizations/staff-management/entities/organization-staff.entity';
 import {
   CreateOfferLetterAssignmentDto,
   OfferRoleAssigneeDto,
@@ -102,6 +104,10 @@ export class OfferLetterAssignmentService {
     private readonly userRepo: Repository<User>,
     @InjectRepository(Organization)
     private readonly organizationRepo: Repository<Organization>,
+    @InjectRepository(Employee)
+    private readonly employeeRepo: Repository<Employee>,
+    @InjectRepository(OrganizationStaff)
+    private readonly orgStaffRepo: Repository<OrganizationStaff>,
     private readonly templatesService: TemplatesService,
     private readonly emailService: EmailService,
     private readonly configService: ConfigService,
@@ -2043,6 +2049,22 @@ export class OfferLetterAssignmentService {
     }
     const requestIp = opts.requestMetadata?.ip ?? null;
     const requestUA = opts.requestMetadata?.userAgent ?? null;
+    // Snapshot the signer's display name and title at sign time so the
+    // SignedDocumentInfo block stays accurate even after the user later
+    // changes their name / leaves the org / changes job title. The lookup
+    // is best-effort: a missing user or missing org-staff row leaves the
+    // corresponding field as null, never throws.
+    const signerSnapshot = touchesSignatureField
+      ? await this.resolveSignerSnapshot(fillerUserId, a.organization_id)
+      : { name: null, title: null };
+    const geolocationSnapshot = dto.geolocation
+      ? {
+          latitude: dto.geolocation.latitude,
+          longitude: dto.geolocation.longitude,
+          accuracy: dto.geolocation.accuracy ?? null,
+          capturedAt: dto.geolocation.capturedAt ?? null,
+        }
+      : null;
     const buildSignatureAudit = (fieldId: string) => {
       if (!consent || !isSignatureField(fieldId)) return null;
       return {
@@ -2052,6 +2074,9 @@ export class OfferLetterAssignmentService {
         userAgent: requestUA,
         documentHash,
         signedAt: new Date().toISOString(),
+        signerName: signerSnapshot.name,
+        signerTitle: signerSnapshot.title,
+        geolocation: geolocationSnapshot,
       };
     };
 
@@ -2092,7 +2117,16 @@ export class OfferLetterAssignmentService {
       where: { id: assignmentId },
       relations: ['roleAssignments', 'roleAssignments.role', 'fieldValues'],
     });
-    return this.decorate(refreshed!);
+    const decorated = this.decorate(refreshed!);
+    // Mirror `findForUser` and attach `myRoles` so the post-fill response has
+    // the same shape as the initial-load response. Without this the frontend
+    // loses the array of *all* of the caller's role rows on this assignment,
+    // and any consumer using `myRoles` to compute "am I done?" gets a wrong
+    // answer until the next full reload.
+    const myRoles = decorated.roleAssignments.filter(
+      (r) => r.user_id === fillerUserId,
+    );
+    return Object.assign(decorated, { myRoles });
   }
 
   /**
@@ -2124,7 +2158,18 @@ export class OfferLetterAssignmentService {
       if (!roleFields.length) return true;
       return roleFields.every((f) => {
         const v = valueMap.get(f.id);
-        return !!v && (v.value_text != null || v.value_json != null);
+        if (!v) return false;
+        // Match the frontend's "has value" semantics — empty strings and
+        // empty JSON objects must NOT count as filled, otherwise a stale
+        // empty fieldValue (left behind by a focus-and-blur or a prior
+        // partial save) flips the role to completed after just one real sign.
+        const hasText =
+          typeof v.value_text === 'string' && v.value_text.trim() !== '';
+        const hasJson =
+          v.value_json != null &&
+          typeof v.value_json === 'object' &&
+          Object.keys(v.value_json as Record<string, unknown>).length > 0;
+        return hasText || hasJson;
       });
     };
 
@@ -2261,6 +2306,63 @@ export class OfferLetterAssignmentService {
   private snapshotFields(a: OfferLetterAssignment): TemplateFieldSnapshot[] {
     const snapshot = a.template_snapshot as unknown as TemplateSnapshot;
     return (snapshot?.document_fields ?? []) as TemplateFieldSnapshot[];
+  }
+
+  /**
+   * Look up the signer's display name and best-available job title for the
+   * SignedDocumentInfo audit block. Snapshotted into `signature_audit` at
+   * sign time so the block keeps rendering correctly when the user later
+   * changes their name, leaves the org, or gets a new title.
+   *
+   * Title resolution order:
+   *   1. `OrganizationStaff.position_title` (org-scoped staff record)
+   *   2. `OrganizationStaff.staffRole.name` (e.g. "Supervisor", "HR")
+   *   3. `Employee.position_title` (org-scoped employee record)
+   *   4. `null` — caller renders "—" so the layout stays stable.
+   *
+   * Best-effort: a missing user or missing membership row returns
+   * `{ name: null, title: null }` and the audit row records null in the
+   * matching JSON keys. The signing flow is never blocked on this lookup.
+   */
+  private async resolveSignerSnapshot(
+    userId: string,
+    organizationId: string | null,
+  ): Promise<{ name: string | null; title: string | null }> {
+    let name: string | null = null;
+    let title: string | null = null;
+    try {
+      const user = await this.userRepo.findOne({ where: { id: userId } });
+      if (user) {
+        const composed = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim();
+        name = composed || user.email || null;
+      }
+
+      if (organizationId) {
+        const staff = await this.orgStaffRepo.findOne({
+          where: { user_id: userId, organization_id: organizationId },
+          relations: ['staffRole'],
+        });
+        if (staff) {
+          title = staff.position_title ?? staff.staffRole?.name ?? null;
+        }
+
+        if (!title) {
+          const employee = await this.employeeRepo.findOne({
+            where: { user_id: userId, organization_id: organizationId },
+          });
+          if (employee) {
+            title = employee.position_title ?? null;
+          }
+        }
+      }
+    } catch (err) {
+      this.logger.warn(
+        `resolveSignerSnapshot failed for user=${userId} org=${organizationId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+    return { name, title };
   }
 
   /**

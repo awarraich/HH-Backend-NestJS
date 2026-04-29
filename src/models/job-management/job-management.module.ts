@@ -12,6 +12,8 @@ import { Organization } from '../organizations/entities/organization.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { EmployeeProfile } from '../employees/entities/employee-profile.entity';
 import { User } from '../../authentication/entities/user.entity';
+import { OrganizationStaff } from '../organizations/staff-management/entities/organization-staff.entity';
+import { StaffRole } from '../organizations/staff-management/entities/staff-role.entity';
 import { JobManagementController } from './controllers/job-management.controller';
 import { JobApplicationsController } from './controllers/job-applications.controller';
 import { ApplicantJobManagementController } from './controllers/applicant-job-management.controller';
@@ -45,6 +47,8 @@ import { MeetingIntegrationModule } from '../../common/services/meeting-integrat
       OfferLetterFieldValue,
       CompetencyTemplate,
       DocumentWorkflowRole,
+      OrganizationStaff,
+      StaffRole,
     ]),
     OrganizationsModule,
     StorageConfigModule,

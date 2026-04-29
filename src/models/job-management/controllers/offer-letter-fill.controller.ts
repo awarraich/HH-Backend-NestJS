@@ -55,6 +55,7 @@ export class OfferLetterFillController {
         fields: dto.fields,
         consentVersion: dto.consentVersion,
         consentAccepted: dto.consentAccepted,
+        geolocation: dto.geolocation,
       },
       {
         bypassRoleCheck: true,

@@ -95,6 +95,7 @@ import { AddSoftDeleteToEmployees20260424100000 } from './20260424100000-add-sof
 import { AddAvailabilityUiToWorkPreferences20260425100000 } from './20260425100000-add-availability-ui-to-work-preferences.js';
 import { CreateAppSettings20260428100000 } from './20260428100000-create-app-settings.js';
 import { AddOnboardingTimestampsToEmployeeProfiles20260429100000 } from './20260429100000-add-onboarding-timestamps-to-employee-profiles.js';
+import { AddSignatureAuditToDocumentFieldValues20260429110000 } from './20260429110000-add-signature-audit-to-document-field-values.js';
 
 type MigrationConstructor = new () => MigrationInterface;
 
@@ -195,4 +196,5 @@ export const migrations: MigrationConstructor[] = [
   AddAvailabilityUiToWorkPreferences20260425100000,
   CreateAppSettings20260428100000,
   AddOnboardingTimestampsToEmployeeProfiles20260429100000,
+  AddSignatureAuditToDocumentFieldValues20260429110000,
 ];

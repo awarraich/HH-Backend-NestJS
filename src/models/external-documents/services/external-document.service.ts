@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   ForbiddenException,
   BadRequestException,
@@ -9,11 +10,15 @@ import { Repository } from 'typeorm';
 import { CompetencyTemplate } from '../../organizations/document-workflow/entities/competency-template.entity';
 import { DocumentTemplateUserAssignment } from '../../organizations/document-workflow/entities/document-template-user-assignment.entity';
 import { User } from '../../../authentication/entities/user.entity';
+import { Employee } from '../../employees/entities/employee.entity';
+import { OrganizationStaff } from '../../organizations/staff-management/entities/organization-staff.entity';
 import { DocumentFieldValue } from '../entities/document-field-value.entity';
 import { SubmitExternalFieldsDto } from '../dto/submit-external-fields.dto';
 
 @Injectable()
 export class ExternalDocumentService {
+  private readonly logger = new Logger(ExternalDocumentService.name);
+
   constructor(
     @InjectRepository(CompetencyTemplate)
     private readonly templateRepo: Repository<CompetencyTemplate>,
@@ -23,7 +28,62 @@ export class ExternalDocumentService {
     private readonly userRepo: Repository<User>,
     @InjectRepository(DocumentFieldValue)
     private readonly fieldValueRepo: Repository<DocumentFieldValue>,
+    @InjectRepository(Employee)
+    private readonly employeeRepo: Repository<Employee>,
+    @InjectRepository(OrganizationStaff)
+    private readonly orgStaffRepo: Repository<OrganizationStaff>,
   ) {}
+
+  /**
+   * Look up the signer's display name and best-available job title for the
+   * SignedDocumentInfo audit block. See the matching helper on
+   * `OfferLetterAssignmentService.resolveSignerSnapshot` — kept duplicated
+   * intentionally so each module owns its own dependencies and we don't
+   * pull a job-management import into the legacy doc-workflow service.
+   *
+   * Title resolution: OrganizationStaff.position_title → staffRole.name →
+   * Employee.position_title → null.
+   */
+  private async resolveSignerSnapshot(
+    userId: string,
+    organizationId: string | null,
+  ): Promise<{ name: string | null; title: string | null }> {
+    let name: string | null = null;
+    let title: string | null = null;
+    try {
+      const user = await this.userRepo.findOne({ where: { id: userId } });
+      if (user) {
+        const composed = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim();
+        name = composed || user.email || null;
+      }
+
+      if (organizationId) {
+        const staff = await this.orgStaffRepo.findOne({
+          where: { user_id: userId, organization_id: organizationId },
+          relations: ['staffRole'],
+        });
+        if (staff) {
+          title = staff.position_title ?? staff.staffRole?.name ?? null;
+        }
+
+        if (!title) {
+          const employee = await this.employeeRepo.findOne({
+            where: { user_id: userId, organization_id: organizationId },
+          });
+          if (employee) {
+            title = employee.position_title ?? null;
+          }
+        }
+      }
+    } catch (err) {
+      this.logger.warn(
+        `resolveSignerSnapshot failed for user=${userId} org=${organizationId}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+    return { name, title };
+  }
 
   private async validateUser(userId: string): Promise<User> {
     const user = await this.userRepo.findOne({ where: { id: userId } });
@@ -92,11 +152,15 @@ export class ExternalDocumentService {
       .where('fv.template_id IN (:...templateIds)', { templateIds })
       .getMany();
 
-    const valueMap = new Map<string, { value: any; user_id: string }>();
+    const valueMap = new Map<
+      string,
+      { value: any; user_id: string; signature_audit: Record<string, unknown> | null }
+    >();
     for (const fv of allValues) {
       valueMap.set(`${fv.template_id}:${fv.field_id}`, {
         value: fv.value,
         user_id: fv.user_id,
+        signature_audit: fv.signature_audit ?? null,
       });
     }
 
@@ -116,7 +180,16 @@ export class ExternalDocumentService {
         return {
           ...field,
           isEditable,
-          ...(saved ? { filledValue: saved.value, filledBy: saved.user_id } : {}),
+          ...(saved
+            ? {
+                filledValue: saved.value,
+                filledBy: saved.user_id,
+                /** SignedDocumentInfo audit JSON for this field's
+                 *  filledValue. Null for non-signature fields and for
+                 *  legacy rows written before the column existed. */
+                signatureAudit: saved.signature_audit,
+              }
+            : {}),
         };
       });
 
@@ -186,6 +259,47 @@ export class ExternalDocumentService {
       );
     }
 
+    // Pre-compute which of the submitted fields are signature/initials so
+    // we only do the (relatively expensive) signer-snapshot lookup once
+    // per request — not once per field — and only when at least one
+    // signature is being saved.
+    const isSignatureField = (fieldId: string): boolean => {
+      const f = (template.document_fields as Record<string, unknown>[]).find(
+        (x) => (x as { id?: string }).id === fieldId,
+      ) as Record<string, unknown> | undefined;
+      if (!f) return false;
+      const t = String(f.type ?? '').toLowerCase();
+      if (t === 'signature' || t === 'initials') return true;
+      const label = String(f.label ?? '').toLowerCase();
+      return label.startsWith('signature') || label.startsWith('initials');
+    };
+    const touchesSignatureField = dto.fields.some((f) =>
+      isSignatureField(f.fieldId),
+    );
+    const signerSnapshot = touchesSignatureField
+      ? await this.resolveSignerSnapshot(
+          dto.userId,
+          template.organization_id ?? null,
+        )
+      : { name: null, title: null };
+    const geolocationSnapshot = dto.geolocation
+      ? {
+          latitude: dto.geolocation.latitude,
+          longitude: dto.geolocation.longitude,
+          accuracy: dto.geolocation.accuracy ?? null,
+          capturedAt: dto.geolocation.capturedAt ?? null,
+        }
+      : null;
+    const buildSignatureAudit = (fieldId: string) => {
+      if (!isSignatureField(fieldId)) return null;
+      return {
+        signedAt: new Date().toISOString(),
+        signerName: signerSnapshot.name,
+        signerTitle: signerSnapshot.title,
+        geolocation: geolocationSnapshot,
+      };
+    };
+
     const saved: DocumentFieldValue[] = [];
     for (const item of dto.fields) {
       const existing = await this.fieldValueRepo.findOne({
@@ -195,9 +309,11 @@ export class ExternalDocumentService {
           user_id: dto.userId,
         },
       });
+      const audit = buildSignatureAudit(item.fieldId);
 
       if (existing) {
         existing.value = item.value;
+        if (audit) existing.signature_audit = audit;
         saved.push(await this.fieldValueRepo.save(existing));
       } else {
         saved.push(
@@ -207,6 +323,7 @@ export class ExternalDocumentService {
               field_id: item.fieldId,
               user_id: dto.userId,
               value: item.value,
+              signature_audit: audit,
             }),
           ),
         );
@@ -219,6 +336,7 @@ export class ExternalDocumentService {
       field_id: fv.field_id,
       user_id: fv.user_id,
       value: fv.value,
+      signature_audit: fv.signature_audit,
       created_at: fv.created_at,
       updated_at: fv.updated_at,
     }));

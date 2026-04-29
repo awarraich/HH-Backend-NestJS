@@ -45,7 +45,7 @@ export class OrganizationStaffController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  @Roles('OWNER')
+  @Roles('OWNER', 'HR')
   async createStaff(
     @Param('organizationId') organizationId: string,
     @Body() dto: CreateOrganizationStaffDto,

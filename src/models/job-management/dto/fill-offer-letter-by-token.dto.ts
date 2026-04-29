@@ -7,7 +7,10 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { OfferLetterFieldUpsertDto } from './fill-offer-letter-fields.dto';
+import {
+  OfferLetterFieldUpsertDto,
+  SignatureGeolocationDto,
+} from './fill-offer-letter-fields.dto';
 
 /** Public (token-gated) fill payload — role is derived from the token. */
 export class FillOfferLetterByTokenDto {
@@ -26,4 +29,12 @@ export class FillOfferLetterByTokenDto {
   @IsOptional()
   @IsBoolean()
   consentAccepted?: boolean;
+
+  /** Optional geolocation snapshot, mirroring the authenticated flow so the
+   * audit JSON has the same shape regardless of how the signature was
+   * submitted. */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SignatureGeolocationDto)
+  geolocation?: SignatureGeolocationDto;
 }

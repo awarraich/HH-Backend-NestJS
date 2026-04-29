@@ -58,7 +58,7 @@ export class OrganizationStaffService {
   }
 
   /**
-   * Create staff user with temporary password and assign role(s). Only organization owner can create.
+   * Create staff user with temporary password and assign role(s). Owner or HR can create.
    */
   async createStaff(
     organizationId: string,
@@ -73,7 +73,14 @@ export class OrganizationStaffService {
     roles: { id: string; name: string }[];
   }> {
     const isOwner = await this.organizationRoleService.isOrganizationOwner(userId, organizationId);
-    if (!isOwner) {
+    const hasHrRole = isOwner
+      ? false
+      : await this.organizationRoleService.hasAnyRoleInOrganization(
+          userId,
+          organizationId,
+          ['HR'],
+        );
+    if (!isOwner && !hasHrRole) {
       await this.auditLogService.log({
         userId,
         action: 'CREATE',
@@ -84,7 +91,7 @@ export class OrganizationStaffService {
         userAgent,
         status: 'failure',
       });
-      throw new ForbiddenException('Only the organization owner can create staff.');
+      throw new ForbiddenException('Only the organization owner or HR can create staff.');
     }
 
     const organization = await this.organizationRepository.findOne({

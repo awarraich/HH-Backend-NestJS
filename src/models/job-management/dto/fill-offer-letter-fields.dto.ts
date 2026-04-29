@@ -1,6 +1,8 @@
 import {
   IsArray,
   IsBoolean,
+  IsISO8601,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
@@ -21,6 +23,27 @@ export class OfferLetterFieldUpsertDto {
 
   @IsOptional()
   valueJson?: Record<string, unknown> | null;
+}
+
+/**
+ * Geolocation captured at the moment a signature/initials field was
+ * committed. Mirrors the applicant-signature shape so the audit JSON
+ * stays uniform across role-filler and applicant flows.
+ */
+export class SignatureGeolocationDto {
+  @IsNumber()
+  latitude: number;
+
+  @IsNumber()
+  longitude: number;
+
+  @IsOptional()
+  @IsNumber()
+  accuracy?: number;
+
+  @IsOptional()
+  @IsISO8601()
+  capturedAt?: string;
 }
 
 export class FillOfferLetterFieldsDto {
@@ -46,4 +69,15 @@ export class FillOfferLetterFieldsDto {
   @IsOptional()
   @IsBoolean()
   consentAccepted?: boolean;
+
+  /**
+   * Optional geolocation snapshot — the browser may decline or the user
+   * may deny the prompt, in which case the field is absent and the
+   * audit JSON records `geolocation: null` so auditors can tell "user
+   * denied" apart from "client never asked".
+   */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SignatureGeolocationDto)
+  geolocation?: SignatureGeolocationDto;
 }
