@@ -46,6 +46,9 @@ export class HrDocumentType {
   @Column({ type: 'boolean', default: true })
   is_active: boolean;
 
+  @Column({ type: 'boolean', default: true })
+  is_deletable: boolean;
+
   @CreateDateColumn({ type: 'timestamp with time zone', default: () => 'NOW()' })
   created_at: Date;
 

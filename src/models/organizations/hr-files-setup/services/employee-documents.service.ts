@@ -47,6 +47,7 @@ export interface RequiredDocumentItem {
     has_expiration: boolean;
     category: string | null;
     sort_order: number;
+    is_deletable: boolean;
   };
   documents: Array<{
     id: string;
@@ -187,6 +188,7 @@ export class EmployeeDocumentsService {
         has_expiration: dt.has_expiration,
         category: dt.category,
         sort_order: dt.sort_order,
+        is_deletable: dt.is_deletable,
       },
       documents: (docsByTypeId.get(dt.id) ?? []).map((d) => ({
         id: d.id,
@@ -252,6 +254,7 @@ export class EmployeeDocumentsService {
         has_expiration: dt.has_expiration,
         category: dt.category,
         sort_order: dt.sort_order,
+        is_deletable: dt.is_deletable,
       },
       documents: (docsByTypeId.get(dt.id) ?? []).map((d) => ({
         id: d.id,
@@ -345,6 +348,7 @@ export class EmployeeDocumentsService {
         is_active: it.is_active,
         has_quiz: it.has_quiz,
         passing_score_percent: it.passing_score_percent,
+        is_deletable: it.is_deletable,
         status,
         progress_percent: entry.progress_percent,
         completed_at: entry.completed_at ? entry.completed_at.toISOString() : null,
@@ -641,6 +645,14 @@ export class EmployeeDocumentsService {
     if (!doc) {
       throw new NotFoundException('Document not found');
     }
+    const docType = await this.hrDocumentTypeRepository.findOne({
+      where: { id: doc.document_type_id },
+    });
+    if (docType && docType.is_deletable === false) {
+      throw new BadRequestException(
+        'This document type is locked. Uploaded files cannot be deleted.',
+      );
+    }
     doc.deleted_at = new Date();
     await this.employeeDocumentRepository.save(doc);
   }
@@ -691,6 +703,15 @@ export class EmployeeDocumentsService {
     });
     if (!doc) {
       throw new NotFoundException('Document not found');
+    }
+
+    const docType = await this.hrDocumentTypeRepository.findOne({
+      where: { id: doc.document_type_id },
+    });
+    if (docType && docType.is_deletable === false) {
+      throw new BadRequestException(
+        'This document type is locked. Uploaded files cannot be replaced.',
+      );
     }
 
     const exists = await this.storageService.verifyUploaded(payload.key);

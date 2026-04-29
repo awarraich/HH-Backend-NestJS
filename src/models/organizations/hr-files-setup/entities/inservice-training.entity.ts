@@ -61,6 +61,9 @@ export class InserviceTraining {
   @Column({ type: 'integer', nullable: true })
   passing_score_percent: number | null;
 
+  @Column({ type: 'boolean', default: true })
+  is_deletable: boolean;
+
   @CreateDateColumn({ type: 'timestamp with time zone', default: () => 'NOW()' })
   created_at: Date;
 

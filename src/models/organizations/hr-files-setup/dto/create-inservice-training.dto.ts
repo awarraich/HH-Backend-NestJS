@@ -98,4 +98,8 @@ export class CreateInserviceTrainingDto {
   @ValidateNested({ each: true })
   @Type(() => InserviceTrainingPdfFileDto)
   pdf_files?: InserviceTrainingPdfFileDto[];
+
+  @IsOptional()
+  @IsBoolean()
+  is_deletable?: boolean;
 }
