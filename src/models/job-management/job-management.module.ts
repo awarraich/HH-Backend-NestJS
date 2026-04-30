@@ -14,6 +14,8 @@ import { EmployeeProfile } from '../employees/entities/employee-profile.entity';
 import { User } from '../../authentication/entities/user.entity';
 import { OrganizationStaff } from '../organizations/staff-management/entities/organization-staff.entity';
 import { StaffRole } from '../organizations/staff-management/entities/staff-role.entity';
+import { EmployeeDocument } from '../organizations/hr-files-setup/entities/employee-document.entity';
+import { HrDocumentType } from '../organizations/hr-files-setup/entities/hr-document-type.entity';
 import { JobManagementController } from './controllers/job-management.controller';
 import { JobApplicationsController } from './controllers/job-applications.controller';
 import { ApplicantJobManagementController } from './controllers/applicant-job-management.controller';
@@ -27,6 +29,7 @@ import { OfferLetterFillController } from './controllers/offer-letter-fill.contr
 import { JobManagementService } from './services/job-management.service';
 import { JobApplicationDocumentStorageService } from './services/job-application-document-storage.service';
 import { OfferLetterAssignmentService } from './services/offer-letter-assignment.service';
+import { OfferLetterArchiveService } from './services/offer-letter-archive.service';
 import { OrganizationsModule } from '../organizations/organizations.module';
 import { StorageConfigModule } from '../../config/storage/config.module';
 import { EmailModule } from '../../common/services/email/email.module';
@@ -49,6 +52,8 @@ import { MeetingIntegrationModule } from '../../common/services/meeting-integrat
       DocumentWorkflowRole,
       OrganizationStaff,
       StaffRole,
+      EmployeeDocument,
+      HrDocumentType,
     ]),
     OrganizationsModule,
     StorageConfigModule,
@@ -69,6 +74,7 @@ import { MeetingIntegrationModule } from '../../common/services/meeting-integrat
     JobManagementService,
     JobApplicationDocumentStorageService,
     OfferLetterAssignmentService,
+    OfferLetterArchiveService,
   ],
   exports: [JobManagementService, OfferLetterAssignmentService],
 })

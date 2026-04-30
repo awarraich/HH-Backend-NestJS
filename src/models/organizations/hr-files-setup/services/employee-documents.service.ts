@@ -49,6 +49,14 @@ export interface RequiredDocumentItem {
     sort_order: number;
     is_deletable: boolean;
   };
+  /**
+   * `true` when the doc type is required by one of the employee's CURRENT
+   * requirement tags (active template). `false` when the type is only in
+   * the response because the employee already uploaded a file for it under
+   * a previous template — the file is preserved + visible, just no longer
+   * required by the active profile.
+   */
+  is_currently_required: boolean;
   documents: Array<{
     id: string;
     file_name: string;
@@ -190,6 +198,8 @@ export class EmployeeDocumentsService {
         sort_order: dt.sort_order,
         is_deletable: dt.is_deletable,
       },
+      // Org-required types are always currently required by definition.
+      is_currently_required: true,
       documents: (docsByTypeId.get(dt.id) ?? []).map((d) => ({
         id: d.id,
         file_name: d.file_name,
@@ -209,29 +219,29 @@ export class EmployeeDocumentsService {
   ): Promise<RequiredDocumentItem[]> {
     await this.ensureDocumentAccess(organizationId, employeeId, userId);
 
+    // Tag-scoped doc types — what the employee's profile actively requires.
     const employeeTags = await this.employeeRequirementTagRepository.find({
       where: { employee_id: employeeId },
       select: ['requirement_tag_id'],
     });
     const tagIds = employeeTags.map((t) => t.requirement_tag_id);
-    if (tagIds.length === 0) return [];
+    const tagDocTypeIds = tagIds.length
+      ? [
+          ...new Set(
+            (
+              await this.requirementDocumentTypeRepository.find({
+                where: { requirement_tag_id: In(tagIds) },
+                select: ['document_type_id'],
+              })
+            ).map((l) => l.document_type_id),
+          ),
+        ]
+      : [];
 
-    const links = await this.requirementDocumentTypeRepository.find({
-      where: { requirement_tag_id: In(tagIds) },
-      select: ['document_type_id'],
-    });
-    const docTypeIds = [...new Set(links.map((l) => l.document_type_id))];
-    if (docTypeIds.length === 0) return [];
-
-    const docTypes = await this.hrDocumentTypeRepository.find({
-      where: {
-        id: In(docTypeIds),
-        organization_id: organizationId,
-        is_active: true,
-      },
-      order: { sort_order: 'ASC', id: 'ASC' },
-    });
-
+    // Documents the employee actually has, regardless of tag membership.
+    // Critical for system-generated docs (e.g. signed offer letters) that
+    // are auto-created against an org-scoped doc type that may or may not
+    // be in any of the employee's requirement tags.
     const documents = await this.employeeDocumentRepository.find({
       where: {
         employee_id: employeeId,
@@ -245,6 +255,28 @@ export class EmployeeDocumentsService {
       list.push(d);
       docsByTypeId.set(d.document_type_id, list);
     }
+    const docTypeIdsWithFiles = [...docsByTypeId.keys()];
+
+    // Union: required-by-tag types + types the employee already has files
+    // for. The frontend renders the same doc-type-with-documents shape for
+    // both — types with no employee file render as "missing" for HR.
+    const allDocTypeIds = [...new Set([...tagDocTypeIds, ...docTypeIdsWithFiles])];
+    if (allDocTypeIds.length === 0) return [];
+
+    const docTypes = await this.hrDocumentTypeRepository.find({
+      where: {
+        id: In(allDocTypeIds),
+        organization_id: organizationId,
+        is_active: true,
+      },
+      order: { sort_order: 'ASC', id: 'ASC' },
+    });
+
+    // Set of types the CURRENT template requires — anything else is a
+    // carry-over from a previous template (the employee uploaded it
+    // before HR changed their tags; we preserve it for compliance/audit
+    // and surface it with a clear flag for the UI).
+    const currentlyRequiredSet = new Set(tagDocTypeIds);
 
     return docTypes.map((dt) => ({
       document_type: {
@@ -256,6 +288,7 @@ export class EmployeeDocumentsService {
         sort_order: dt.sort_order,
         is_deletable: dt.is_deletable,
       },
+      is_currently_required: currentlyRequiredSet.has(dt.id),
       documents: (docsByTypeId.get(dt.id) ?? []).map((d) => ({
         id: d.id,
         file_name: d.file_name,

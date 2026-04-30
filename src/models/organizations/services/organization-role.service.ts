@@ -1,14 +1,38 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
 import { Organization } from '../entities/organization.entity';
 import { OrganizationFeature } from '../entities/organization-feature.entity';
 import { OrganizationRolePermission } from '../entities/organization-role-permission.entity';
 import { OrganizationStaff } from '../staff-management/entities/organization-staff.entity';
 import { OrganizationStaffRolePermission } from '../staff-management/entities/organization-staff-role-permission.entity';
+import { StaffRole } from '../staff-management/entities/staff-role.entity';
+import { Employee } from '../../employees/entities/employee.entity';
+import { Role } from '../../../authentication/entities/role.entity';
+import { UserRole } from '../../../authentication/entities/user-role.entity';
+
+/** Roles in the system `roles` table that confer staff app access. */
+const STAFF_SYSTEM_ROLE_NAMES = [
+  'STAFF',
+  'ORGANIZATION',
+  'OWNER',
+  'HR',
+  'MANAGER',
+  'ASSISTANT_HR',
+];
+
+/**
+ * Staff roles that are treated as power users when the org's per-role
+ * `staff_role_permissions` are not yet seeded. Most orgs in the wild are
+ * missing those rows, so without this fallback HR/MANAGER staff would see
+ * an empty sidebar even though they semantically have full access.
+ */
+const POWER_STAFF_ROLES = ['HR', 'MANAGER'];
 
 @Injectable()
 export class OrganizationRoleService {
+  private readonly logger = new Logger(OrganizationRoleService.name);
+
   constructor(
     @InjectRepository(Organization)
     private organizationRepository: Repository<Organization>,
@@ -20,6 +44,14 @@ export class OrganizationRoleService {
     private staffRolePermissionRepository: Repository<OrganizationStaffRolePermission>,
     @InjectRepository(OrganizationFeature)
     private organizationFeatureRepository: Repository<OrganizationFeature>,
+    @InjectRepository(StaffRole)
+    private staffRoleRepository: Repository<StaffRole>,
+    @InjectRepository(Employee)
+    private employeeRepository: Repository<Employee>,
+    @InjectRepository(UserRole)
+    private userRoleRepository: Repository<UserRole>,
+    @InjectRepository(Role)
+    private roleRepository: Repository<Role>,
   ) {}
 
   /**
@@ -130,7 +162,7 @@ export class OrganizationRoleService {
       return { staffRoles: ['OWNER'], features: ['*'] };
     }
 
-    const staffRows = await this.organizationStaffRepository.find({
+    let staffRows = await this.organizationStaffRepository.find({
       where: {
         user_id: userId,
         organization_id: organizationId,
@@ -138,6 +170,20 @@ export class OrganizationRoleService {
       },
       relations: ['staffRole'],
     });
+
+    // Self-heal for dual-role users (Employee + Staff context). If the user
+    // has a STAFF system role and an Employee row in this org but no
+    // OrganizationStaff record, lazy-provision one with HR (broadest seeded
+    // perms) so the staff dashboard, sidebar, and HR-protected APIs all
+    // work without manual SQL backfill. Without this, dual-role users
+    // granted via the legacy flow get empty sidebars + access denied.
+    if (staffRows.length === 0) {
+      const provisioned = await this.tryProvisionDualRoleStaff(
+        userId,
+        organizationId,
+      );
+      if (provisioned) staffRows = [provisioned];
+    }
 
     if (staffRows.length === 0) {
       return { staffRoles: [], features: [] };
@@ -164,7 +210,96 @@ export class OrganizationRoleService {
           .filter((code): code is string => Boolean(code)),
       ),
     ];
+
+    // Power-role fallback. Most orgs in the wild were created without
+    // seeding `staff_role_permissions` rows, so HR/MANAGER would have
+    // no features → empty sidebar even though the role semantically has
+    // full access. When perms are unseeded but the user is a power role,
+    // grant full access (`*`). Once an org seeds explicit perms, those
+    // win and this fallback no longer fires.
+    if (features.length === 0 && staffRoleNames.some((n) => POWER_STAFF_ROLES.includes(n))) {
+      return { staffRoles: staffRoleNames, features: ['*'] };
+    }
+
     return { staffRoles: staffRoleNames, features };
+  }
+
+  /**
+   * Auto-provision an `OrganizationStaff` row for dual-role users (the
+   * Employee+Staff case where the user has the `STAFF` system role granted
+   * but no org_staff record yet). Returns the new row, or `null` if the
+   * user doesn't qualify (no STAFF role, or no Employee row in this org,
+   * or no staff_role available to assign).
+   *
+   * Picks `HR` as the default role because it has the most seeded feature
+   * permissions in practice; HR can re-assign in EditStaffDialog if a
+   * different role is more appropriate.
+   */
+  private async tryProvisionDualRoleStaff(
+    userId: string,
+    organizationId: string,
+  ): Promise<OrganizationStaff | null> {
+    // Signal 1: user has STAFF (or another staff-side) system role.
+    const userRoleLinks = await this.userRoleRepository.find({
+      where: { user_id: userId },
+      relations: ['role'],
+    });
+    const hasStaffSystemRole = userRoleLinks.some(
+      (l) => l.role?.name && STAFF_SYSTEM_ROLE_NAMES.includes(l.role.name),
+    );
+    if (!hasStaffSystemRole) return null;
+
+    // Signal 2: user has an Employee row in this org. This anchors them
+    // to the org and confirms the dual-role intent.
+    const employee = await this.employeeRepository.findOne({
+      where: {
+        user_id: userId,
+        organization_id: organizationId,
+        deleted_at: IsNull(),
+      },
+    });
+    if (!employee) return null;
+
+    // Pick a default staff_role with the most useful seeded perms.
+    const preferred = await this.staffRoleRepository.findOne({
+      where: { name: 'HR' },
+    });
+    const defaultRole = preferred ?? (await this.staffRoleRepository.findOne({ where: {} }));
+    if (!defaultRole) {
+      this.logger.warn(
+        `tryProvisionDualRoleStaff: no staff_roles seeded — cannot provision for user ${userId} in org ${organizationId}`,
+      );
+      return null;
+    }
+
+    try {
+      const created = await this.organizationStaffRepository.save(
+        this.organizationStaffRepository.create({
+          organization_id: organizationId,
+          user_id: userId,
+          staff_role_id: defaultRole.id,
+          status: 'ACTIVE',
+        }),
+      );
+      // Re-fetch with relations so the caller gets `staffRole.name`.
+      return this.organizationStaffRepository.findOne({
+        where: { id: created.id },
+        relations: ['staffRole'],
+      });
+    } catch (err) {
+      // Concurrent provision raced us. Re-fetch and return whatever's there.
+      this.logger.log(
+        `tryProvisionDualRoleStaff: concurrent provision for user ${userId} in org ${organizationId} (${err instanceof Error ? err.message : String(err)})`,
+      );
+      return this.organizationStaffRepository.findOne({
+        where: {
+          user_id: userId,
+          organization_id: organizationId,
+          status: 'ACTIVE',
+        },
+        relations: ['staffRole'],
+      });
+    }
   }
 
   async canAccessOrganization(userId: string, organizationId: string): Promise<boolean> {

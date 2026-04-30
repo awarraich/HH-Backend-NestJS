@@ -5,9 +5,11 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
 import { HrDocumentType } from '../entities/hr-document-type.entity';
 import { EmployeeDocument } from '../entities/employee-document.entity';
+import { EmployeeRequirementTag } from '../entities/employee-requirement-tag.entity';
+import { RequirementDocumentType } from '../entities/requirement-document-type.entity';
 import { Employee } from '../../../employees/entities/employee.entity';
 import { Organization } from '../../entities/organization.entity';
 import { OrganizationRoleService } from '../../services/organization-role.service';
@@ -25,6 +27,14 @@ export interface EmployeeDocumentTypeWithDocumentItem {
     sort_order: number;
     is_custom: boolean;
   };
+  /**
+   * `true` when the type is part of the employee's CURRENT profile —
+   * a custom type they made or a type their active requirement tags pull
+   * in. `false` when the type is only here because they uploaded a file
+   * for it under a previous template (carry-over). The UI surfaces these
+   * separately so the employee can still see / re-download the file.
+   */
+  is_currently_required: boolean;
   document: {
     id: string;
     file_name: string;
@@ -47,6 +57,10 @@ export class EmployeeDocumentTypeService {
     private readonly employeeRepository: Repository<Employee>,
     @InjectRepository(Organization)
     private readonly organizationRepository: Repository<Organization>,
+    @InjectRepository(EmployeeRequirementTag)
+    private readonly employeeRequirementTagRepository: Repository<EmployeeRequirementTag>,
+    @InjectRepository(RequirementDocumentType)
+    private readonly requirementDocumentTypeRepository: Repository<RequirementDocumentType>,
     private readonly organizationRoleService: OrganizationRoleService,
   ) {}
 
@@ -75,7 +89,11 @@ export class EmployeeDocumentTypeService {
     employeeId: string,
     userId: string,
   ): Promise<EmployeeDocumentTypeWithDocumentItem[]> {
-    await this.ensureAccess(employeeId, userId);
+    const employee = await this.ensureAccess(employeeId, userId);
+
+    // Custom types — created by the employee themselves (organization_id is
+    // NULL on these). These are always shown so the employee can manage
+    // their own self-defined doc types even before uploading a file.
     const customTypes = await this.hrDocumentTypeRepository.find({
       where: {
         employee_id: employeeId,
@@ -84,10 +102,41 @@ export class EmployeeDocumentTypeService {
       },
       order: { sort_order: 'ASC', id: 'ASC' },
     });
+
+    // Documents the employee has uploaded or had auto-archived (e.g. signed
+    // offer letter). Some of these will be against custom types (handled
+    // above), others against org-scoped types (e.g. OFFER_LETTER) that
+    // wouldn't otherwise appear in the employee's My Documents.
     const documents = await this.employeeDocumentRepository.find({
       where: { employee_id: employeeId, deleted_at: IsNull() },
     });
     const docByTypeId = new Map(documents.map((d) => [d.document_type_id, d]));
+
+    // Resolve any non-custom doc types the employee has files for —
+    // org-scoped types (their org's catalog) so we can render them.
+    const customTypeIds = new Set(customTypes.map((t) => t.id));
+    const extraTypeIds = [...docByTypeId.keys()].filter(
+      (id) => !customTypeIds.has(id),
+    );
+    const extraTypes = extraTypeIds.length
+      ? await this.hrDocumentTypeRepository.find({
+          where: {
+            id: In(extraTypeIds),
+            organization_id: employee.organization_id ?? IsNull(),
+            is_active: true,
+          },
+        })
+      : [];
+
+    // Compute which doc-type ids the CURRENT requirement tags pull in. An
+    // extra (non-custom) type that's NOT in this set is a carry-over from
+    // a previous template — the file is preserved + visible, but the UI
+    // can label it accordingly so the employee/HR understands its status.
+    const currentlyRequiredExtraTypeIds = await this.computeCurrentlyRequiredTypeIds(
+      employeeId,
+      extraTypeIds,
+    );
+
     const toDoc = (
       d: EmployeeDocument,
     ): Pick<
@@ -108,7 +157,12 @@ export class EmployeeDocumentTypeService {
       extraction_status: d.extraction_status,
       created_at: d.created_at,
     });
-    const toItem = (dt: HrDocumentType): EmployeeDocumentTypeWithDocumentItem => {
+
+    const toItem = (
+      dt: HrDocumentType,
+      isCustom: boolean,
+      isCurrentlyRequired: boolean,
+    ): EmployeeDocumentTypeWithDocumentItem => {
       const doc = docByTypeId.get(dt.id);
       return {
         document_type: {
@@ -119,12 +173,53 @@ export class EmployeeDocumentTypeService {
           is_required: dt.is_required,
           category: dt.category,
           sort_order: dt.sort_order,
-          is_custom: true,
+          is_custom: isCustom,
         },
+        is_currently_required: isCurrentlyRequired,
         document: doc ? toDoc(doc) : null,
       };
     };
-    return customTypes.map(toItem);
+
+    return [
+      // Custom types are always part of the employee's current profile
+      // (the employee themselves added them).
+      ...customTypes.map((dt) => toItem(dt, true, true)),
+      // Extra (org-scoped) types are "currently required" only if the
+      // employee's active tags pull them in; otherwise they're carry-over
+      // files from a previous template.
+      ...extraTypes.map((dt) =>
+        toItem(dt, false, currentlyRequiredExtraTypeIds.has(dt.id)),
+      ),
+    ];
+  }
+
+  /**
+   * Of the candidate doc-type ids passed in, return the subset that the
+   * employee's CURRENT requirement tags actively pull in. Used to
+   * distinguish carry-over docs (uploaded under a previous template) from
+   * docs the active template still requires.
+   *
+   * Pre-filtered scope keeps this query small — we never join across the
+   * whole org's requirement_document_types table.
+   */
+  private async computeCurrentlyRequiredTypeIds(
+    employeeId: string,
+    candidateTypeIds: string[],
+  ): Promise<Set<string>> {
+    if (candidateTypeIds.length === 0) return new Set();
+    const tagLinks = await this.employeeRequirementTagRepository.find({
+      where: { employee_id: employeeId },
+      select: ['requirement_tag_id'],
+    });
+    if (tagLinks.length === 0) return new Set();
+    const reqLinks = await this.requirementDocumentTypeRepository.find({
+      where: {
+        requirement_tag_id: In(tagLinks.map((l) => l.requirement_tag_id)),
+        document_type_id: In(candidateTypeIds),
+      },
+      select: ['document_type_id'],
+    });
+    return new Set(reqLinks.map((l) => l.document_type_id));
   }
 
   async createForEmployee(

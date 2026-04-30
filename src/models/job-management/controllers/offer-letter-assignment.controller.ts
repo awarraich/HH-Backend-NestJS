@@ -22,6 +22,7 @@ import { Roles } from '../../../common/decorators/roles.decorator';
 import { SuccessHelper } from '../../../common/helpers/responses/success.helper';
 import { extractRequestSignatureMetadata } from '../../../common/utils/extract-request-metadata';
 import { OfferLetterAssignmentService } from '../services/offer-letter-assignment.service';
+import { OfferLetterArchiveService } from '../services/offer-letter-archive.service';
 import { CreateOfferLetterAssignmentDto } from '../dto/create-offer-letter-assignment.dto';
 import { FillOfferLetterFieldsDto } from '../dto/fill-offer-letter-fields.dto';
 import { Employee } from '../../employees/entities/employee.entity';
@@ -40,7 +41,10 @@ type RequestWithUser = FastifyRequest & {
 @UseGuards(JwtAuthGuard, OrganizationRoleGuard)
 @Roles('OWNER', 'HR', 'ADMIN', 'MANAGER')
 export class OfferLetterAssignmentController {
-  constructor(private readonly service: OfferLetterAssignmentService) {}
+  constructor(
+    private readonly service: OfferLetterAssignmentService,
+    private readonly archiveService: OfferLetterArchiveService,
+  ) {}
 
   @Get()
   @HttpCode(HttpStatus.OK)
@@ -103,6 +107,38 @@ export class OfferLetterAssignmentController {
   ) {
     const data = await this.service.void(orgId, id);
     return SuccessHelper.createSuccessResponse(data, 'Assignment voided.');
+  }
+
+  /**
+   * Retry archiving the signed PDF into the applicant's HR File. The
+   * post-completion hook fires automatically when status flips to
+   * `completed`, but this endpoint covers two cases the auto-hook can't:
+   *
+   *  1. The assignment was completed BEFORE the auto-hook was deployed —
+   *     no archive row exists and the hook won't re-fire on its own.
+   *  2. The auto-hook errored mid-flight (S3 hiccup, missing employee
+   *     row, etc.) and HR has since fixed the precondition.
+   *
+   * Idempotent — if the EmployeeDocument already exists at the
+   * deterministic S3 key, returns it without writing anything.
+   */
+  @Post(':id/archive')
+  @HttpCode(HttpStatus.OK)
+  async archive(@Param('id') id: string) {
+    const result = await this.archiveService.archive(id);
+    if (!result) {
+      // Returns 200 with explanatory body instead of throwing — HR will
+      // see "no employee row yet" / "OFFER_LETTER type missing" without
+      // a stack trace. Backend logs carry the specific reason.
+      return SuccessHelper.createSuccessResponse(
+        { archived: false },
+        'Archive skipped — see backend logs for the precondition that failed (assignment status, applicant_user_id, employee row, or OFFER_LETTER doc type).',
+      );
+    }
+    return SuccessHelper.createSuccessResponse(
+      { archived: true, employee_document_id: result.id, file_name: result.file_name },
+      'Signed offer letter archived to HR File.',
+    );
   }
 
   @Delete(':id')

@@ -157,6 +157,9 @@ import { WorkflowRolesService } from './document-workflow/services/workflow-role
 import { TemplateAssignmentsService } from './document-workflow/services/template-assignments.service';
 import { WorkflowRolesController } from './document-workflow/controllers/workflow-roles.controller';
 import { FilledDocumentTemplatesController } from './document-workflow/controllers/filled-document-templates.controller';
+import { Role } from '../../authentication/entities/role.entity';
+import { UserRole } from '../../authentication/entities/user-role.entity';
+import { UserAppContextsController } from './staff-management/controllers/user-app-contexts.controller';
 
 @Module({
   imports: [
@@ -207,6 +210,8 @@ import { FilledDocumentTemplatesController } from './document-workflow/controlle
       InserviceCompletion,
       InserviceQuizAttempt,
       EmployeeRequirementTag,
+      Role,
+      UserRole,
       RequirementDocumentTemplate,
       EmployeeDocument,
       DocumentChunk,
@@ -274,6 +279,7 @@ import { FilledDocumentTemplatesController } from './document-workflow/controlle
     AssignmentsController,
     WorkflowRolesController,
     FilledDocumentTemplatesController,
+    UserAppContextsController,
   ],
   providers: [
     DepartmentService,

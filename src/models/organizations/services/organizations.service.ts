@@ -182,13 +182,24 @@ export class OrganizationsService {
   }
 
   async findMyOrganization(userId: string): Promise<any> {
+    // 1) Org owner (the primary org admin).
     let organization = await this.organizationRepository.findByUserId(userId);
+    // 2) Active staff membership (the standard staff path).
     if (!organization) {
       const staffOrgs = await this.organizationRepository.findOrganizationsByStaffUserId(userId);
-      if (staffOrgs.length === 0) {
-        throw new NotFoundException('You do not have an organization');
-      }
-      organization = staffOrgs[0];
+      if (staffOrgs.length > 0) organization = staffOrgs[0];
+    }
+    // 3) Employee membership — covers dual-role users (Employee + Staff) who
+    //    have the EMPLOYEE record + role but the STAFF organization_staff
+    //    row hasn't been provisioned yet. Lets the staff dashboard load
+    //    without 404'ing into a sidebar-loading loop.
+    if (!organization) {
+      const employeeOrgs =
+        await this.organizationRepository.findOrganizationsByEmployeeUserId(userId);
+      if (employeeOrgs.length > 0) organization = employeeOrgs[0];
+    }
+    if (!organization) {
+      throw new NotFoundException('You do not have an organization');
     }
     return this.mergeCompanyProfileIntoSerialized(organization);
   }

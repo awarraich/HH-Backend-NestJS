@@ -683,16 +683,54 @@ export class AuthService {
   }
 
   /**
+   * Resolve which app contexts (staff / employee) a user can switch into,
+   * derived from their role assignments. A user with rows in both buckets is
+   * the dual-role case the role-switcher exists for; a user in only one is
+   * locked to that context (no switch UI is shown).
+   *
+   * Kept here rather than in a guard because the JWT bakes the result in —
+   * guards then read it instead of recomputing on every request.
+   */
+  computeAvailableContexts(roles: string[]): import('../interfaces/jwt-payload.interface').AppContext[] {
+    const upper = roles.map((r) => r.toUpperCase());
+    const contexts: Array<'staff' | 'employee'> = [];
+    const STAFF_ROLES = ['ADMIN', 'ORGANIZATION', 'OWNER', 'HR', 'MANAGER', 'STAFF', 'ASSISTANT_HR'];
+    if (upper.some((r) => STAFF_ROLES.includes(r))) contexts.push('staff');
+    if (upper.includes('EMPLOYEE')) contexts.push('employee');
+    return contexts;
+  }
+
+  /**
+   * Pick a default active context. Prefers the explicitly-requested one when
+   * valid, otherwise falls back to staff (HR-side workflows are the more
+   * common login destination), otherwise the first available context.
+   */
+  private resolveActiveContext(
+    available: import('../interfaces/jwt-payload.interface').AppContext[],
+    requested?: import('../interfaces/jwt-payload.interface').AppContext,
+  ): import('../interfaces/jwt-payload.interface').AppContext | undefined {
+    if (requested && available.includes(requested)) return requested;
+    if (available.includes('staff')) return 'staff';
+    return available[0];
+  }
+
+  /**
    * Generate JWT tokens
    */
   private async generateTokens(
     user: User,
     roles: string[],
+    requestedActiveRole?: import('../interfaces/jwt-payload.interface').AppContext,
   ): Promise<{ accessToken: string; refreshToken: string }> {
+    const available = this.computeAvailableContexts(roles);
+    const activeRole = this.resolveActiveContext(available, requestedActiveRole);
+
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
       roles,
+      active_role: activeRole,
+      available_roles: available,
       passwordChangedAt: user.password_changed_at?.toISOString(),
     };
 
@@ -709,6 +747,33 @@ export class AuthService {
     } as Parameters<typeof this.jwtService.sign>[1]);
 
     return { accessToken, refreshToken };
+  }
+
+  /**
+   * Re-issue tokens scoped to a different app context. Validates the user
+   * actually has the requested context — guards against a forged role
+   * switch via a doctored client. Returns the same dual-token shape as
+   * login so the SPA's existing replace-tokens flow works unchanged.
+   */
+  async switchActiveRole(
+    userId: string,
+    newContext: import('../interfaces/jwt-payload.interface').AppContext,
+  ): Promise<{ accessToken: string; refreshToken: string; active_role: string; available_roles: string[] }> {
+    const userWithRoles = await this.userRepository.findByIdWithRoles(userId);
+    if (!userWithRoles) throw new NotFoundException('User not found');
+    const roles = userWithRoles.userRoles?.map((ur) => ur.role.name) ?? [];
+    const available = this.computeAvailableContexts(roles);
+    if (!available.includes(newContext)) {
+      throw new BadRequestException(
+        `Role "${newContext}" is not available for this user. Available: ${available.join(', ') || 'none'}.`,
+      );
+    }
+    const tokens = await this.generateTokens(userWithRoles as User, roles, newContext);
+    return {
+      ...tokens,
+      active_role: newContext,
+      available_roles: available,
+    };
   }
 
   /**
@@ -822,6 +887,7 @@ export class AuthService {
     is_two_fa_enabled: boolean;
     roles: string[];
     user_type?: string;
+    available_roles?: string[];
   }> {
     const userWithRoles = await this.userRepository.findByIdWithRoles(userId);
     if (!userWithRoles) {
@@ -840,6 +906,9 @@ export class AuthService {
       is_two_fa_enabled: userWithRoles.is_two_fa_enabled,
       roles,
       user_type: userType,
+      // Surfaces the dual-role app contexts the user can switch into so the
+      // SPA header can render the role-switcher only when there's a choice.
+      available_roles: this.computeAvailableContexts(roles),
     };
   }
 

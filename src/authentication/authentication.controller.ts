@@ -353,4 +353,32 @@ export class AuthenticationController {
     });
     return SuccessHelper.createSuccessResponse(user);
   }
+
+  /**
+   * Switch the active app context (Staff ↔ Employee) for a dual-role user.
+   * Re-issues the access + refresh tokens with the new `active_role` claim
+   * baked in. Validated server-side — a user without the requested context
+   * gets a 400 instead of a forged switch.
+   *
+   * Body: { active_role: "staff" | "employee" }
+   */
+  @Post('switch-role')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  async switchRole(
+    @Request() req: any,
+    @Body() body: { active_role: 'staff' | 'employee' },
+    @Res() res: any,
+  ) {
+    const result = await this.authService.switchActiveRole(req.user.userId, body.active_role);
+    this.setAuthCookies(res, result.accessToken, result.refreshToken);
+    res.status(HttpStatus.OK).send(
+      SuccessHelper.createSuccessResponse({
+        accessToken: result.accessToken,
+        refreshToken: result.refreshToken,
+        active_role: result.active_role,
+        available_roles: result.available_roles,
+      }),
+    );
+  }
 }

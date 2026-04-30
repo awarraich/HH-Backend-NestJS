@@ -1,6 +1,8 @@
 import {
   BadRequestException,
   ForbiddenException,
+  forwardRef,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -32,6 +34,7 @@ import { FillOfferLetterFieldsDto } from '../dto/fill-offer-letter-fields.dto';
 import { TemplatesService } from '../../organizations/document-workflow/services/templates.service';
 import { EmailService } from '../../../common/services/email/email.service';
 import { JobApplicationDocumentStorageService } from './job-application-document-storage.service';
+import { OfferLetterArchiveService } from './offer-letter-archive.service';
 import {
   findApplicantOfferLetterConsent,
   findRoleFillerOfferLetterConsent,
@@ -113,6 +116,10 @@ export class OfferLetterAssignmentService {
     private readonly configService: ConfigService,
     private readonly companyProfileService: OrganizationCompanyProfileService,
     private readonly jobApplicationDocumentStorage: JobApplicationDocumentStorageService,
+    // Bidirectional dep: ArchiveService injects OfferLetterAssignmentService
+    // for `bakeSignedPdf`. forwardRef lets Nest resolve the cycle at runtime.
+    @Inject(forwardRef(() => OfferLetterArchiveService))
+    private readonly archiveService: OfferLetterArchiveService,
   ) {}
 
   // ─── Creation ───────────────────────────────────────────────────────────
@@ -1179,6 +1186,29 @@ export class OfferLetterAssignmentService {
   }
 
   /**
+   * Render the fully-signed PDF for an assignment WITHOUT auth checks.
+   * Internal-use only — meant for server-side consumers (e.g. the post-
+   * completion archive into the employee's HR File). Reuses the same
+   * field-overlay baking pipeline the applicant-facing endpoint uses, so
+   * the bytes match what the applicant downloaded after signing.
+   */
+  async bakeSignedPdf(
+    assignmentId: string,
+  ): Promise<{ buffer: Buffer; contentType: string; fileName: string }> {
+    const a = await this.assignmentRepo.findOne({
+      where: { id: assignmentId },
+      relations: ['fieldValues'],
+    });
+    if (!a) throw new NotFoundException('Offer letter assignment not found');
+    const application = await this.applicationRepo.findOne({
+      where: { id: a.job_application_id },
+    });
+    if (!application) throw new NotFoundException('Job application not found');
+    const applicantSignature = this.extractApplicantSignature(application);
+    return this.renderPdfWithFieldOverlays(a, { applicantSignature });
+  }
+
+  /**
    * Return the offer letter PDF to the applicant **with field overlays baked
    * in** — signature placeholders, labels and any values already filled by
    * assignees are drawn directly into the PDF bytes via pdf-lib. This is
@@ -2199,6 +2229,17 @@ export class OfferLetterAssignmentService {
         a.status = 'completed';
         a.completed_at = new Date();
         await this.assignmentRepo.save(a);
+        // Fire-and-forget: archive the fully-signed PDF into the applicant's
+        // HR File. The archive service is idempotent (deterministic S3 key
+        // + existing-row check), so a re-fire is a no-op. Failures must
+        // not block the completion transition itself, so we swallow + log.
+        this.archiveService.archive(a.id).catch((err) => {
+          this.logger.warn(
+            `Offer letter archive failed for assignment ${a.id}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        });
       }
     } else if (a.status === 'completed') {
       // Defensive: recover from an earlier premature-completion state.
