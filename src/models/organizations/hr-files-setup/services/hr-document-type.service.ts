@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ForbiddenException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
@@ -105,6 +106,7 @@ export class HrDocumentTypeService {
       category: dto.category ?? null,
       sort_order: dto.sort_order ?? 0,
       is_active: true,
+      is_deletable: dto.is_deletable ?? true,
     });
 
     return this.hrDocumentTypeRepository.save(entity);
@@ -131,6 +133,7 @@ export class HrDocumentTypeService {
     if (dto.category !== undefined) entity.category = dto.category;
     if (dto.sort_order !== undefined) entity.sort_order = dto.sort_order;
     if (dto.is_active !== undefined) entity.is_active = dto.is_active;
+    if (dto.is_deletable !== undefined) entity.is_deletable = dto.is_deletable;
 
     return this.hrDocumentTypeRepository.save(entity);
   }
@@ -143,6 +146,12 @@ export class HrDocumentTypeService {
     });
     if (!entity) {
       throw new NotFoundException('HR document type not found');
+    }
+
+    if (entity.is_deletable === false) {
+      throw new BadRequestException(
+        'This document type is marked as non-deletable and cannot be removed.',
+      );
     }
 
     entity.is_active = false;

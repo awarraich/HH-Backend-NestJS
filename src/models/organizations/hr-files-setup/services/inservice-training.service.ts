@@ -47,6 +47,7 @@ export interface InserviceTrainingResponse {
   is_active: boolean;
   has_quiz: boolean;
   passing_score_percent: number | null;
+  is_deletable: boolean;
   created_at: Date;
   updated_at: Date;
 }
@@ -108,6 +109,7 @@ export class InserviceTrainingService {
       is_active: inservice.is_active,
       has_quiz: inservice.has_quiz,
       passing_score_percent: inservice.passing_score_percent,
+      is_deletable: inservice.is_deletable,
       created_at: inservice.created_at,
       updated_at: inservice.updated_at,
     };
@@ -287,6 +289,7 @@ export class InserviceTrainingService {
       is_active: true,
       has_quiz: dto.has_quiz ?? false,
       passing_score_percent: dto.passing_score_percent != null ? dto.passing_score_percent : null,
+      is_deletable: dto.is_deletable ?? true,
     });
 
     const saved = await this.inserviceTrainingRepository.save(inservice);
@@ -350,6 +353,7 @@ export class InserviceTrainingService {
       inservice.passing_score_percent =
         dto.passing_score_percent == null ? null : dto.passing_score_percent;
     }
+    if (dto.is_deletable !== undefined) inservice.is_deletable = dto.is_deletable;
 
     let pdfFiles = [...(inservice.pdf_files ?? [])];
 
@@ -407,6 +411,12 @@ export class InserviceTrainingService {
     });
     if (!inservice) {
       throw new NotFoundException('Inservice training not found');
+    }
+
+    if (inservice.is_deletable === false) {
+      throw new BadRequestException(
+        'This inservice training is marked as non-deletable and cannot be removed.',
+      );
     }
 
     await this.inserviceTrainingRepository.remove(inservice);

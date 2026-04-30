@@ -36,4 +36,8 @@ export class CreateHrDocumentTypeDto {
   @IsInt()
   @Min(0)
   sort_order?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  is_deletable?: boolean;
 }

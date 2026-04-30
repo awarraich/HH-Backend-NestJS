@@ -27,4 +27,8 @@ export class UpdateHrDocumentTypeDto {
   @IsOptional()
   @IsBoolean()
   is_active?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  is_deletable?: boolean;
 }
