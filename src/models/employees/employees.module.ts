@@ -5,6 +5,7 @@ import { Employee } from './entities/employee.entity';
 import { EmployeeProfile } from './entities/employee-profile.entity';
 import { ProviderRole } from './entities/provider-role.entity';
 import { User } from '../../authentication/entities/user.entity';
+import { OrganizationStaff } from '../organizations/staff-management/entities/organization-staff.entity';
 import { EmployeeShift } from '../organizations/scheduling/entities/employee-shift.entity';
 import { AuthenticationModule } from '../../authentication/auth.module';
 import { OrganizationsModule } from '../organizations/organizations.module';
@@ -44,6 +45,7 @@ import { MyScheduleController } from './availability/controllers/my-schedule.con
       WorkPreference,
       SchedulePreset,
       User,
+      OrganizationStaff,
     ]),
     ConfigModule,
     AuthenticationModule,

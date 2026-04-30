@@ -4,6 +4,7 @@ import { IsNull, Repository } from 'typeorm';
 import { Employee } from '../../entities/employee.entity';
 import { EmployeeProfile } from '../../entities/employee-profile.entity';
 import { User } from '../../../../authentication/entities/user.entity';
+import { OrganizationStaff } from '../../../organizations/staff-management/entities/organization-staff.entity';
 import { UpdateEmployeeProfileDto } from '../../dto/update-employee-profile.dto';
 import { EmployeeContextSerializer } from '../serializers/employee-context.serializer';
 import type { OrganizationContextItem } from '../serializers/employee-context.serializer';
@@ -19,6 +20,8 @@ export class EmployeeContextService {
     private readonly employeeProfileRepository: Repository<EmployeeProfile>,
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+    @InjectRepository(OrganizationStaff)
+    private readonly orgStaffRepository: Repository<OrganizationStaff>,
   ) {}
 
   /**
@@ -46,12 +49,6 @@ export class EmployeeContextService {
     });
 
     if (!employee) {
-      if (!this.hasEmployeeRole(userRoles)) {
-        throw new NotFoundException(
-          'No employee record found for this user. You may not be linked to any organization.',
-        );
-      }
-
       const user = await this.userRepository.findOne({ where: { id: userId } });
       if (!user) {
         throw new NotFoundException(
@@ -59,6 +56,70 @@ export class EmployeeContextService {
         );
       }
 
+      // Org-staff path: users created via Staff Management (HR / Manager
+      // / Supervisor created by an org owner) are not job applicants —
+      // they belong to the organization and should land on the full
+      // employee portal. They have no `Employee` row and carry the
+      // system role `STAFF` (not PROVIDER/EMPLOYEE), so the legacy
+      // independent-employee branch above used to 404 them and the
+      // frontend dumped them onto the applicant landing.
+      //
+      // Synthesize a context using their `OrganizationStaff` rows as
+      // the org list. The portal renders normally; org-only widgets
+      // (schedule etc.) get the `is_active_context` org and behave the
+      // same way they do for a directly-hired Employee.
+      const staffRows = await this.orgStaffRepository.find({
+        where: { user_id: userId },
+        relations: ['organization', 'staffRole'],
+        order: { created_at: 'ASC' },
+      });
+
+      if (staffRows.length > 0) {
+        const organizations: OrganizationContextItem[] = staffRows
+          .filter((row) => row.organization_id != null)
+          .map((row) => ({
+            organization_id: row.organization_id,
+            organization_name: row.organization?.organization_name ?? null,
+            employee_status: row.status, // 'ACTIVE' | 'INACTIVE' | …
+            is_active_context:
+              currentOrganizationId != null &&
+              row.organization_id === currentOrganizationId,
+            // Staff don't have a provider role; surface the staff role
+            // name instead so the portal header still has something
+            // sensible to print under "Role". Shape stays the same so
+            // the frontend doesn't need to know it's a staff context.
+            provider_role: row.staffRole
+              ? {
+                  id: row.staffRole.id,
+                  code: row.staffRole.name,
+                  name: row.staffRole.name,
+                }
+              : null,
+          }));
+        return {
+          employee: {
+            id: '',
+            user_id: user.id,
+            user: {
+              id: user.id,
+              email: user.email,
+              firstName: user.firstName,
+              lastName: user.lastName,
+              is_active: user.is_active,
+            },
+            profile: null,
+          },
+          organizations,
+        };
+      }
+
+      // Fall back to the existing "independent provider/employee" path
+      // for users with the role but no Employee row and no staff rows.
+      if (!this.hasEmployeeRole(userRoles)) {
+        throw new NotFoundException(
+          'No employee record found for this user. You may not be linked to any organization.',
+        );
+      }
       return this.serializer.serializeIndependentContext(user);
     }
 
