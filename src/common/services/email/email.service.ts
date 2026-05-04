@@ -604,6 +604,40 @@ export class EmailService implements OnModuleInit {
     );
   }
 
+  /**
+   * Generic notification email — used by the notifications module to send
+   * pre-rendered subject/body content (e.g., document expiration reminders).
+   * Templates that need a richer surface should use one of the typed methods
+   * above instead.
+   */
+  async sendNotification(
+    toEmail: string,
+    subject: string,
+    html: string,
+    text?: string,
+  ): Promise<void> {
+    const auth = this.emailConfigService.auth;
+    if (!auth.user || !auth.pass) {
+      throw new Error(
+        'Email service not configured. Set EMAIL_USER and EMAIL_PASSWORD to send notifications.',
+      );
+    }
+
+    const mailOptions = {
+      from: `"${this.emailConfigService.fromName}" <${this.emailConfigService.from}>`,
+      to: toEmail,
+      subject,
+      html,
+      text: text ?? html.replace(/<[^>]+>/g, ''),
+      attachments: this.logoAttachment,
+    };
+
+    const info = await this.transporter.sendMail(mailOptions);
+    this.logger.log(
+      `Notification email sent to: ${this.maskEmail(toEmail)}. MessageId: ${info.messageId}`,
+    );
+  }
+
   private maskEmail(email: string): string {
     // HIPAA Compliance: Mask email in logs
     const [localPart, domain] = email.split('@');

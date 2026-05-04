@@ -96,6 +96,10 @@ import { AddAvailabilityUiToWorkPreferences20260425100000 } from './202604251000
 import { CreateAppSettings20260428100000 } from './20260428100000-create-app-settings.js';
 import { AddOnboardingTimestampsToEmployeeProfiles20260429100000 } from './20260429100000-add-onboarding-timestamps-to-employee-profiles.js';
 import { AddSignatureAuditToDocumentFieldValues20260429110000 } from './20260429110000-add-signature-audit-to-document-field-values.js';
+import { AddIsDeletableToHrDocumentTypesAndInservices20260501100000 } from './20260501100000-add-is-deletable-to-hr-document-types-and-inservices.js';
+import { CreateOrganizationIntegrations20260501200000 } from './20260501200000-create-organization-integrations.js';
+import { CreateUserChatConnections20260501200001 } from './20260501200001-create-user-chat-connections.js';
+import { CreateNotificationDispatchLog20260501200002 } from './20260501200002-create-notification-dispatch-log.js';
 
 type MigrationConstructor = new () => MigrationInterface;
 
@@ -197,4 +201,8 @@ export const migrations: MigrationConstructor[] = [
   CreateAppSettings20260428100000,
   AddOnboardingTimestampsToEmployeeProfiles20260429100000,
   AddSignatureAuditToDocumentFieldValues20260429110000,
+  AddIsDeletableToHrDocumentTypesAndInservices20260501100000,
+  CreateOrganizationIntegrations20260501200000,
+  CreateUserChatConnections20260501200001,
+  CreateNotificationDispatchLog20260501200002,
 ];

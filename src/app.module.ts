@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
+import { BullModule } from '@nestjs/bullmq';
 import { AppConfigModule } from './config/app/config.module';
 import { PostgresDatabaseProviderModule } from './providers/database/postgres/provider.module';
 import { AuthenticationModule } from './authentication/auth.module';
@@ -20,10 +22,18 @@ import { ExternalDocumentsModule } from './models/external-documents/external-do
 import { McpModule } from './mcp/mcp.module';
 import { S3Module } from './common/services/s3/s3.module';
 import { AppSettingsModule } from './common/services/settings/app-settings.module';
+import { NotificationsModule } from './models/notifications/notifications.module';
 
 @Module({
   imports: [
     AppConfigModule,
+    ScheduleModule.forRoot(),
+    BullModule.forRoot({
+      connection: {
+        host: process.env.REDIS_HOST || '127.0.0.1',
+        port: parseInt(process.env.REDIS_PORT || '6379', 10),
+      },
+    }),
     PostgresDatabaseProviderModule,
     AuthenticationModule,
     AddressesModule,
@@ -43,6 +53,7 @@ import { AppSettingsModule } from './common/services/settings/app-settings.modul
     McpModule,
     S3Module,
     AppSettingsModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [],

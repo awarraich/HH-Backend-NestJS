@@ -52,6 +52,10 @@ CLAUDE.md
 .env.local
 !.env.example
 
+# Local secrets (service account JSON keys, etc.). Never commit.
+secrets/
+*.serviceaccount.json
+
 # temp directory
 .temp
 .tmp
