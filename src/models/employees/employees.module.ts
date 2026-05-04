@@ -72,6 +72,13 @@ import { MyScheduleController } from './availability/controllers/my-schedule.con
     WorkPreferenceService,
     SchedulePresetService,
   ],
-  exports: [TypeOrmModule, EmployeesService, ProviderRolesService],
+  exports: [
+    TypeOrmModule,
+    EmployeesService,
+    ProviderRolesService,
+    AvailabilityRuleService,
+    TimeOffRequestService,
+    WorkPreferenceService,
+  ],
 })
 export class EmployeesModule {}

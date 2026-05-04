@@ -437,6 +437,149 @@ export class EmployeeShiftService {
     }));
   }
 
+  /**
+   * Self-service variant of findByEmployee: returns the calling user's
+   * own assigned shifts in a date range, without requiring the
+   * OWNER/HR/MANAGER role gate. Used by the Google Chat agent's
+   * `listMyShifts` tool — the caller is querying their own data.
+   *
+   * Resolves the caller's Employee record via (user_id, organization_id);
+   * returns [] if the user has no Employee row in that org. Caller is
+   * trusted to be authenticated upstream (the agent gates on its own
+   * identity resolver before reaching here).
+   */
+  async findByCallerSelf(
+    organizationId: string,
+    userId: string,
+    range: { from: string; to: string },
+  ): Promise<EmployeeShift[]> {
+    const employee = await this.employeeRepository.findOne({
+      where: { user_id: userId, organization_id: organizationId },
+    });
+    if (!employee) return [];
+
+    return this.employeeShiftRepository
+      .createQueryBuilder('es')
+      .innerJoinAndSelect('es.shift', 'shift')
+      .leftJoinAndSelect('es.department', 'department')
+      .leftJoinAndSelect('es.station', 'station')
+      .leftJoinAndSelect('es.room', 'room')
+      .leftJoinAndSelect('es.bed', 'bed')
+      .leftJoinAndSelect('es.chair', 'chair')
+      .where('es.employee_id = :employeeId', { employeeId: employee.id })
+      .andWhere('shift.organization_id = :organizationId', { organizationId })
+      .andWhere('es.scheduled_date >= :from', { from: range.from })
+      .andWhere('es.scheduled_date <= :to', { to: range.to })
+      .orderBy('es.scheduled_date', 'ASC')
+      .addOrderBy('shift.start_at', 'ASC')
+      .getMany();
+  }
+
+  /**
+   * Self-service variant: returns a Shift's details PLUS the caller's
+   * own assignments to it. If the caller is not assigned to the shift
+   * (or not employed in the shift's org), returns null — the agent
+   * surfaces this as "you're not assigned to that shift".
+   */
+  async findShiftDetailsForCallerSelf(
+    organizationId: string,
+    userId: string,
+    shiftId: string,
+  ): Promise<{ shift: Shift; assignments: EmployeeShift[] } | null> {
+    const employee = await this.employeeRepository.findOne({
+      where: { user_id: userId, organization_id: organizationId },
+    });
+    if (!employee) return null;
+
+    const shift = await this.shiftRepository.findOne({
+      where: { id: shiftId, organization_id: organizationId },
+      relations: ['shiftRoles', 'shiftRoles.providerRole'],
+    });
+    if (!shift) return null;
+
+    const assignments = await this.employeeShiftRepository
+      .createQueryBuilder('es')
+      .leftJoinAndSelect('es.department', 'department')
+      .leftJoinAndSelect('es.station', 'station')
+      .leftJoinAndSelect('es.room', 'room')
+      .leftJoinAndSelect('es.bed', 'bed')
+      .leftJoinAndSelect('es.chair', 'chair')
+      .where('es.employee_id = :employeeId', { employeeId: employee.id })
+      .andWhere('es.shift_id = :shiftId', { shiftId })
+      .orderBy('es.scheduled_date', 'ASC')
+      .getMany();
+
+    if (assignments.length === 0) return null;
+
+    return { shift, assignments };
+  }
+
+  /**
+   * Self-service: shifts the caller could potentially be assigned to.
+   * Filtered to shifts whose role requirements match the caller's
+   * provider_role (role-agnostic shifts always included). Date-range
+   * filtering uses the same one-time-vs-recurring logic as ShiftService.findAll.
+   *
+   * Returns active shifts in the caller's org. Read-only — does NOT
+   * self-assign. The agent renders a "talk to your manager" hint.
+   */
+  async findAvailableForCallerSelf(
+    organizationId: string,
+    userId: string,
+    range: { from: string; to: string },
+  ): Promise<Shift[]> {
+    const employee = await this.employeeRepository.findOne({
+      where: { user_id: userId, organization_id: organizationId },
+    });
+    if (!employee) return [];
+
+    const isDateOnly = (v: string) => /^\d{4}-\d{2}-\d{2}$/.test(v);
+    const fromBound = isDateOnly(range.from)
+      ? `${range.from} 00:00:00`
+      : range.from;
+    const toBound = isDateOnly(range.to)
+      ? `${range.to} 23:59:59`
+      : range.to;
+
+    const qb = this.shiftRepository
+      .createQueryBuilder('s')
+      .leftJoinAndSelect('s.shiftRoles', 'sr')
+      .leftJoinAndSelect('sr.providerRole', 'pr')
+      .where('s.organization_id = :organizationId', { organizationId })
+      .andWhere("UPPER(s.status) = 'ACTIVE'")
+      .andWhere(
+        '((s.recurrence_type = :oneTime AND s.end_at > :fromBound AND s.start_at < :toBound) ' +
+          'OR (s.recurrence_type != :oneTime ' +
+          '    AND (s.recurrence_end_date IS NULL OR s.recurrence_end_date >= :fromDate) ' +
+          '    AND (s.recurrence_start_date IS NULL OR s.recurrence_start_date <= :toDate)))',
+        {
+          oneTime: 'ONE_TIME',
+          fromBound,
+          toBound,
+          fromDate: range.from,
+          toDate: range.to,
+        },
+      );
+
+    // Role match: include shifts with no shiftRoles entries (role-agnostic)
+    // OR shifts with a shiftRole matching the caller's provider_role_id.
+    if (employee.provider_role_id) {
+      qb.andWhere(
+        '(NOT EXISTS (SELECT 1 FROM shift_roles srx WHERE srx.shift_id = s.id) ' +
+          'OR EXISTS (SELECT 1 FROM shift_roles sry WHERE sry.shift_id = s.id AND sry.provider_role_id = :providerRoleId))',
+        { providerRoleId: employee.provider_role_id },
+      );
+    } else {
+      // Caller has no provider_role assigned — only show role-agnostic shifts.
+      qb.andWhere(
+        'NOT EXISTS (SELECT 1 FROM shift_roles srx WHERE srx.shift_id = s.id)',
+      );
+    }
+
+    qb.orderBy('s.start_at', 'ASC').take(50);
+    return qb.getMany();
+  }
+
   async findByEmployee(
     organizationId: string,
     employeeId: string,

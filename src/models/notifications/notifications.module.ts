@@ -24,6 +24,7 @@ import { OrganizationsModule } from '../organizations/organizations.module';
 import { AuthenticationModule } from '../../authentication/auth.module';
 import { GoogleChatConfigModule } from '../../config/google-chat/config.module';
 import { EmailModule } from '../../common/services/email/email.module';
+import { GoogleChatAgentModule } from '../google-chat-agent/google-chat-agent.module';
 import { OrganizationIntegration } from './entities/organization-integration.entity';
 import { UserChatConnection } from './entities/user-chat-connection.entity';
 import { NotificationDispatchLog } from './entities/notification-dispatch-log.entity';
@@ -36,6 +37,7 @@ import { OrganizationStaff } from '../organizations/staff-management/entities/or
     EmailModule,
     AuthenticationModule,
     OrganizationsModule,
+    GoogleChatAgentModule,
     BullModule.registerQueue({ name: REMINDER_DISPATCH_QUEUE }),
     TypeOrmModule.forFeature([
       OrganizationIntegration,

@@ -263,4 +263,68 @@ export class AvailabilityRuleService {
     if (!rule) throw new NotFoundException('Availability rule not found');
     await this.availabilityRuleRepository.remove(rule);
   }
+
+  /**
+   * Upserts a single weekly availability rule for a user, scoped by
+   * day_of_week (and optionally organization). Used by the Google Chat
+   * agent's `setAvailabilityRule` tool — the agent semantics are "I'm
+   * available Tuesdays 9–5", not "add this slot to my Tuesday."
+   *
+   * Replaces ALL non-date-specific weekly rules for that user+day in the
+   * same scope before inserting. Multi-slot weekly schedules (split shifts
+   * within one day) are not preserved by this path — callers expecting
+   * that should use `bulkUpsert` from the web UI instead.
+   *
+   * Date-specific rules (with `effective_from` set) are NOT touched.
+   */
+  async upsertWeeklyRuleForUser(
+    userId: string,
+    dto: {
+      organization_id?: string | null;
+      day_of_week: number;
+      start_time: string;
+      end_time: string;
+      is_available?: boolean;
+      shift_type?: string | null;
+    },
+  ): Promise<AvailabilityRule> {
+    if (dto.day_of_week < 0 || dto.day_of_week > 6) {
+      throw new BadRequestException('day_of_week must be 0 (Sun) through 6 (Sat)');
+    }
+    if (dto.start_time === dto.end_time) {
+      throw new BadRequestException(
+        'start_time and end_time cannot be equal',
+      );
+    }
+
+    const orgId = dto.organization_id ?? null;
+    const deleteQb = this.availabilityRuleRepository
+      .createQueryBuilder()
+      .delete()
+      .where('user_id = :userId', { userId })
+      .andWhere('day_of_week = :dow', { dow: dto.day_of_week })
+      .andWhere('date IS NULL')
+      .andWhere('effective_from IS NULL');
+
+    if (orgId) {
+      deleteQb.andWhere('organization_id = :orgId', { orgId });
+    } else {
+      deleteQb.andWhere('organization_id IS NULL');
+    }
+    await deleteQb.execute();
+
+    const rule = this.availabilityRuleRepository.create({
+      user_id: userId,
+      organization_id: orgId,
+      date: null,
+      day_of_week: dto.day_of_week,
+      start_time: dto.start_time,
+      end_time: dto.end_time,
+      is_available: dto.is_available ?? true,
+      shift_type: dto.shift_type ?? null,
+      effective_from: null,
+      effective_until: null,
+    });
+    return this.availabilityRuleRepository.save(rule);
+  }
 }

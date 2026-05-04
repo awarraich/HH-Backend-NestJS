@@ -23,6 +23,7 @@ import { McpModule } from './mcp/mcp.module';
 import { S3Module } from './common/services/s3/s3.module';
 import { AppSettingsModule } from './common/services/settings/app-settings.module';
 import { NotificationsModule } from './models/notifications/notifications.module';
+import { GoogleChatAgentModule } from './models/google-chat-agent/google-chat-agent.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { NotificationsModule } from './models/notifications/notifications.module
     S3Module,
     AppSettingsModule,
     NotificationsModule,
+    GoogleChatAgentModule,
   ],
   controllers: [AppController],
   providers: [],

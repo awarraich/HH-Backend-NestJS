@@ -100,6 +100,7 @@ import { AddIsDeletableToHrDocumentTypesAndInservices20260501100000 } from './20
 import { CreateOrganizationIntegrations20260501200000 } from './20260501200000-create-organization-integrations.js';
 import { CreateUserChatConnections20260501200001 } from './20260501200001-create-user-chat-connections.js';
 import { CreateNotificationDispatchLog20260501200002 } from './20260501200002-create-notification-dispatch-log.js';
+import { CreateAgentChatTranscripts20260505030000 } from './20260505030000-create-agent-chat-transcripts.js';
 
 type MigrationConstructor = new () => MigrationInterface;
 
@@ -205,4 +206,5 @@ export const migrations: MigrationConstructor[] = [
   CreateOrganizationIntegrations20260501200000,
   CreateUserChatConnections20260501200001,
   CreateNotificationDispatchLog20260501200002,
+  CreateAgentChatTranscripts20260505030000,
 ];
