@@ -189,7 +189,17 @@ export class AvailabilityRuleService {
       });
     });
 
-    return this.availabilityRuleRepository.save(entities);
+    await this.availabilityRuleRepository.save(entities);
+
+    // Return ALL of the user's rules — not just the ones we just saved
+    // for this org. The frontend redux slice replaces its `data` with
+    // this response; if we returned only the org-scoped subset, every
+    // other org's rules would silently disappear from in-session state
+    // until the next full refetch.
+    return this.availabilityRuleRepository.find({
+      where: { user_id: userId },
+      order: { day_of_week: 'ASC', start_time: 'ASC' },
+    });
   }
 
   async upsertDateOverride(
