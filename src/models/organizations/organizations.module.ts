@@ -148,6 +148,7 @@ import { CompetencyAssignment } from './document-workflow/entities/competency-as
 import { DocumentFieldValue } from '../external-documents/entities/document-field-value.entity';
 import { TemplatesController } from './document-workflow/controllers/templates.controller';
 import { AssignmentsController } from './document-workflow/controllers/assignments.controller';
+import { MyDocumentWorkflowAssignmentsController } from './document-workflow/controllers/my-assignments.controller';
 import { TemplatesService } from './document-workflow/services/templates.service';
 import { AssignmentsService } from './document-workflow/services/assignments.service';
 import { PdfStorageService } from './document-workflow/services/pdf-storage.service';
@@ -277,6 +278,7 @@ import { UserAppContextsController } from './staff-management/controllers/user-a
     OrganizationDocumentsController,
     TemplatesController,
     AssignmentsController,
+    MyDocumentWorkflowAssignmentsController,
     WorkflowRolesController,
     FilledDocumentTemplatesController,
     UserAppContextsController,

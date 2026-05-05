@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { CompetencyAssignment } from '../entities/competency-assignment.entity';
+import { DocumentTemplateUserAssignment } from '../entities/document-template-user-assignment.entity';
 import { CreateAssignmentDto } from '../dto/create-assignment.dto';
 import { FillAssignmentDto } from '../dto/fill-assignment.dto';
 import { TemplatesService } from './templates.service';
@@ -11,6 +12,8 @@ export class AssignmentsService {
   constructor(
     @InjectRepository(CompetencyAssignment)
     private readonly repo: Repository<CompetencyAssignment>,
+    @InjectRepository(DocumentTemplateUserAssignment)
+    private readonly templateUserRepo: Repository<DocumentTemplateUserAssignment>,
     private readonly templatesService: TemplatesService,
   ) {}
 
@@ -109,6 +112,46 @@ export class AssignmentsService {
       order: { created_at: 'DESC' },
     });
     return assignments.map(a => this.mapAssignment(a));
+  }
+
+  /**
+   * List competency assignments where the given user is involved in any
+   * template role for this org. The link is indirect: an "employee" is
+   * tied to templates via `document_template_user_assignments`, not
+   * directly to a `competency_assignments` row. We therefore:
+   *   1. find every template the user is assigned to,
+   *   2. AND every template where they're the supervisor on an assignment,
+   *   3. then fetch competency_assignments matching either path within the
+   *      org, deduped by id.
+   * This powers the "Document Workflows" panel on the employee HR File.
+   */
+  async getForEmployee(orgId: string | null | undefined, userId: string) {
+    // Templates this user has any role on (employee, supervisor, etc.).
+    const userTemplateRows = await this.templateUserRepo
+      .createQueryBuilder('ua')
+      .select('DISTINCT ua.template_id', 'template_id')
+      .where('ua.user_id = :userId', { userId })
+      .getRawMany<{ template_id: string }>();
+    const templateIds = userTemplateRows.map((r) => r.template_id);
+
+    const qb = this.repo
+      .createQueryBuilder('a')
+      .orderBy('a.created_at', 'DESC');
+
+    if (orgId) {
+      qb.where('a.organization_id = :orgId', { orgId });
+    }
+    if (templateIds.length > 0) {
+      qb.andWhere(
+        '(a.supervisor_id = :userId OR a.template_id IN (:...templateIds))',
+        { userId, templateIds },
+      );
+    } else {
+      qb.andWhere('a.supervisor_id = :userId', { userId });
+    }
+
+    const assignments = await qb.getMany();
+    return assignments.map((a) => this.mapAssignment(a));
   }
 
   async employeeSign(id: string, signature: string) {

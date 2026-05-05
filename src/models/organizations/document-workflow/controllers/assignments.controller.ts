@@ -51,6 +51,21 @@ export class AssignmentsController {
     return SuccessHelper.createSuccessResponse(data);
   }
 
+  /**
+   * List every competency assignment in this org where the given user is
+   * either the supervisor or appears on any template role. Backs the
+   * "Document Workflows" panel on the employee HR File detail page.
+   */
+  @Get('employee/:userId')
+  @HttpCode(HttpStatus.OK)
+  async getForEmployee(
+    @Param('organizationId') orgId: string,
+    @Param('userId') userId: string,
+  ) {
+    const data = await this.service.getForEmployee(orgId, userId);
+    return SuccessHelper.createSuccessResponse(data);
+  }
+
   @Get(':id')
   @HttpCode(HttpStatus.OK)
   async findOne(
