@@ -10,6 +10,7 @@ export class OrganizationSerializer {
       registration_number: organization.registration_number,
       website: organization.website,
       description: organization.description,
+      timezone: organization.timezone,
       created_at: organization.created_at,
       updated_at: organization.updated_at,
       // Include relations if loaded

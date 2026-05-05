@@ -59,6 +59,25 @@ const assignSchema = {
   notes: z.string().optional(),
 };
 
+const unassignSchema = {
+  shift_id: z
+    .string()
+    .uuid()
+    .describe('UUID of the shift the employee is currently assigned to.'),
+  employee_id: z
+    .string()
+    .uuid()
+    .describe('UUID of the employee whose assignment to remove.'),
+  scheduled_date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .describe(
+      'YYYY-MM-DD — the specific calendar date of the assignment to remove. ' +
+      'Required; recurring assignments are stored as one row per date and ' +
+      'each must be removed individually.',
+    ),
+};
+
 export function buildAssignmentTools(
   employeeShiftService: EmployeeShiftService,
   employeesService: EmployeesService,
@@ -148,38 +167,59 @@ export function buildAssignmentTools(
       );
       const display = displayMap.get(employeeId);
 
-      // Context fallbacks — when the agent omits a location field, fall back
-      // to whatever the frontend said the user is looking at. EXCEPT for
-      // station_id: a shift may be "org-level" (no station_shift_assignments
-      // links), in which case the backend rejects any station_id. Blindly
-      // injecting ctx.stationId for such shifts turns a retry-without-station
-      // into a silent re-inject and the agent loops on an unwinnable error.
-      // Preflight: only fall back if the context station is actually linked
-      // to this shift.
-      const department_id = args.department_id ?? ctx.departmentId;
-      if (!args.department_id && ctx.departmentId) {
-        appliedContext.department_id = 'from_page_context';
+      // Context fallbacks — when the caller omits a location field, fall back
+      // to whatever the frontend said the user is looking at. We treat the
+      // shift as the source of truth for station linkage, so:
+      //   - If a station_id is supplied (by the caller OR page-context) and
+      //     it isn't linked to this shift, we DROP it rather than passing it
+      //     through. The row writes with station_id=null; the schedule grid
+      //     renders null-station rows under a fallback column. Without this
+      //     drop, the same intent fails or succeeds depending on whether the
+      //     caller happens to remember the linked station — flaky UX.
+      //   - department_id follows the same rule: if a station gets dropped,
+      //     drop the department too unless the caller explicitly named one
+      //     (page-context department implicitly travels with page-context
+      //     station, so we don't want a stale dept hanging around either).
+      const stationLinks = await employeeShiftService.getStationLinksForShift(
+        args.shift_id,
+      );
+
+      const requestedStation = args.station_id ?? ctx.stationId;
+      let station_id: string | undefined;
+      if (!requestedStation) {
+        // Nothing supplied; let the backend auto-resolve when the shift has
+        // exactly one linked station.
+      } else if (stationLinks.length === 0) {
+        // Org-level shift (no station_shift_assignments rows). Any station
+        // the caller passed is meaningless here — drop it so the row writes.
+        appliedContext.station_id =
+          'dropped_shift_has_no_stations_linked';
+      } else if (stationLinks.includes(requestedStation)) {
+        station_id = requestedStation;
+        if (!args.station_id && ctx.stationId === requestedStation) {
+          appliedContext.station_id = 'from_page_context';
+        }
+      } else {
+        // Caller / page-context station isn't on this shift's allowlist.
+        // Drop it instead of failing the entire assignment — see comment
+        // above for the rationale.
+        appliedContext.station_id = args.station_id
+          ? 'dropped_caller_station_not_linked_to_shift'
+          : 'dropped_context_station_not_linked_to_shift';
       }
 
-      let station_id: string | undefined = args.station_id;
-      if (!station_id && ctx.stationId) {
-        const stationLinks = await employeeShiftService.getStationLinksForShift(
-          args.shift_id,
-        );
-        if (stationLinks.includes(ctx.stationId)) {
-          station_id = ctx.stationId;
-          appliedContext.station_id = 'from_page_context';
-        } else if (stationLinks.length === 0) {
-          // Org-level shift — leave station_id unset so the backend accepts it.
-          appliedContext.station_id =
-            'context_ignored_shift_has_no_stations_linked';
-        } else {
-          // Shift is linked to other stations, but not the context one.
-          // Leave station_id unset and let the backend's "multiple stations"
-          // error guide the agent to ask the user.
-          appliedContext.station_id =
-            'context_ignored_not_linked_to_this_shift';
-        }
+      // Department: keep an explicit value the caller passed; otherwise
+      // only borrow the page-context value when the station survived
+      // (so a dropped station doesn't drag a stale dept along with it).
+      let department_id: string | undefined;
+      if (args.department_id) {
+        department_id = args.department_id;
+      } else if (ctx.departmentId && (station_id || !ctx.stationId)) {
+        department_id = ctx.departmentId;
+        appliedContext.department_id = 'from_page_context';
+      } else if (ctx.departmentId) {
+        appliedContext.department_id =
+          'dropped_context_department_station_not_linked';
       }
 
       const room_id = args.room_id ?? ctx.roomId;
@@ -275,6 +315,87 @@ export function buildAssignmentTools(
     }
   };
 
+  /**
+   * Tear down a single (employee, shift, scheduled_date) row. Looks the row
+   * up via findAllInOrg + scheduled_date filter, then calls
+   * EmployeeShiftService.remove (which performs the org-access check).
+   *
+   * Returns the resolved display info on success so the response card and
+   * the agent's confirmation can speak in names instead of UUIDs. Soft-fail
+   * with a clear message when no matching row exists — that's a routine
+   * outcome (the user asked to undo something already gone) and should
+   * surface as an action_failure card rather than an exception.
+   */
+  const unassignEmployeeFromShift = async (args: {
+    shift_id: string;
+    employee_id: string;
+    scheduled_date: string;
+  }): SchedulingToolResult => {
+    try {
+      const resolvedId = await employeesService.resolveEmployeeId(
+        ctx.organizationId,
+        args.employee_id,
+      );
+      if (!resolvedId) {
+        return jsonResult({
+          success: false,
+          error:
+            `employee_id ${args.employee_id} does not exist in this organization. ` +
+            `Resolve the employee via search_employees first; do not retry with a fabricated UUID.`,
+        });
+      }
+      const employeeId = resolvedId;
+
+      const matches = await employeeShiftService.findAllInOrg(
+        ctx.organizationId,
+        { shift_id: args.shift_id, employee_id: employeeId, limit: 50 },
+        ctx.userId,
+      );
+      const target = matches.find((es) => {
+        const raw = es.scheduled_date as unknown;
+        const iso =
+          raw instanceof Date
+            ? raw.toISOString().slice(0, 10)
+            : typeof raw === 'string'
+              ? raw.slice(0, 10)
+              : null;
+        return iso === args.scheduled_date;
+      });
+      if (!target) {
+        return jsonResult({
+          success: false,
+          error:
+            `No assignment exists for that employee on ${args.scheduled_date} for the requested shift. ` +
+            `Use get_employee_shifts to list the employee's current assignments before retrying.`,
+        });
+      }
+
+      const displayMap = await employeesService.findDisplayInfoByIds(
+        ctx.organizationId,
+        [employeeId],
+      );
+      const display = displayMap.get(employeeId);
+      const shiftName = target.shift?.name ?? 'shift';
+
+      await employeeShiftService.remove(ctx.organizationId, target.id, ctx.userId);
+
+      return jsonResult({
+        success: true,
+        message: `Unassigned ${display?.name ?? 'employee'} from ${shiftName} on ${args.scheduled_date}.`,
+        employee_name: display?.name ?? 'Unknown employee',
+        employee_email: display?.email ?? null,
+        shift_name: shiftName,
+        scheduled_date: args.scheduled_date,
+        removed_employee_shift_id: target.id,
+      });
+    } catch (err) {
+      return jsonResult({
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  };
+
   return [
     {
       name: TOOL_NAMES.ASSIGN_EMPLOYEE_TO_SHIFT,
@@ -288,6 +409,18 @@ export function buildAssignmentTools(
         "Returns { success: true, employee_shift } on success or { success: false, error } on conflict/validation failure.",
       inputSchema: assignSchema,
       handler: assignEmployeeToShift as (args: unknown) => SchedulingToolResult,
+    },
+    {
+      name: TOOL_NAMES.UNASSIGN_EMPLOYEE_FROM_SHIFT,
+      description:
+        "Remove an existing (employee, shift, scheduled_date) assignment (write operation, irreversible — the row is deleted, not soft-marked). " +
+        "Workflow: (1) ensure you have the shift_id, employee_id, and the exact YYYY-MM-DD scheduled_date you want to unassign. For recurring shifts call this tool ONCE PER DATE — there is no bulk unschedule. " +
+        "(2) When unschedule follows an assign in the same conversation, reuse the (shift_id, employee_id, scheduled_date) triples from your prior ASSIGNMENTS plan (or from the trace) — do NOT ask the user for IDs. " +
+        "(3) For older assignments not in the recent trace, call get_employee_shifts(employee_id) first to list current rows; the response includes shift_id and scheduled_date. " +
+        "Returns { success: true, employee_name, shift_name, scheduled_date } on a successful delete, or { success: false, error } when no matching row exists or access is denied. " +
+        "Use this for: 'unschedule', 'unassign', 'remove', 'cancel the assignment', 'take X off Y shift'.",
+      inputSchema: unassignSchema,
+      handler: unassignEmployeeFromShift as (args: unknown) => SchedulingToolResult,
     },
   ];
 }

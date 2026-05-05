@@ -46,6 +46,14 @@ export class Organization {
   @Column({ type: 'jsonb', nullable: true })
   application_form_fields: object[] | null;
 
+
+  @Column({
+    type: 'varchar',
+    length: 100,
+    default: 'America/Los_Angeles',
+  })
+  timezone: string = 'America/Los_Angeles';
+
   @CreateDateColumn({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
 

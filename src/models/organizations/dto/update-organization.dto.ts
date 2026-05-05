@@ -27,4 +27,19 @@ export class UpdateOrganizationDto {
   @IsString()
   @IsOptional()
   description?: string;
+
+  /**
+   * IANA timezone the clinic operates in (e.g. "America/Los_Angeles",
+   * "America/New_York", "Asia/Karachi"). Validated against Node's built-in
+   * Intl.DateTimeFormat zone list — a typo here would silently break the
+   * agent's "today is …" computation, so we reject up-front.
+   */
+  @IsString()
+  @IsOptional()
+  @MaxLength(100)
+  @Matches(/^[A-Za-z]+(?:[/_+\-][A-Za-z0-9_+\-]+)+$/, {
+    message:
+      'timezone must be a valid IANA zone name (e.g. "America/Los_Angeles")',
+  })
+  timezone?: string;
 }

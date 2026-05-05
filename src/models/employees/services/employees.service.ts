@@ -622,6 +622,13 @@ export class EmployeesService {
       queryBuilder.where('employee.organization_id = :organizationId', { organizationId });
     }
 
+    // TypeORM's @DeleteDateColumn (deleted_at) is auto-applied to find()/findOne()
+    // but NOT to createQueryBuilder. Without this explicit filter, soft-deleted
+    // employees come back in the list — and because the entity supports re-hiring
+    // (same user_id can appear once deleted + once active), those soft-deleted
+    // rows surface as visual duplicates of the active employee.
+    queryBuilder.andWhere('employee.deleted_at IS NULL');
+
     if (searchTerm) {
       // Matches single tokens (firstName/lastName/email/department/position_title)
       // AND multi-token full-name queries via CONCAT_WS, so a search like
@@ -694,6 +701,10 @@ export class EmployeesService {
         .leftJoinAndSelect('employee.user', 'user')
         .leftJoinAndSelect('employee.providerRole', 'providerRole')
         .where('employee.organization_id = :organizationId', { organizationId })
+        // Soft-delete guard — see findAll() above for the rationale. Without
+        // this, role-based queries surface terminated employees and can show
+        // a re-hired employee twice (one deleted row + one active row).
+        .andWhere('employee.deleted_at IS NULL')
         .take(limit);
 
     // Tier 1: exact code/name match (case-insensitive).
@@ -738,6 +749,10 @@ export class EmployeesService {
       .leftJoinAndSelect('employee.providerRole', 'providerRole')
       .where('employee.organization_id = :organizationId', { organizationId })
       .andWhere('employee.id IN (:...ids)', { ids })
+      // Soft-delete guard. If an upstream caller still has a stale
+      // employee_id pointing at a terminated row, we must not return display
+      // info for it — that would let the agent reference a deleted person.
+      .andWhere('employee.deleted_at IS NULL')
       .getMany();
 
     for (const e of employees) {

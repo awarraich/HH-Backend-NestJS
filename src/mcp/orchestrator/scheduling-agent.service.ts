@@ -1,15 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { McpServerFactory } from '../server/mcp-server.factory';
 import { toLlmTools } from './tool-bridge';
 import { FALLBACK_TIMEZONE } from '../tools/scheduling/timezone';
 import { LlmRouter, type LlmMessage } from '../../common/services/llm';
+import { Organization } from '../../models/organizations/entities/organization.entity';
 
 const SYSTEM_PROMPT = `You are a scheduling assistant for a home-health platform.
 You have read tools for shifts, employee shift assignments, roles, and employee availability, plus ONE write tool: assign_employee_to_shift.
 
 Capabilities:
-- READ: list_shifts, get_shift_details, search_shifts, get_employee_shifts, list_roles, get_role_details, search_roles, get_employee_roles, get_shift_roles, get_employee_availability, search_available_employees, get_employee_availability_schedule.
-- WRITE: assign_employee_to_shift — assigns an existing employee to an existing Shift template. There is NO tool to create new shifts, edit shift times, delete assignments, or modify employees. If asked for those, refuse plainly.
+- READ: list_shifts, get_shift_details, search_shifts, get_employee_shifts, list_unfilled_shifts, list_roles, get_role_details, search_roles, get_employee_roles, get_shift_roles, get_shift_role_coverage, get_employee_availability, search_available_employees, get_employee_availability_schedule, list_shifts_for_employee_availability.
+- WRITE: assign_employee_to_shift — assigns an existing employee to an existing Shift template; unassign_employee_from_shift — removes an existing assignment row by (shift_id, employee_id, scheduled_date). There is NO tool to create new shifts, edit shift times, or modify employees. If asked for those, refuse plainly.
 
 Domain notes (CRITICAL — do not skip):
 - A "Shift" is a TEMPLATE with FIXED start_at and end_at timestamps (UTC ISO strings). The user does NOT pick the shift's hours — they pick which shift template to assign someone to. If the user types a time window, treat it as a HINT about which shift they mean, not as the assignment window.
@@ -35,7 +38,7 @@ Assignment workflow (follow strictly when the user asks to "schedule", "assign",
   FAST PATH — if the user already provides BOTH a shift_id (UUID) AND an employee_id (UUID) AND a scheduled_date in the request:
     a. Call assign_employee_to_shift directly with the provided shift_id, employee_id, and scheduled_date, plus any optional fields they mention (department_id, station_id, room_id, bed_id, chair_id, role, notes, status).
     b. If the user mentions a role like "CHARGE NURSE", pass it as the top-level 'role' argument — do NOT bury it in notes. The backend mirrors role into notes for frontend compatibility automatically.
-    c. station_id: the backend auto-resolves it when the shift has exactly one linked station. If the tool returns an error listing multiple valid stations, ask the user which one, then retry with station_id set. Never invent a station_id.
+    c. station_id / department_id / room_id / bed_id / chair_id: do NOT pass these from the page-context block. Only pass them when the user EXPLICITLY named a location ("assign Alice to NOC at North Station"). The shift template carries its own station linkage and the backend auto-resolves it. Forwarding the page-context station can land an unrelated station on the call and the assignment may be silently rewritten to drop it. If the user did not name a location, pass shift_id + employee_id + scheduled_date only.
     d. Report the tool's result. On 'success: false', surface the error verbatim.
     e. DO NOT call get_employee_shifts, get_shift_details, or any other read tool first. DO NOT report on the employee's prior assignments to other shifts — they are irrelevant.
     f. If the user provides shift_id and employee_id but NOT a scheduled_date and the shift is recurring, you MUST check the shift details and follow the SLOW PATH recurring-shift logic to determine which dates to assign.
@@ -190,6 +193,123 @@ Cross-checking with prior turns:
   inconsistency rather than confidently denying yourself.`;
 
 const MAX_STEPS = 12;
+
+/**
+ * OpenAI-only addendum. The UI renders rich cards for list-style tool results
+ * (employee_list, shift_list, role_list) and for write-action outcomes
+ * (action_success, action_failure). When the agent ALSO enumerates the same
+ * data in prose, the user sees the items twice — once as text, once as cards.
+ *
+ * Gated to OpenAI per the per-provider rollout policy. Bedrock keeps the
+ * legacy behavior until that path is realigned in a later pass.
+ */
+const OPENAI_RENDERING_HINT = `UI rendering — your text reply MUST NOT duplicate data the UI already renders as cards.
+
+The frontend renders structured cards next to your text for these tool results:
+- list_employees / search_employees / list_employees_by_role_name → employee cards
+- list_shifts / search_shifts / get_employee_shifts / list_shifts_for_employee_availability / list_unfilled_shifts → shift cards
+- list_roles / search_roles → role cards
+- get_employee_availability / get_employee_availability_schedule / search_available_employees → availability cards
+- assign_employee_to_shift (success or failure) → an assignment confirmation card
+- unassign_employee_from_shift (success or failure) → an unassignment confirmation card (same card type as assignment, just describing the removed row)
+- get_shift_role_coverage → no card today, summarise the coverage in prose (eligible roles + how many filled per role)
+
+When ANY of those tools returned a non-empty result this turn, your text reply MUST be a SHORT HEADER ONLY — one sentence (or two if you need to add a caveat). DO NOT enumerate the items in prose, do NOT use bullet points, do NOT use numbered lists, do NOT restate the assignment details. The cards already show them.
+
+Examples of the correct shape:
+- "Here are the 5 RNs in your organization:" (then the cards render)
+- "I found 3 NOC shifts this week:" (then the cards render)
+- "Done — assigned for Tuesday." (after a successful assignment; the card shows the rest)
+- "Assignment failed — see details below." (after a failure; the card shows the reason)
+
+If a tool returned an empty list or no card-rendering tool was called, describe the result in prose as usual — no cards will render in that case.
+
+This rule overrides the earlier "Bullet lists for multiple items" guidance whenever cards are being rendered.
+
+ANTI-HALLUCINATION RULE FOR ASSIGNMENT SUCCESS — read this carefully.
+You MUST NOT describe an assignment as completed (any of: "assigned", "scheduled", "booked", "added to the shift", "put X on Y", "done", "confirmed the assignment", "successfully assigned") UNLESS one of the following is true:
+  (a) You called assign_employee_to_shift this turn and the tool returned a JSON result with \`success: true\` for the exact (shift_id, employee_id, scheduled_date) you are claiming, OR
+  (b) A prior turn in this conversation contains an "ASSIGNMENT CONFIRMED BY SERVER" system message whose shift name and scheduled_date match what you are claiming.
+Without one of those two pieces of evidence, the assignment did NOT happen — there is no row in the database. Do not infer success from "the user said yes", from "I have all the UUIDs", from "the availability checks passed", from a prior plan, or from the absence of an error. The ONLY proof of an assignment is a server response with success: true (this turn) or a server-confirmed reminder (prior turn).
+If the user asked you to assign and you have NOT yet seen success: true from the tool, your reply must say so honestly: e.g. "I have not yet performed the assignment. Shall I run it now?" — and then on the next turn you must call assign_employee_to_shift before claiming success.
+This rule applies equally to BULK assignments: do not claim "I assigned all 4 employees" unless your trace has 4 successful assign_employee_to_shift calls (one per pairing). If only 3 succeeded, say so and list the failure.
+
+INTENT RECIPES — pick the right tool first time so you don't burn steps.
+
+Recipe: "Who's available for THIS shift?" (shift → employees)
+  1. If the user gave a shift name, call search_shifts to get shift_id, recurrence_type, and local_time.local_start_24h / local_end_24h.
+  2. If the user also gave a date (or you can infer one from the page context's date), call search_available_employees(date, start_time=local_start_24h, end_time=local_end_24h).
+  3. If the user did NOT give a date but the shift is recurring, ask which date they mean — don't pick one yourself.
+  4. Reply with a 1-line header; the candidates render as cards.
+
+Recipe: "Which shifts can THIS employee work?" (employee → shifts)
+  1. Resolve the employee's UUID via search_employees if you only have a name.
+  2. Call list_shifts_for_employee_availability({ employee_id }).
+  3. The result already filters out shifts the employee can't cover; reply with a 1-line header and let the cards render the list.
+  4. For overnight shifts (which this tool excludes by design), fall back to SLOW PATH: search_shifts + get_employee_availability_schedule + manual containment check.
+
+Recipe: "What shifts are unfilled this week?" (gap discovery)
+  1. Call list_unfilled_shifts({ from_date, to_date }) — defaults to today + 7 days when omitted.
+  2. The result lists shifts with at least one zero-assignment date. Each entry includes unfilled_dates.
+  3. Reply with a 1-line header. There is NO required-count column in the data — phrase replies as "these shifts have no one assigned on these dates", not "these shifts are understaffed".
+
+Recipe: "What roles does this shift still need?" (per-role coverage)
+  1. If the user named a date or you can infer one, pass scheduled_date to scope to that date; otherwise omit.
+  2. Call get_shift_role_coverage({ shift_id, scheduled_date? }).
+  3. The response gives coverage (eligible roles + filled count) and empty_eligible_roles (codes with zero fills). Read both before answering.
+  4. Phrase replies as "eligible for X, currently Y filled" — never invent a required-count.
+
+Recipe: ambiguous employee name (multiple matches)
+  - search_employees may return ≥2 rows for "John". DO NOT pick one. Ask the user to specify; the disambiguation reply MUST list each candidate with their distinguishing fields — provider role code AND email, in that order. Example: "I found two employees named Ahmad Khan: (1) ADMINISTRATOR · ahmadakbar17894@gmail.com, (2) LVN · guzepuxe@denipl.net. Which one?". Identical-name candidates without a role+email distinguisher cannot be disambiguated by the user, so always include both fields when available.
+  - When the user replies referencing a distinguisher ("the LVN one", "the Administrator", "the gmail one", "@guzepuxe"): match against the employees[] array from the prior search_employees result, BIND that employee_id, and proceed straight to FAST PATH. Do NOT call search_employees again. Do NOT re-list the alternatives. Do NOT ask the user to repeat the name.
+  - Once bound, every subsequent reply about that employee must use ONLY that employee_id's records. Do not bleed availability or assignments from another row even if both employees share a name.
+
+Recipe: cross-row data bleed (same name, different employees)
+  - When the bound employee is ID X and you also have data for employee Y in the same trace (e.g. a prior org-wide get_employee_availability call), your reply for X must reference ONLY records where employee_id === X. Filter aggressively. A common failure mode: quoting Y's "23:00–07:00 specific date" slot as if it were X's availability — a confidently wrong answer the user will spot immediately.
+  - When the user pushes back ("but they ARE available", "that's wrong"), do NOT just re-state your prior reply. Re-call get_employee_availability_schedule({ employee_id: X }) and read the fresh result before answering. Treat the contradiction as evidence your prior reading was wrong, not the user.
+
+Recipe: past-date availability slots
+  - Tool results carry an \`is_past: true\` flag on \`availability_type: specific\` slots whose \`date\` is strictly before the org's "today" (the tool result also includes a \`today\` field for cross-checking). When summarising, prefix past-only slots with "past:" or describe them as "from <date> (no longer current)". Do NOT recommend a past slot for an upcoming assignment — the user can't act on it. If an employee's ONLY availability is past-only, say so honestly: "his only recorded availability is a specific slot on 2026-04-24, which is in the past — no current availability on file." Do not paraphrase a past specific-date slot as if it were a recurring schedule.
+
+Recipe: relative dates ("tomorrow", "next Monday", "this Friday")
+  - Compute the exact YYYY-MM-DD from the "Today's date is …" block at the top of the conversation. Do NOT ask the user to spell out the date. Pass the computed date to tools.
+
+Recipe: ambiguous time-of-day in availability queries ("at 7am", "around 9pm", "early morning")
+  - search_available_employees needs both start_time AND end_time, and matches slots that FULLY CONTAIN the requested window. So how you pick the window matters:
+    * "at <time>" / "around <time>" → use a 1-hour window starting at that time (e.g. "at 7am" → start_time=07:00, end_time=08:00). DO NOT use end-of-day (e.g. 17:00) — that turns "at 7am" into "for 10 hours starting at 7am" and excludes any short slot.
+    * "from X to Y" / "between X and Y" → use the explicit window the user named (e.g. "between 9 and 11" → 09:00–11:00).
+    * "morning" → 06:00–12:00. "afternoon" → 12:00–17:00. "evening" → 17:00–21:00. "overnight" / "night" → 21:00–06:00 next day (overnight: split into two queries or fall back to SLOW PATH per the overnight-shift rules).
+    * No time at all in the query ("who's available today?") → call get_employee_availability with NO time filter, NOT search_available_employees. The result is the full availability list for that day; no containment check happens.
+  - When the user gives only a start ("starting at 9am") or only an end ("until noon"), default the missing side to a 2-hour window from the given anchor — and ASK the user to confirm if you're not sure: "Did you mean a 1-hour window at 9am, or are you looking for someone available for the rest of the day starting at 9am?"
+
+Recipe: impossible request ("assign Sarah to a shift that's already filled")
+  - Make the assign_employee_to_shift call. The tool returns a ConflictException as { success: false, error: "..." } when the (shift, employee, date) row already exists. Surface that message verbatim — do not retry, do not silently pick a different shift.
+
+LIST QUERIES MUST CALL THE TOOL — non-negotiable.
+When the user asks to "list", "show", "give me", "tell me", "display", or otherwise requests an inventory of employees, shifts, roles, or availability — you MUST call the relevant discovery tool in THIS turn. Do NOT answer from prior-turn memory or from the "Prior-turn tool results" system block alone, even if the data looks identical. Two reasons:
+  1. The UI renders data cards only from THIS turn's tool_calls. If you skip the call, the cards section disappears and the user sees prose-only output — looking like the data is gone.
+  2. The user is asking again because they want a fresh list. Stale data from a prior turn may be wrong (someone was added, deleted, or updated since).
+
+Tool routing for list queries:
+  - "list employees" / "show me employees" / "give me all staff" / "who works here" → list_employees
+  - "list employees and their availability" / "show all availability" / "what are the availabilities?" / "i want the details availability" → get_employee_availability (no employee_id)
+  - "details on <one employee>'s availability" → get_employee_availability_schedule with that employee_id
+  - "list shifts" / "what shifts do we have" → list_shifts
+  - "list roles" → list_roles
+
+NEVER truncate a list. If the tool returned 12 rows, your reply must let all 12 render — there is no "showing 5 samples". Phrases like "for some of the employees", "here are samples", "let me know if you'd like more", "would you like detailed info about other employees" are FORBIDDEN on list queries. The cards already show every row; your prose reply should be a 1-line header and stop. The user has the cards in front of them; they don't need to ask for more.
+
+The "prefer memory over re-calling" guidance from earlier in this prompt applies ONLY to single-entity follow-ups ("is Alice available on Tuesday?", "what's the NOC shift's start time?"). It does NOT apply to list queries — those always re-call the tool in the current turn.
+
+Recipe: "Unschedule / unassign / cancel" assignments (employee → off a shift)
+  1. Identify the assignments to remove by (shift_id, employee_id, scheduled_date).
+     - If the user is following up on assignments YOU just made (same conversation), the triples are already in this turn's trace — reuse them. Do NOT ask the user to repeat names or dates; do NOT call get_employee_shifts to "double-check" before the call.
+     - If the assignment is older / not in trace, call get_employee_shifts(employee_id) first to list current rows and pull the shift_id + scheduled_date from there.
+     - For "unschedule ALL of <employee>'s assignments": call get_employee_shifts(employee_id) once, then loop unassign_employee_from_shift over every returned row.
+  2. Call unassign_employee_from_shift({ shift_id, employee_id, scheduled_date }) — ONCE PER DATE. The tool removes one row per call; recurring multi-date assignments must be torn down with multiple calls.
+  3. After all calls, summarise to the user using the names from each tool's response (employee_name + shift_name + scheduled_date). Never expose UUIDs in your reply.
+  4. Anti-hallucination: do NOT claim an assignment was unscheduled unless the corresponding unassign_employee_from_shift call returned { success: true } in this turn. Same rule as for assign — server response is the only proof.
+  5. If the tool returns { success: false } with a "no matching row" error, the assignment was already gone — tell the user honestly ("That assignment doesn't exist, so there's nothing to remove") rather than retrying.`;
 
 /**
  * Render the optional UI context object as a system-prompt block. The agent
@@ -371,6 +491,115 @@ function buildUuidDiscoveryDirective(
     `Real UUIDs look like 29053b9b-b788-40e3-be51-8d4b87df3f05. Take this exact next action:\n` +
     lines.join('\n') +
     `\nThen retry ${toolName} with the real UUIDs from those tool results. Do NOT invent UUIDs.`
+  );
+}
+
+/**
+ * Tools where every UUID arg must have provenance — i.e. must have appeared
+ * in some prior tool result, this turn's trace, or the page-context block.
+ * Without provenance, the model is fabricating a well-formed-but-fictional
+ * UUID, which `detectPlaceholderUuids` (shape-only) doesn't catch.
+ *
+ * Scoped to write tools so a read-side false positive never blocks a
+ * legitimate discovery query — those tools' UUIDs are typically the result
+ * of a previous read anyway, but this avoids any edge case there.
+ */
+const PROVENANCE_GATED_TOOLS = new Set([
+  'assign_employee_to_shift',
+  'unassign_employee_from_shift',
+]);
+
+/**
+ * Recursively collect every well-formed UUID string from an arbitrary value.
+ * Used to build the "known UUID set" the provenance check tests against.
+ */
+function collectUuids(value: unknown, into: Set<string>): void {
+  if (value == null) return;
+  if (typeof value === 'string') {
+    if (UUID_RE.test(value)) into.add(value.toLowerCase());
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectUuids(item, into);
+    return;
+  }
+  if (typeof value === 'object') {
+    for (const v of Object.values(value as Record<string, unknown>)) {
+      collectUuids(v, into);
+    }
+  }
+}
+
+/**
+ * Build the set of UUIDs the agent has legitimately seen so far this
+ * conversation. A write call whose UUID arg isn't in this set is the
+ * agent inventing values — refuse rather than write a row tied to a
+ * non-existent entity (or, worse, a row tied to the WRONG entity if
+ * the fabricated UUID happens to collide with another org's id).
+ *
+ * Sources, in order of authority:
+ *   1. Prior-turn tool calls' arguments + results (cross-turn rescue).
+ *   2. This turn's trace so far (within-turn references).
+ *   3. The current request's organizationId (always trusted).
+ *   4. Page-context UUIDs (shiftId, departmentId, etc. — the user is
+ *      literally looking at them, so they exist by definition).
+ */
+function buildKnownUuidSet(
+  organizationId: string,
+  context: SchedulingAgentContext | undefined,
+  priorToolCalls: SchedulingAgentToolCall[] | undefined,
+  trace: SchedulingAgentToolCall[],
+): Set<string> {
+  const set = new Set<string>();
+  if (UUID_RE.test(organizationId)) set.add(organizationId.toLowerCase());
+  if (context) collectUuids(context, set);
+  if (priorToolCalls) {
+    for (const c of priorToolCalls) {
+      collectUuids(c.arguments, set);
+      collectUuids(c.result, set);
+    }
+  }
+  for (const c of trace) {
+    collectUuids(c.arguments, set);
+    collectUuids(c.result, set);
+  }
+  return set;
+}
+
+/**
+ * Find UUID args that don't appear in `knownUuids`. The agent passing such
+ * an arg is fabricating — fail closed before it reaches the DB.
+ */
+function detectFabricatedUuids(
+  args: unknown,
+  knownUuids: Set<string>,
+): PlaceholderHit[] {
+  if (!args || typeof args !== 'object') return [];
+  const out: PlaceholderHit[] = [];
+  for (const [key, value] of Object.entries(args as Record<string, unknown>)) {
+    if (!UUID_REQUIRED_KEYS.has(key)) continue;
+    if (typeof value !== 'string') continue;
+    if (!UUID_RE.test(value)) continue;
+    if (!knownUuids.has(value.toLowerCase())) {
+      out.push({ key, value });
+    }
+  }
+  return out;
+}
+
+function buildFabricationDirective(
+  toolName: string,
+  hits: PlaceholderHit[],
+): string {
+  const lines = hits.map((h) => {
+    const next = DISCOVERY_TOOL_FOR_KEY[h.key] ?? 'the appropriate search tool';
+    return `  - ${h.key}=${h.value} — this UUID has not appeared in any prior tool result this conversation. Call ${next} first to obtain a real UUID, then retry ${toolName}.`;
+  });
+  return (
+    `Refused: ${toolName} was called with UUID(s) that have no provenance. ` +
+    `Every UUID you pass to a write tool must come from a tool result you ` +
+    `(or a prior turn) actually called — never invent one.\n` +
+    lines.join('\n')
   );
 }
 
@@ -661,6 +890,56 @@ function synthesizeAssignmentsBlock(
   return `${answer}${block}`;
 }
 
+/**
+ * Provider-neutral safety net for "agent claims an assignment without a
+ * supporting tool call" — the dominant silent-failure mode for Problem 3.
+ *
+ * If the final answer contains success language ("assigned", "scheduled",
+ * "booked", etc.) AND the trace has zero successful assign_employee_to_shift
+ * calls, prepend a corrective note so the user is not misled into believing
+ * a row was written. We DO NOT delete the model's prose — we just add a
+ * disclosure. False positives are bounded: when the model legitimately
+ * describes a prior assignment from history, the trace will be empty and
+ * the disclosure is technically correct (no write happened THIS turn).
+ *
+ * Conservative: we only fire when (a) success language appears AND (b) the
+ * answer contains "shift" (so chats unrelated to assignment are exempt).
+ */
+function guardAgainstHallucinatedAssignmentSuccess(
+  answer: string,
+  trace: SchedulingAgentToolCall[],
+): string {
+  const hasSuccessfulAssignment = trace.some((c) => {
+    if (c.name !== 'assign_employee_to_shift') return false;
+    const r = c.result as { success?: unknown } | null | undefined;
+    return !!r && typeof r === 'object' && r.success === true;
+  });
+  if (hasSuccessfulAssignment) return answer;
+
+  // Past-tense "I assigned X" claims — the original failure mode.
+  const successLanguage =
+    /\b(i('| ha)?ve\s+(now\s+)?(assigned|scheduled|booked|added|put))\b|\b(assignment\s+(is\s+)?(complete|confirmed|done|saved))\b|\b(successfully\s+(assigned|scheduled|booked))\b|\bdone\s*[—-]\s*assigned\b/i;
+  // Future-tense "I'll proceed to assign" / "I will assign" / "going to" /
+  // "let me assign" — the model declares intent without actually issuing
+  // the tool call. Same UX failure (user thinks something happened).
+  const intentLanguage =
+    /\bi\s*(?:'|’)?ll\s+(?:now\s+|go\s+ahead\s+(?:and\s+)?)?(?:proceed\s+to\s+|move\s+forward\s+(?:and\s+)?|continue\s+(?:and\s+)?)?(?:assign|schedul|book|add)/i;
+  const intentLanguage2 =
+    /\b(i\s+will\s+(?:now\s+|go\s+ahead\s+(?:and\s+)?)?(?:assign|schedul|book)|going\s+to\s+(?:assign|schedul|book)|let\s+me\s+(?:assign|schedul|book)|i'?m\s+(?:about\s+to\s+|going\s+to\s+)(?:assign|schedul|book))/i;
+  const mentionsShift = /\bshift\b/i.test(answer);
+  const triggered =
+    mentionsShift &&
+    (successLanguage.test(answer) ||
+      intentLanguage.test(answer) ||
+      intentLanguage2.test(answer));
+  if (!triggered) return answer;
+
+  const note =
+    "_Note: I described an assignment above, but I did not actually call the assignment tool, so no record was created in the schedule. " +
+    "Please confirm the details and ask me to assign again, or say \"yes, proceed\" — I'll perform the write next._\n\n";
+  return note + answer;
+}
+
 const WEEKDAY_CODES = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'] as const;
 
 function weekdayCode(isoDate: string): string {
@@ -870,13 +1149,24 @@ export class SchedulingAgentService {
   constructor(
     private readonly mcpFactory: McpServerFactory,
     private readonly llm: LlmRouter,
+    @InjectRepository(Organization)
+    private readonly organizationRepository: Repository<Organization>,
   ) {}
 
   async chat(req: SchedulingAgentRequest): Promise<SchedulingAgentResponse> {
+    // Resolve the effective timezone: explicit request override wins (lets a
+    // power-user / test client force a specific zone), otherwise fall back
+    // to the org's configured zone, otherwise the global FALLBACK_TIMEZONE.
+    // This is the single source-of-truth for the agent's "today is …" block,
+    // shift-time formatting, and any tool that needs a clock.
+    const orgTimezone = await this.resolveOrganizationTimezone(req.organizationId);
+    const effectiveTimezone =
+      (req.timezone && req.timezone.trim()) || orgTimezone || FALLBACK_TIMEZONE;
+
     const tools = this.mcpFactory.buildSchedulingTools({
       organizationId: req.organizationId,
       userId: req.userId,
-      timezone: req.timezone,
+      timezone: effectiveTimezone,
       departmentId: req.context?.departmentId,
       stationId: req.context?.stationId,
       roomId: req.context?.roomId,
@@ -887,8 +1177,13 @@ export class SchedulingAgentService {
     const toolByName = new Map(tools.map((t) => [t.name, t]));
 
     const contextBlock = buildContextBlock(req.context);
-    const todayBlock = buildTodayBlock(req.timezone);
-    const systemContent = [SYSTEM_PROMPT, todayBlock, contextBlock]
+    const todayBlock = buildTodayBlock(effectiveTimezone);
+    // Per-provider gating: OpenAI gets the no-duplicate-rendering hint so its
+    // text reply doesn't repeat the cards the UI already shows. Bedrock is
+    // intentionally untouched until its path is realigned in a later pass.
+    const providerName = await this.llm.resolveName(req.organizationId);
+    const renderingHint = providerName === 'openai' ? OPENAI_RENDERING_HINT : null;
+    const systemContent = [SYSTEM_PROMPT, todayBlock, contextBlock, renderingHint]
       .filter(Boolean)
       .join('\n\n');
 
@@ -929,14 +1224,22 @@ export class SchedulingAgentService {
     const MAX_IDENTICAL_ERROR_RETRIES = 2;
 
     for (let step = 0; step < MAX_STEPS; step++) {
-      const result = await this.llm.generate(
-        {
-          messages,
-          tools: llmTools,
-          toolChoice: 'auto',
-        },
-        { organizationId: req.organizationId },
-      );
+      let result;
+      try {
+        result = await this.llm.generate(
+          {
+            messages,
+            tools: llmTools,
+            toolChoice: 'auto',
+          },
+          { organizationId: req.organizationId },
+        );
+      } catch (err) {
+        // Convert LLM-side failures (rate limit, upstream 5xx, network) into
+        // a graceful answer instead of a 500. Without this, the user-facing
+        // chat shows "Internal server error" with no actionable info.
+        return this.formatLlmError(err, trace);
+      }
 
       const msg = result.message;
       messages.push(msg);
@@ -946,7 +1249,8 @@ export class SchedulingAgentService {
           `agent finished in ${step + 1} step(s); ${trace.length} tool call(s): ${trace.map((t) => t.name).join(', ') || '(none)'}`,
         );
         const fixed = fixAssignmentsBlock(msg.content ?? '', trace);
-        const answer = synthesizeAssignmentsBlock(fixed, trace, req.timezone);
+        const synthesized = synthesizeAssignmentsBlock(fixed, trace, effectiveTimezone);
+        const answer = guardAgainstHallucinatedAssignmentSuccess(synthesized, trace);
         return { answer, toolCalls: trace };
       }
 
@@ -957,6 +1261,16 @@ export class SchedulingAgentService {
       // multi-tool_call assistant turn. Collect any post-turn reminders
       // here and flush them after the tool-response loop finishes.
       const postTurnReminders: LlmMessage[] = [];
+
+      // Per-turn dedup: if the model emits the SAME (name, arguments) tool
+      // call twice in one assistant message, run it once and echo the cached
+      // result back for the duplicate's tool_call_id. Without this, parallel
+      // duplicates against assign_employee_to_shift would create two DB rows
+      // for the same (employee, shift, date) and surface as two action_success
+      // cards. We still satisfy OpenAI's "every tool_call needs a tool reply"
+      // ordering — we just don't re-execute the handler or duplicate the
+      // trace entry that drives the UI cards.
+      const seenInTurn = new Map<string, string>();
 
       for (const call of msg.toolCalls) {
         const tool = toolByName.get(call.name);
@@ -976,6 +1290,23 @@ export class SchedulingAgentService {
           args = {};
         }
 
+        // Dedup check — must come AFTER args parsing so we hash on the
+        // normalized (key-sorted) form. Also AFTER the unknown-tool guard
+        // above (different tools with the same args shouldn't collide).
+        const dedupKey = `${tool.name}|${stableArgs(args)}`;
+        const cachedText = seenInTurn.get(dedupKey);
+        if (cachedText !== undefined) {
+          this.logger.warn(
+            `[step ${step}] dedup: skipping duplicate ${tool.name} call within the same assistant turn`,
+          );
+          messages.push({
+            role: 'tool',
+            toolCallId: call.id,
+            content: cachedText,
+          });
+          continue;
+        }
+
         // Pre-flight: refuse calls with placeholder strings in *_id fields.
         // Bedrock/Llama sometimes invents values like "shift_id_of_Evening_Shift"
         // instead of calling search_shifts first. Running the tool would crash
@@ -991,11 +1322,13 @@ export class SchedulingAgentService {
           );
           const errorPayload = { success: false, error: directive };
           trace.push({ name: tool.name, arguments: args, result: errorPayload });
+          const refusedPayloadText = JSON.stringify(errorPayload);
           messages.push({
             role: 'tool',
             toolCallId: call.id,
-            content: JSON.stringify(errorPayload),
+            content: refusedPayloadText,
           });
+          seenInTurn.set(dedupKey, refusedPayloadText);
           // Reuse the same loop-detection key so an agent that keeps re-issuing
           // the same fabricated UUIDs trips the existing budget cap.
           const key = `${tool.name}|${stableArgs(args)}|${directive}`;
@@ -1010,6 +1343,52 @@ export class SchedulingAgentService {
             };
           }
           continue;
+        }
+
+        // Provenance gate (write tools only): every UUID arg must have
+        // appeared in some prior tool result, this turn's trace, or the
+        // page context. Catches well-formed-but-fictional UUIDs that the
+        // shape-only placeholder check above can't see — the dominant
+        // failure mode for "unassign it" follow-ups where the model
+        // invents UUIDs instead of reading them from priorToolCalls.
+        if (PROVENANCE_GATED_TOOLS.has(tool.name)) {
+          const knownUuids = buildKnownUuidSet(
+            req.organizationId,
+            req.context,
+            req.priorToolCalls,
+            trace,
+          );
+          const fabricated = detectFabricatedUuids(args, knownUuids);
+          if (fabricated.length > 0) {
+            const directive = buildFabricationDirective(tool.name, fabricated);
+            this.logger.warn(
+              `[step ${step}] refused ${tool.name} due to fabricated UUIDs: ${fabricated
+                .map((f) => `${f.key}=${f.value}`)
+                .join(', ')}`,
+            );
+            const errorPayload = { success: false, error: directive };
+            trace.push({ name: tool.name, arguments: args, result: errorPayload });
+            const refusedPayloadText = JSON.stringify(errorPayload);
+            messages.push({
+              role: 'tool',
+              toolCallId: call.id,
+              content: refusedPayloadText,
+            });
+            seenInTurn.set(dedupKey, refusedPayloadText);
+            const key = `${tool.name}|${stableArgs(args)}|${directive}`;
+            const count = (errorRepeats.get(key) ?? 0) + 1;
+            errorRepeats.set(key, count);
+            if (count >= MAX_IDENTICAL_ERROR_RETRIES) {
+              return {
+                answer:
+                  `I could not complete this action because I kept passing UUIDs ` +
+                  `that don't exist in your data. Please ask me to "list" the ` +
+                  `relevant shifts or employees first, or rephrase by name.`,
+                toolCalls: trace,
+              };
+            }
+            continue;
+          }
         }
 
         try {
@@ -1030,6 +1409,7 @@ export class SchedulingAgentService {
             toolCallId: call.id,
             content: text,
           });
+          seenInTurn.set(dedupKey, text);
 
           // Authoritative-name reminder: after a successful assignment, the
           // model has been observed summarising the result with the wrong
@@ -1106,11 +1486,13 @@ export class SchedulingAgentService {
           // sending a non-numeric "limit" that crashes TypeORM) hits the
           // existing 2-strike abort instead of looping forever.
           trace.push({ name: tool.name, arguments: args, result: errorPayload });
+          const failedPayloadText = JSON.stringify(errorPayload);
           messages.push({
             role: 'tool',
             toolCallId: call.id,
-            content: JSON.stringify(errorPayload),
+            content: failedPayloadText,
           });
+          seenInTurn.set(dedupKey, failedPayloadText);
           const key = `${tool.name}|${stableArgs(args)}|${errorMessage}`;
           const count = (errorRepeats.get(key) ?? 0) + 1;
           errorRepeats.set(key, count);
@@ -1138,6 +1520,122 @@ export class SchedulingAgentService {
 
     return {
       answer: 'I was unable to complete the request within the step limit.',
+      toolCalls: trace,
+    };
+  }
+
+  /**
+   * Look up the organization's configured timezone. Returns null on miss
+   * (org doesn't exist, or column is empty/whitespace) so the caller can
+   * fall back through the chain: request override → org → global default.
+   *
+   * Selecting only the timezone column keeps this cheap on every chat turn
+   * — no relations, no organization profile JOIN.
+   */
+  private async resolveOrganizationTimezone(
+    organizationId: string,
+  ): Promise<string | null> {
+    try {
+      const row = await this.organizationRepository.findOne({
+        where: { id: organizationId },
+        select: ['id', 'timezone'],
+      });
+      const tz = row?.timezone?.trim();
+      return tz && tz.length > 0 ? tz : null;
+    } catch (err) {
+      // Logged but not fatal — the caller will fall back to FALLBACK_TIMEZONE.
+      this.logger.warn(
+        `resolveOrganizationTimezone(${organizationId}) failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Render an LLM-side failure as a user-facing answer rather than a 500.
+   * The chat UI's text block will display whatever we return here, so we
+   * spend the message budget on something actionable: how long to wait, or
+   * a clean fallback when the cause is unknown. The full error is logged
+   * server-side for debugging.
+   */
+  private formatLlmError(
+    err: unknown,
+    trace: SchedulingAgentToolCall[],
+  ): SchedulingAgentResponse {
+    const e = (err ?? {}) as {
+      status?: unknown;
+      code?: unknown;
+      message?: unknown;
+      headers?: Record<string, unknown> | undefined;
+    };
+    const status = typeof e.status === 'number' ? e.status : undefined;
+    const code = typeof e.code === 'string' ? e.code : undefined;
+    const message = typeof e.message === 'string' ? e.message : '';
+
+    // OpenAI 429 / rate-limit. The Retry-After-Ms header is authoritative;
+    // fall back to Retry-After (seconds) and finally a sane default. Round
+    // up so the user isn't told "0 seconds" for sub-second waits.
+    if (status === 429 || code === 'rate_limit_exceeded') {
+      const retryMs =
+        typeof e.headers?.['retry-after-ms'] === 'string'
+          ? parseInt(e.headers['retry-after-ms'] as string, 10)
+          : NaN;
+      const retrySec =
+        Number.isFinite(retryMs) && retryMs > 0
+          ? Math.ceil(retryMs / 1000)
+          : typeof e.headers?.['retry-after'] === 'string'
+            ? Math.max(1, parseInt(e.headers['retry-after'] as string, 10) || 30)
+            : 30;
+      this.logger.warn(
+        `LLM rate limit; suggesting retry in ${retrySec}s. raw="${message}"`,
+      );
+      return {
+        answer:
+          `I've hit the AI provider's rate limit. ` +
+          `Please try again in about ${retrySec} second${retrySec === 1 ? '' : 's'}.`,
+        toolCalls: trace,
+      };
+    }
+
+    // No HTTP status → network/timeout failure before the request landed.
+    if (status === undefined) {
+      this.logger.error('LLM network/transport error', err as Error);
+      return {
+        answer:
+          `I couldn't reach the AI service right now (${message || 'network error'}). ` +
+          `Please try again in a moment.`,
+        toolCalls: trace,
+      };
+    }
+
+    // Auth issues — actionable for the operator, less so for the user.
+    if (status === 401 || status === 403) {
+      this.logger.error(`LLM auth error (${status}): ${message}`, err as Error);
+      return {
+        answer:
+          `The AI service rejected my credentials (HTTP ${status}). ` +
+          `Please tell your administrator to check the API key or organization.`,
+        toolCalls: trace,
+      };
+    }
+
+    // Upstream is unhealthy — retry-with-backoff territory.
+    if (status >= 500) {
+      this.logger.error(`LLM upstream ${status}: ${message}`, err as Error);
+      return {
+        answer:
+          `The AI provider is having trouble right now (HTTP ${status}). ` +
+          `Please try again in a moment.`,
+        toolCalls: trace,
+      };
+    }
+
+    // Anything else (most commonly 400 — bad request, context too long).
+    this.logger.error(`LLM error (${status}): ${message}`, err as Error);
+    return {
+      answer:
+        `I ran into a problem talking to the AI service: ${message || 'unknown error'}. ` +
+        `Try simplifying your request, or wait a moment and retry.`,
       toolCalls: trace,
     };
   }

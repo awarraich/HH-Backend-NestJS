@@ -65,6 +65,50 @@ export class EmployeeAvailabilityService {
   ) {}
 
   /**
+   * Collapse rows in `availability_rules` that describe the same logical slot
+   * for the same user. The table has no unique constraint on
+   * (user_id, day_of_week, date, start_time, end_time, is_available, shift_type,
+   * effective_from, effective_until), so historical re-submits / imports can
+   * produce true duplicate rows. The chat surfaces them faithfully ("Ahmad
+   * Khan 07:00–15:00 MON available" appearing 3×) which looks like a bug to
+   * the user. We dedupe on the read path; the underlying rows stay until a
+   * proper unique index + cleanup migration lands.
+   *
+   * Stable across paths: both loadAvailabilityForOrg and
+   * loadAvailabilityForEmployee call this so the dedup applies uniformly.
+   * Logs the number of duplicates collapsed so the dirtiness of the table
+   * stays visible without spamming.
+   */
+  private dedupeRules(rules: AvailabilityRule[]): AvailabilityRule[] {
+    if (rules.length < 2) return rules;
+    const seen = new Set<string>();
+    const out: AvailabilityRule[] = [];
+    for (const r of rules) {
+      const key = [
+        r.user_id ?? '',
+        r.day_of_week ?? '',
+        r.date ?? '',
+        r.start_time ?? '',
+        r.end_time ?? '',
+        r.is_available ? '1' : '0',
+        r.shift_type ?? '',
+        r.effective_from ? new Date(r.effective_from).toISOString().slice(0, 10) : '',
+        r.effective_until ? new Date(r.effective_until).toISOString().slice(0, 10) : '',
+      ].join('|');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(r);
+    }
+    const collapsed = rules.length - out.length;
+    if (collapsed > 0) {
+      this.logger.warn(
+        `dedupeRules: collapsed ${collapsed} duplicate availability_rules row(s) on the read path. Underlying DB still contains the dups.`,
+      );
+    }
+    return out;
+  }
+
+  /**
    * Convert an AvailabilityRule (DB row keyed by user_id + day_of_week)
    * into the EmployeeAvailabilityRecord shape the MCP tools expect.
    *
@@ -149,7 +193,7 @@ export class EmployeeAvailabilityService {
     }
 
     qb.orderBy('r.day_of_week', 'ASC').addOrderBy('r.start_time', 'ASC');
-    const rules = await qb.getMany();
+    const rules = this.dedupeRules(await qb.getMany());
 
     return rules.map((rule) =>
       this.ruleToRecord(rule, employeeId, organizationId ?? employee.organization_id),
@@ -165,7 +209,7 @@ export class EmployeeAvailabilityService {
     organizationId: string,
   ): Promise<EmployeeAvailabilityRecord[]> {
     // 1. Query availability_rules directly by organization_id
-    const rules = await this.availabilityRuleRepository
+    const rawRules = await this.availabilityRuleRepository
       .createQueryBuilder('r')
       .where('r.organization_id = :orgId', { orgId: organizationId })
       .orderBy('r.day_of_week', 'ASC')
@@ -173,8 +217,10 @@ export class EmployeeAvailabilityService {
       .getMany();
 
     this.logger.debug(
-      `loadAvailabilityForOrg(${organizationId}): found ${rules.length} availability_rules`,
+      `loadAvailabilityForOrg(${organizationId}): found ${rawRules.length} availability_rules`,
     );
+
+    const rules = this.dedupeRules(rawRules);
 
     if (rules.length === 0) return [];
 
@@ -185,17 +231,33 @@ export class EmployeeAvailabilityService {
       select: ['id', 'user_id'],
     });
 
-    // Build user_id → employee_id map
+    // Build user_id → employee_id map. Repository.find() auto-filters
+    // soft-deleted employees, so a user whose only employee row is deleted
+    // will be missing from this map.
     const userToEmployee = new Map(employees.map((e) => [e.user_id, e.id]));
 
     this.logger.debug(
       `loadAvailabilityForOrg: ${ruleUserIds.length} user_ids in rules, ${employees.length} matched employees`,
     );
 
-    return rules.map((rule) => {
-      const employeeId = userToEmployee.get(rule.user_id) ?? rule.user_id;
-      return this.ruleToRecord(rule, employeeId, organizationId);
-    });
+    // Drop rules whose user_id has no active employee in this org. Without
+    // this, deleting an employee leaves their availability_rules orphaned —
+    // they continue to surface in chat output with the raw user_id sitting
+    // in the employee_id slot, looking like a ghost record. We're intentionally
+    // strict here: the employee directory is the source of truth.
+    const orphanCount = rules.filter((r) => !userToEmployee.has(r.user_id)).length;
+    if (orphanCount > 0) {
+      this.logger.warn(
+        `loadAvailabilityForOrg: dropping ${orphanCount} availability_rules row(s) whose user_id has no active employee in this org (likely belong to soft-deleted employees).`,
+      );
+    }
+
+    return rules
+      .filter((rule) => userToEmployee.has(rule.user_id))
+      .map((rule) => {
+        const employeeId = userToEmployee.get(rule.user_id)!;
+        return this.ruleToRecord(rule, employeeId, organizationId);
+      });
   }
 
   // ── Public API ─────────────────────────────────────────────────────────

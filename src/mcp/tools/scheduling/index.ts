@@ -20,8 +20,14 @@ export function registerSchedulingHandlers(
 ): SchedulingToolDescriptor[] {
   return [
     ...buildShiftTools(shiftService, employeeShiftService, context),
-    ...buildRoleTools(providerRolesService, employeesService, context),
-    ...buildAvailabilityTools(availabilityService, employeeShiftService, employeesService, context),
+    ...buildRoleTools(providerRolesService, employeesService, shiftService, context),
+    ...buildAvailabilityTools(
+      availabilityService,
+      employeeShiftService,
+      employeesService,
+      shiftService,
+      context,
+    ),
     ...buildEmployeeTools(employeesService, context),
     ...buildAssignmentTools(employeeShiftService, employeesService, availabilityService, context),
   ];

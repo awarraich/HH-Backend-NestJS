@@ -30,6 +30,10 @@ export const TOOL_NAMES = {
   GET_EMPLOYEE_AVAILABILITY: 'get_employee_availability',
   SEARCH_AVAILABLE_EMPLOYEES: 'search_available_employees',
   GET_EMPLOYEE_AVAILABILITY_SCHEDULE: 'get_employee_availability_schedule',
+  LIST_SHIFTS_FOR_EMPLOYEE_AVAILABILITY: 'list_shifts_for_employee_availability',
+  // Scheduling — coverage / gaps
+  LIST_UNFILLED_SHIFTS: 'list_unfilled_shifts',
+  GET_SHIFT_ROLE_COVERAGE: 'get_shift_role_coverage',
   // Scheduling — employee directory (autonomous agent name → id resolution)
   LIST_EMPLOYEES: 'list_employees',
   SEARCH_EMPLOYEES: 'search_employees',
@@ -37,6 +41,7 @@ export const TOOL_NAMES = {
   LIST_EMPLOYEES_BY_ROLE_NAME: 'list_employees_by_role_name',
   // Scheduling — write
   ASSIGN_EMPLOYEE_TO_SHIFT: 'assign_employee_to_shift',
+  UNASSIGN_EMPLOYEE_FROM_SHIFT: 'unassign_employee_from_shift',
 } as const;
 
 export const MCP_ERROR_MESSAGES = {
