@@ -31,6 +31,9 @@ import { WorkPreferenceService } from './availability/services/work-preference.s
 import { SchedulePresetService } from './availability/services/schedule-preset.service';
 import { EmployeeCalendarController } from './availability/controllers/employee-calendar.controller';
 import { MyScheduleController } from './availability/controllers/my-schedule.controller';
+import { MyShiftsController } from './availability/controllers/my-shifts.controller';
+import { MyShiftsService } from './availability/services/my-shifts.service';
+import { AvailabilityCheckController } from './availability/controllers/availability-check.controller';
 
 @Module({
   imports: [
@@ -60,6 +63,8 @@ import { MyScheduleController } from './availability/controllers/my-schedule.con
     EmployeeContextController,
     EmployeeCalendarController,
     MyScheduleController,
+    MyShiftsController,
+    AvailabilityCheckController,
   ],
   providers: [
     EmployeesService,
@@ -71,6 +76,7 @@ import { MyScheduleController } from './availability/controllers/my-schedule.con
     TimeOffRequestService,
     WorkPreferenceService,
     SchedulePresetService,
+    MyShiftsService,
   ],
   exports: [TypeOrmModule, EmployeesService, ProviderRolesService],
 })

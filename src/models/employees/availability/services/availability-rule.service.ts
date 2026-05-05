@@ -1,15 +1,39 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, Brackets } from 'typeorm';
 import { AvailabilityRule } from '../entities/availability-rule.entity';
+import { TimeOffRequest } from '../entities/time-off-request.entity';
 import { CreateAvailabilityRuleDto } from '../dto/create-availability-rule.dto';
 import { BulkUpsertAvailabilityDto } from '../dto/bulk-upsert-availability.dto';
+
+export type AvailabilityCheckStatus = 'available' | 'unavailable' | 'unknown';
+
+export interface AvailabilityCheckResult {
+  status: AvailabilityCheckStatus;
+  reason?: string;
+  matched_rule?: {
+    id: string;
+    is_available: boolean;
+    start_time: string;
+    end_time: string;
+    date: string | null;
+    day_of_week: number | null;
+  } | null;
+  time_off?: {
+    id: string;
+    status: string;
+    start_date: string;
+    end_date: string;
+  } | null;
+}
 
 @Injectable()
 export class AvailabilityRuleService {
   constructor(
     @InjectRepository(AvailabilityRule)
     private readonly availabilityRuleRepository: Repository<AvailabilityRule>,
+    @InjectRepository(TimeOffRequest)
+    private readonly timeOffRepository: Repository<TimeOffRequest>,
   ) {}
 
   /**
@@ -29,7 +53,16 @@ export class AvailabilityRuleService {
       .where('r.user_id = :userId', { userId });
 
     if (organizationId) {
-      qb.andWhere('r.organization_id = :orgId', { orgId: organizationId });
+      // Include rules pinned to this org AND rules saved without an org
+      // (NULL = "applies to all orgs"). This matches what the employee
+      // sees on their own portal and what `checkAvailabilityBulk` /
+      // `loadAvailabilityForEmployee` already do — keeping the strict
+      // equality version meant the org-side HR view found nothing for
+      // employees who saved rules without an org pin.
+      qb.andWhere(
+        '(r.organization_id = :orgId OR r.organization_id IS NULL)',
+        { orgId: organizationId },
+      );
     }
 
     qb.orderBy('r.day_of_week', 'ASC').addOrderBy('r.start_time', 'ASC');
@@ -156,7 +189,17 @@ export class AvailabilityRuleService {
       });
     });
 
-    return this.availabilityRuleRepository.save(entities);
+    await this.availabilityRuleRepository.save(entities);
+
+    // Return ALL of the user's rules — not just the ones we just saved
+    // for this org. The frontend redux slice replaces its `data` with
+    // this response; if we returned only the org-scoped subset, every
+    // other org's rules would silently disappear from in-session state
+    // until the next full refetch.
+    return this.availabilityRuleRepository.find({
+      where: { user_id: userId },
+      order: { day_of_week: 'ASC', start_time: 'ASC' },
+    });
   }
 
   async upsertDateOverride(
@@ -262,5 +305,186 @@ export class AvailabilityRuleService {
     });
     if (!rule) throw new NotFoundException('Availability rule not found');
     await this.availabilityRuleRepository.remove(rule);
+  }
+
+  /**
+   * Vectorised availability check. Pulls relevant rules + time-off in two
+   * bounded queries (`user_id IN (:...userIds)`) and evaluates each user
+   * in memory — so a 50-employee picker costs the same DB round-trip as a
+   * single-employee save-time guard.
+   *
+   * Decision precedence per user:
+   *   1. Approved/pending time-off covering the date  → unavailable.
+   *   2. Date-specific rule (`r.date = date`) wins over weekly rules.
+   *   3. `is_available=false` rule overlapping the slot → unavailable.
+   *   4. `is_available=true` rule fully covering the slot → available.
+   *   5. `is_available=true` rule only partially covering → unavailable
+   *      (with a "partial" reason).
+   *   6. No matching rule, but user has rules elsewhere → unavailable
+   *      (employee opted-in their schedule and didn't include this day).
+   *   7. User has no rules at all → unknown (silent allow).
+   *
+   * Org-scoped lookup: union of `organization_id = orgId` and
+   * `organization_id IS NULL` rules.
+   */
+  async checkAvailabilityBulk(
+    userIds: string[],
+    organizationId: string,
+    date: string,
+    startTime: string,
+    endTime: string,
+  ): Promise<Record<string, AvailabilityCheckResult>> {
+    const result: Record<string, AvailabilityCheckResult> = {};
+    if (userIds.length === 0) return result;
+
+    const dow = this.deriveDayOfWeek(date);
+    const startMin = this.timeToMinutes(startTime);
+    const endMin = this.timeToMinutes(endTime);
+
+    const orgClause = new Brackets((qb) => {
+      qb.where('r.organization_id = :orgId', { orgId: organizationId })
+        .orWhere('r.organization_id IS NULL');
+    });
+    const timeOffOrgClause = new Brackets((qb) => {
+      qb.where('t.organization_id = :orgId', { orgId: organizationId })
+        .orWhere('t.organization_id IS NULL');
+    });
+
+    const [rules, timeOffs, anyRulesRows] = await Promise.all([
+      this.availabilityRuleRepository
+        .createQueryBuilder('r')
+        .where('r.user_id IN (:...userIds)', { userIds })
+        .andWhere(orgClause)
+        .andWhere(
+          new Brackets((qb) => {
+            qb.where('r.date = :date', { date })
+              .orWhere('r.day_of_week = :dow', { dow });
+          }),
+        )
+        .getMany(),
+      this.timeOffRepository
+        .createQueryBuilder('t')
+        .where('t.user_id IN (:...userIds)', { userIds })
+        .andWhere('t.status IN (:...statuses)', { statuses: ['approved', 'pending'] })
+        .andWhere(timeOffOrgClause)
+        .andWhere(':date BETWEEN t.start_date AND t.end_date', { date })
+        .getMany(),
+      this.availabilityRuleRepository
+        .createQueryBuilder('r')
+        .select('r.user_id', 'user_id')
+        .where('r.user_id IN (:...userIds)', { userIds })
+        .andWhere(orgClause)
+        .groupBy('r.user_id')
+        .getRawMany<{ user_id: string }>(),
+    ]);
+
+    const usersWithAnyRules = new Set(anyRulesRows.map((r) => r.user_id));
+
+    const rulesByUser = new Map<string, AvailabilityRule[]>();
+    for (const r of rules) {
+      const arr = rulesByUser.get(r.user_id) ?? [];
+      arr.push(r);
+      rulesByUser.set(r.user_id, arr);
+    }
+    const timeOffByUser = new Map<string, TimeOffRequest>();
+    for (const t of timeOffs) {
+      if (!timeOffByUser.has(t.user_id)) timeOffByUser.set(t.user_id, t);
+    }
+
+    // Sentinel the frontend writes for "day off" overrides — `00:00 / 00:00
+    // is_available=false`. Treat as full-day-blocked so the zero-length
+    // range still trips the unavailable branch.
+    const isFullDayOffSentinel = (r: AvailabilityRule): boolean =>
+      !r.is_available && r.start_time.startsWith('00:00') && r.end_time.startsWith('00:00');
+
+    const overlaps = (r: AvailabilityRule): boolean => {
+      if (isFullDayOffSentinel(r)) return true;
+      const rStart = this.timeToMinutes(r.start_time);
+      const rEnd = this.timeToMinutes(r.end_time);
+      const effectiveEnd = rEnd <= rStart ? rEnd + 24 * 60 : rEnd;
+      const effectiveShiftEnd = endMin <= startMin ? endMin + 24 * 60 : endMin;
+      return rStart < effectiveShiftEnd && startMin < effectiveEnd;
+    };
+    const covers = (r: AvailabilityRule): boolean => {
+      const rStart = this.timeToMinutes(r.start_time);
+      const rEnd = this.timeToMinutes(r.end_time);
+      const effectiveEnd = rEnd <= rStart ? rEnd + 24 * 60 : rEnd;
+      const effectiveShiftEnd = endMin <= startMin ? endMin + 24 * 60 : endMin;
+      return rStart <= startMin && effectiveEnd >= effectiveShiftEnd;
+    };
+
+    const evaluate = (pool: AvailabilityRule[]): AvailabilityCheckResult | null => {
+      const explicitUnavailable = pool.find((r) => !r.is_available && overlaps(r));
+      if (explicitUnavailable) {
+        return {
+          status: 'unavailable',
+          reason: isFullDayOffSentinel(explicitUnavailable)
+            ? 'Employee marked this day as off.'
+            : 'Employee marked themselves unavailable for this slot.',
+          matched_rule: this.serializeRule(explicitUnavailable),
+        };
+      }
+      const fullyCovering = pool.find((r) => r.is_available && covers(r));
+      if (fullyCovering) {
+        return { status: 'available', matched_rule: this.serializeRule(fullyCovering) };
+      }
+      const partialAvailable = pool.find((r) => r.is_available && overlaps(r));
+      if (partialAvailable) {
+        return {
+          status: 'unavailable',
+          reason: 'Employee is only available for part of this shift.',
+          matched_rule: this.serializeRule(partialAvailable),
+        };
+      }
+      return null;
+    };
+
+    for (const userId of userIds) {
+      const t = timeOffByUser.get(userId);
+      if (t) {
+        result[userId] = {
+          status: 'unavailable',
+          reason:
+            t.status === 'approved'
+              ? 'Employee has approved time-off on this date.'
+              : 'Employee has a pending time-off request on this date.',
+          time_off: {
+            id: t.id,
+            status: t.status,
+            start_date: typeof t.start_date === 'string' ? t.start_date : String(t.start_date),
+            end_date: typeof t.end_date === 'string' ? t.end_date : String(t.end_date),
+          },
+        };
+        continue;
+      }
+
+      const userRules = rulesByUser.get(userId) ?? [];
+      const dateRules = userRules.filter((r) => r.date === date);
+      const dowRules = userRules.filter((r) => !r.date && r.day_of_week === dow);
+
+      const match = evaluate(dateRules) ?? evaluate(dowRules);
+      if (match) {
+        result[userId] = match;
+        continue;
+      }
+      result[userId] = usersWithAnyRules.has(userId)
+        ? {
+            status: 'unavailable',
+            reason: "Employee hasn't marked themselves available on this day.",
+          }
+        : { status: 'unknown' };
+    }
+    return result;
+  }
+
+  private serializeRule(r: AvailabilityRule): NonNullable<AvailabilityCheckResult['matched_rule']> {
+    return {
+      id: r.id,
+      is_available: r.is_available,
+      start_time: r.start_time,
+      end_time: r.end_time,
+      date: r.date,
+      day_of_week: r.day_of_week,
+    };
   }
 }
