@@ -1,8 +1,11 @@
 import {
+  Body,
   Controller,
   Get,
   HttpCode,
   HttpStatus,
+  Param,
+  Patch,
   Query,
   Request,
   UnauthorizedException,
@@ -12,6 +15,7 @@ import type { FastifyRequest } from 'fastify';
 import { JwtAuthGuard } from '../../../../common/guards/jwt-auth.guard';
 import { SuccessHelper } from '../../../../common/helpers/responses/success.helper';
 import { AssignmentsService } from '../services/assignments.service';
+import { FillAssignmentDto } from '../dto/fill-assignment.dto';
 
 type RequestWithUser = FastifyRequest & {
   user?: { userId?: string; sub?: string };
@@ -44,5 +48,26 @@ export class MyDocumentWorkflowAssignmentsController {
     if (!userId) throw new UnauthorizedException('User ID not found');
     const data = await this.service.getForEmployee(organizationId, userId);
     return SuccessHelper.createSuccessResponse(data);
+  }
+
+  /**
+   * Save per-field values to an assignment the caller is authorised to
+   * fill (i.e. they're either the supervisor on the assignment or appear
+   * on a template-role assignment for the underlying template). Powers
+   * the employee-side filler's autosave + final submit. The org-scoped
+   * `:id/fill` endpoint requires HR/Manager role; this user-scoped one
+   * just trusts the JWT but verifies ownership in the service.
+   */
+  @Patch('assignments/:id/fill')
+  @HttpCode(HttpStatus.OK)
+  async fillMine(
+    @Param('id') id: string,
+    @Body() dto: FillAssignmentDto,
+    @Request() req: RequestWithUser,
+  ) {
+    const userId = req.user?.userId ?? req.user?.sub;
+    if (!userId) throw new UnauthorizedException('User ID not found');
+    const data = await this.service.fillForUser(id, userId, dto);
+    return SuccessHelper.createSuccessResponse(data, 'Assignment updated.');
   }
 }

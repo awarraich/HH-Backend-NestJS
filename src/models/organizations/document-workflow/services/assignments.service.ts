@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { CompetencyAssignment } from '../entities/competency-assignment.entity';
@@ -80,6 +80,38 @@ export class AssignmentsService {
 
   async fill(orgId: string, id: string, dto: FillAssignmentDto) {
     const a = await this.findOne(orgId, id);
+    a.field_values = { ...a.field_values, ...dto.fieldValues };
+    if (a.status === 'sent') a.status = 'in_progress';
+    const saved = await this.repo.save(a);
+    return this.mapAssignment(saved);
+  }
+
+  /**
+   * User-scoped equivalent of `fill`. Authorises by checking that the
+   * caller is either the supervisor on this assignment or has any
+   * template-role assignment on the underlying template. Used by the
+   * employee filler's autosave + final submit so employees can save
+   * their own work without HR-level role permissions.
+   */
+  async fillForUser(id: string, userId: string, dto: FillAssignmentDto) {
+    const a = await this.repo.findOne({ where: { id } });
+    if (!a) throw new NotFoundException('Assignment not found');
+    const isSupervisor = a.supervisor_id === userId;
+    if (!isSupervisor) {
+      const roleRow = await this.templateUserRepo.findOne({
+        where: { template_id: a.template_id, user_id: userId },
+      });
+      if (!roleRow) {
+        throw new ForbiddenException(
+          'You are not assigned to fill this document workflow.',
+        );
+      }
+    }
+    if (a.status === 'completed' || a.status === 'voided') {
+      throw new ForbiddenException(
+        `Assignment is ${a.status} and can no longer be edited.`,
+      );
+    }
     a.field_values = { ...a.field_values, ...dto.fieldValues };
     if (a.status === 'sent') a.status = 'in_progress';
     const saved = await this.repo.save(a);
