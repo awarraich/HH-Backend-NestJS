@@ -286,6 +286,9 @@ export class AvailabilityRuleService {
       end_time: string;
       is_available?: boolean;
       shift_type?: string | null;
+      /** Optional YYYY-MM-DD bounds for time-bounded recurring availability. */
+      effective_from?: string | null;
+      effective_until?: string | null;
     },
   ): Promise<AvailabilityRule> {
     if (dto.day_of_week < 0 || dto.day_of_week > 6) {
@@ -296,15 +299,26 @@ export class AvailabilityRuleService {
         'start_time and end_time cannot be equal',
       );
     }
+    if (
+      dto.effective_from &&
+      dto.effective_until &&
+      dto.effective_until < dto.effective_from
+    ) {
+      throw new BadRequestException(
+        'effective_until must be on or after effective_from',
+      );
+    }
 
     const orgId = dto.organization_id ?? null;
+    // Replace any existing weekly rule for this (user, day_of_week, scope).
+    // Match all weekly rules regardless of their effective dates — switching
+    // from open-ended to bounded (or vice versa) should not leave stale rows.
     const deleteQb = this.availabilityRuleRepository
       .createQueryBuilder()
       .delete()
       .where('user_id = :userId', { userId })
       .andWhere('day_of_week = :dow', { dow: dto.day_of_week })
-      .andWhere('date IS NULL')
-      .andWhere('effective_from IS NULL');
+      .andWhere('date IS NULL');
 
     if (orgId) {
       deleteQb.andWhere('organization_id = :orgId', { orgId });
@@ -322,9 +336,41 @@ export class AvailabilityRuleService {
       end_time: dto.end_time,
       is_available: dto.is_available ?? true,
       shift_type: dto.shift_type ?? null,
-      effective_from: null,
-      effective_until: null,
+      // Pass YYYY-MM-DD strings DIRECTLY to TypeORM. Constructing
+      // `new Date('YYYY-MM-DD')` parses as UTC midnight, and TypeORM then
+      // serializes via local-time components — which projects to the
+      // previous day in any tz west of UTC. TypeORM's `mixedDateToDateString`
+      // passes string values through to PG unchanged, so the date is stored
+      // verbatim without timezone interpretation. (See toDateColumnValue.)
+      effective_from: dto.effective_from
+        ? toDateColumnValue(dto.effective_from)
+        : null,
+      effective_until: dto.effective_until
+        ? toDateColumnValue(dto.effective_until)
+        : null,
     });
     return this.availabilityRuleRepository.save(rule);
   }
+}
+
+/**
+ * Pass-through helper for PG `date` columns.
+ *
+ * The entity types `effective_from` / `effective_until` as `Date | null`,
+ * but TypeORM's `mixedDateToDateString` returns the value verbatim when it
+ * isn't a Date instance. PG receives the YYYY-MM-DD string and stores it
+ * in the `date` column without any timezone interpretation.
+ *
+ * Why we don't construct a Date: `new Date('2026-06-05')` is UTC midnight.
+ * TypeORM serializes Date via local-time components (`getFullYear` etc.),
+ * which means the stored date drifts to the previous day in any timezone
+ * west of UTC — and anchoring at UTC noon only buys ±12 hours, which fails
+ * at UTC+12 (NZ, Fiji). Passing the string is robust everywhere.
+ *
+ * The `as unknown as Date` cast is intentional: TypeORM's runtime accepts
+ * the string, but TypeScript needs the type to satisfy the entity column.
+ * Exported for tests.
+ */
+export function toDateColumnValue(yyyyMmDd: string): Date {
+  return yyyyMmDd as unknown as Date;
 }

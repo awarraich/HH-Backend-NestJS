@@ -308,6 +308,105 @@ describe('setAvailabilityRule (M7)', () => {
     );
     expect(result.message).toMatch(/unavailable/i);
   });
+
+  // REGRESSION: real Chat dev test produced "every Monday" with NO end date
+  // because the tool didn't pass effectiveUntil through. User asked
+  // "until June 5", got an open-ended Monday rule. This test fails fast if
+  // the tool ever stops forwarding the bounds.
+  it('forwards effectiveUntil to the service when supplied (regression: until-date dropped)', async () => {
+    const upsertWeeklyRuleForUser = jest.fn().mockResolvedValue(
+      fakeRule({
+        day_of_week: 1,
+        effective_until: new Date('2026-06-05'),
+      }),
+    );
+    const tool = buildSetAvailabilityRuleTool(
+      buildFakeRules({ upsertWeeklyRuleForUser }),
+    );
+
+    await tool.handler(
+      {
+        dayOfWeek: 1,
+        startTime: '07:00',
+        endTime: '15:00',
+        effectiveUntil: '2026-06-05',
+      },
+      ctx(),
+    );
+
+    expect(upsertWeeklyRuleForUser).toHaveBeenCalledWith(
+      'user-uuid-1',
+      expect.objectContaining({
+        day_of_week: 1,
+        effective_until: '2026-06-05',
+        // Open-ended start when only the end is bounded.
+        effective_from: null,
+      }),
+    );
+  });
+
+  it('forwards both effectiveFrom and effectiveUntil', async () => {
+    const upsertWeeklyRuleForUser = jest.fn().mockResolvedValue(fakeRule());
+    const tool = buildSetAvailabilityRuleTool(
+      buildFakeRules({ upsertWeeklyRuleForUser }),
+    );
+
+    await tool.handler(
+      {
+        dayOfWeek: 3,
+        startTime: '08:00',
+        endTime: '16:00',
+        effectiveFrom: '2026-05-15',
+        effectiveUntil: '2026-07-15',
+      },
+      ctx(),
+    );
+
+    expect(upsertWeeklyRuleForUser).toHaveBeenCalledWith(
+      'user-uuid-1',
+      expect.objectContaining({
+        effective_from: '2026-05-15',
+        effective_until: '2026-07-15',
+      }),
+    );
+  });
+
+  it('echoes the date range in the success message so the user can verify', async () => {
+    const tool = buildSetAvailabilityRuleTool(
+      buildFakeRules({
+        upsertWeeklyRuleForUser: jest.fn().mockResolvedValue(
+          fakeRule({
+            day_of_week: 1,
+            effective_until: new Date('2026-06-05'),
+          }),
+        ),
+      }),
+    );
+
+    const result = await tool.handler(
+      {
+        dayOfWeek: 1,
+        startTime: '07:00',
+        endTime: '15:00',
+        effectiveUntil: '2026-06-05',
+      },
+      ctx(),
+    );
+
+    expect(result.message).toMatch(/until 2026-06-05/);
+  });
+
+  it('rejects malformed effectiveUntil via Zod', () => {
+    const tool = buildSetAvailabilityRuleTool(buildFakeRules());
+    expect(
+      tool.input.safeParse({
+        dayOfWeek: 1,
+        startTime: '07:00',
+        endTime: '15:00',
+        effectiveUntil: 'June 5',
+      }).success,
+    ).toBe(false);
+  });
 });
 
 describe('requestTimeOff (M7)', () => {

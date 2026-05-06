@@ -6,6 +6,7 @@ import { ToolRegistry } from '../tool.registry';
 import { buildGetMyAvailabilityTool } from './get-my-availability.tool';
 import { buildGetMyTimeOffRequestsTool } from './get-my-time-off-requests.tool';
 import { buildSetAvailabilityRuleTool } from './set-availability-rule.tool';
+import { buildSetAvailabilityForDateTool } from './set-availability-for-date.tool';
 import { buildRequestTimeOffTool } from './request-time-off.tool';
 import { buildCancelTimeOffRequestTool } from './cancel-time-off-request.tool';
 
@@ -31,8 +32,9 @@ export class AvailabilityToolsProvider implements OnModuleInit {
     );
     this.registry.register(buildGetMyTimeOffRequestsTool(this.timeOff));
     this.registry.register(buildSetAvailabilityRuleTool(this.rules));
+    this.registry.register(buildSetAvailabilityForDateTool(this.rules));
     this.registry.register(buildRequestTimeOffTool(this.timeOff));
     this.registry.register(buildCancelTimeOffRequestTool(this.timeOff));
-    this.logger.log('Registered M6+M7 availability tools (5)');
+    this.logger.log('Registered M6+M7 availability tools (6)');
   }
 }

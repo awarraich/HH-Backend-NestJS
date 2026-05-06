@@ -2,6 +2,7 @@ import { GoogleChatAgentService } from './google-chat-agent.service';
 import { ClaudeClient } from '../claude.client';
 import { AgentIdentityService } from './agent-identity.service';
 import { AgentTranscriptService } from './agent-transcript.service';
+import { AgentTelemetryService } from '../observability/agent-telemetry.service';
 import { ConversationStateService } from './conversation-state.service';
 import { ToolRegistry } from '../tools/tool.registry';
 import { CardRendererRegistry } from '../rendering/renderer.registry';
@@ -83,6 +84,16 @@ const buildService = (
     countForUser: jest.fn().mockResolvedValue(0),
   } as unknown as AgentTranscriptService;
 
+  const telemetry = {
+    startTurn: jest.fn().mockReturnValue({
+      turnId: 'turn-1',
+      startedAtMs: Date.now(),
+      elapsedMs: () => 0,
+    }),
+    costForTurn: jest.fn().mockReturnValue(0),
+    recordTurn: jest.fn(),
+  } as unknown as AgentTelemetryService;
+
   const service = new GoogleChatAgentService(
     config,
     claude,
@@ -91,6 +102,7 @@ const buildService = (
     registry,
     renderers,
     transcripts,
+    telemetry,
   );
 
   // Stub the runPipeline -> runToolUseLoop interaction by patching the
@@ -98,7 +110,7 @@ const buildService = (
   // monkey-patch the prototype method `toAnthropicHistory` only when the
   // tests actually need to exercise the LLM loop. For tests that don't
   // hit the loop (disabled/slash/attachment), we never reach there.
-  return { service, config, claude, identity, state, registry, renderers, transcripts };
+  return { service, config, claude, identity, state, registry, renderers, transcripts, telemetry };
 };
 
 const event = (overrides: Partial<AgentChatEvent> = {}): AgentChatEvent => ({
@@ -220,6 +232,61 @@ describe('GoogleChatAgentService.handleMessage (M8)', () => {
       expect(a.isEnabled()).toBe(true);
       expect(b.isEnabled()).toBe(false);
       expect(c.isEnabled()).toBe(false);
+    });
+  });
+
+  describe('telemetry hooks (M16)', () => {
+    it('emits a disabled-outcome telemetry record when global flag is off', async () => {
+      const { service, telemetry } = buildService({ enabled: false });
+      await service.handleMessage(event());
+      expect(telemetry.recordTurn).toHaveBeenCalledWith(
+        expect.objectContaining({ outcome: 'disabled' }),
+      );
+    });
+
+    it('emits an unlinked-outcome telemetry record when identity fails', async () => {
+      const { service, telemetry } = buildService({ resolveResult: null });
+      await service.handleMessage(event());
+      expect(telemetry.recordTurn).toHaveBeenCalledWith(
+        expect.objectContaining({ outcome: 'unlinked' }),
+      );
+    });
+
+    it('emits a slash-outcome telemetry record for /help', async () => {
+      const { service, telemetry } = buildService();
+      await service.handleMessage(
+        event({ message: { text: '/help', thread: { name: 'spaces/AAA/threads/T1' } } }),
+      );
+      expect(telemetry.recordTurn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          outcome: 'slash',
+          toolsCalled: ['/help'],
+        }),
+      );
+    });
+
+    it('emits attachment_only outcome when only attachment present', async () => {
+      const { service, telemetry } = buildService();
+      await service.handleMessage(
+        event({
+          message: {
+            text: '',
+            thread: { name: 'spaces/AAA/threads/T1' },
+            attachment: [{ name: 'attachments/abc' }],
+          },
+        }),
+      );
+      expect(telemetry.recordTurn).toHaveBeenCalledWith(
+        expect.objectContaining({ outcome: 'attachment_only' }),
+      );
+    });
+
+    it('always sets latencyMs (>= 0) on every emission', async () => {
+      const { service, telemetry } = buildService({ enabled: false });
+      await service.handleMessage(event());
+      const call = (telemetry.recordTurn as jest.Mock).mock.calls[0][0];
+      expect(typeof call.latencyMs).toBe('number');
+      expect(call.latencyMs).toBeGreaterThanOrEqual(0);
     });
   });
 

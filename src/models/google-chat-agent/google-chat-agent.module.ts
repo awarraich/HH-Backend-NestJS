@@ -20,6 +20,7 @@ import { AvailabilityToolsProvider } from './tools/availability/availability-too
 import { CardRendererRegistry } from './rendering/renderer.registry';
 import { ShiftRenderersProvider } from './rendering/shifts/shift-renderers.provider';
 import { AvailabilityRenderersProvider } from './rendering/availability/availability-renderers.provider';
+import { AgentTelemetryService } from './observability/agent-telemetry.service';
 
 /**
  * Google Chat Scheduling Agent — employee-facing conversational bot
@@ -49,6 +50,7 @@ import { AvailabilityRenderersProvider } from './rendering/availability/availabi
     CardRendererRegistry,
     ShiftRenderersProvider,
     AvailabilityRenderersProvider,
+    AgentTelemetryService,
     GoogleChatAgentService,
   ],
   exports: [
@@ -59,6 +61,7 @@ import { AvailabilityRenderersProvider } from './rendering/availability/availabi
     AgentRedisClient,
     ToolRegistry,
     CardRendererRegistry,
+    AgentTelemetryService,
     GoogleChatAgentService,
   ],
 })

@@ -15,6 +15,16 @@ export interface AgentChatEvent {
   };
   space?: {
     name?: string;
+    /**
+     * "DM" for 1:1 / group DMs, "ROOM" for spaces. Critical for conversation
+     * state keying — in THREADED_MESSAGES DMs, every top-level user message
+     * gets a fresh `thread.name`, so we key DM state on `space.name` instead
+     * of `thread.name` to keep one logical conversation per DM.
+     */
+    type?: 'DM' | 'ROOM';
+    /** True when the DM is between exactly one human and the bot. */
+    singleUserBotDm?: boolean;
+    spaceType?: 'DIRECT_MESSAGE' | 'SPACE' | string;
   };
   message?: {
     text?: string;

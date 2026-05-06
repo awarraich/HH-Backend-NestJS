@@ -7,6 +7,10 @@ import { GoogleChatAgentConfigService } from '../../../config/google-chat-agent/
 import { CardRendererRegistry } from '../rendering/renderer.registry';
 import { buildDisabledCard } from '../rendering/disabled.card';
 import { buildErrorCard } from '../rendering/error.card';
+import {
+  AgentTelemetryService,
+  TurnTracker,
+} from '../observability/agent-telemetry.service';
 import { ToolRegistry } from '../tools/tool.registry';
 import { AgentContext } from '../tools/tool.types';
 import { AgentIdentityService } from './agent-identity.service';
@@ -51,6 +55,7 @@ export class GoogleChatAgentService {
     private readonly registry: ToolRegistry,
     private readonly renderers: CardRendererRegistry,
     private readonly transcripts: AgentTranscriptService,
+    private readonly telemetry: AgentTelemetryService,
   ) {}
 
   /**
@@ -63,13 +68,25 @@ export class GoogleChatAgentService {
 
   async handleMessage(event: AgentChatEvent): Promise<AgentReply> {
     const turnId = randomUUID();
+    const tracker = this.telemetry.startTurn(turnId);
 
     if (!this.isEnabled()) {
+      this.telemetry.recordTurn({
+        turnId,
+        provider: this.claude.provider,
+        toolsCalled: [],
+        tokensIn: 0,
+        tokensOut: 0,
+        costUsd: 0,
+        latencyMs: tracker.elapsedMs(),
+        outcome: 'disabled',
+        threadKey: resolveConversationKey(event) ?? undefined,
+      });
       return buildDisabledCard();
     }
 
     try {
-      return await this.runPipeline(event, turnId);
+      return await this.runPipeline(event, turnId, tracker);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(
@@ -81,7 +98,7 @@ export class GoogleChatAgentService {
       // silently if not (no org/user to key the row on).
       try {
         const chatUserId = event.user?.name;
-        const threadName = event.message?.thread?.name ?? event.space?.name;
+        const threadName = resolveConversationKey(event);
         if (chatUserId && threadName) {
           const user = await this.identity.resolve(chatUserId);
           if (user) {
@@ -99,6 +116,19 @@ export class GoogleChatAgentService {
         // swallow — transcript writes never block the user reply
       }
 
+      this.telemetry.recordTurn({
+        turnId,
+        provider: this.claude.provider,
+        threadKey: resolveConversationKey(event) ?? undefined,
+        toolsCalled: [],
+        tokensIn: 0,
+        tokensOut: 0,
+        costUsd: 0,
+        latencyMs: tracker.elapsedMs(),
+        outcome: 'error',
+        error: message,
+      });
+
       return buildErrorCard({ errorId: turnId });
     }
   }
@@ -106,17 +136,40 @@ export class GoogleChatAgentService {
   private async runPipeline(
     event: AgentChatEvent,
     turnId: string,
+    tracker: TurnTracker,
   ): Promise<AgentReply> {
     const chatUserId = event.user?.name;
-    const dmSpaceName = event.space?.name ?? null;
-    const threadName = event.message?.thread?.name ?? dmSpaceName;
+    const threadName = resolveConversationKey(event);
 
     if (!chatUserId || !threadName) {
+      this.telemetry.recordTurn({
+        turnId,
+        provider: this.claude.provider,
+        toolsCalled: [],
+        tokensIn: 0,
+        tokensOut: 0,
+        costUsd: 0,
+        latencyMs: tracker.elapsedMs(),
+        outcome: 'context_missing',
+      });
       return { text: 'Missing user or thread context — please retry.' };
     }
 
     const user = await this.identity.resolve(chatUserId);
-    if (!user) return buildUnlinkedReply();
+    if (!user) {
+      this.telemetry.recordTurn({
+        turnId,
+        provider: this.claude.provider,
+        threadKey: threadName,
+        toolsCalled: [],
+        tokensIn: 0,
+        tokensOut: 0,
+        costUsd: 0,
+        latencyMs: tracker.elapsedMs(),
+        outcome: 'unlinked',
+      });
+      return buildUnlinkedReply();
+    }
 
     const rawText = (event.message?.text ?? event.message?.argumentText ?? '').trim();
     const hasAttachments = (event.message?.attachment ?? []).length > 0;
@@ -133,11 +186,29 @@ export class GoogleChatAgentService {
         payload: { kind: 'slash_command', command: cmd, turnId },
         countsAgainstQuota: false,
       });
-      if (cmd === '/help') return buildHelpReply();
-      if (cmd === '/whoami') return buildWhoAmIReply(user);
-      if (cmd === '/reset') {
-        await this.state.clear(threadName);
-        return buildResetReply();
+      const slashReply: AgentReply | null =
+        cmd === '/help'
+          ? buildHelpReply()
+          : cmd === '/whoami'
+            ? buildWhoAmIReply(user)
+            : cmd === '/reset'
+              ? (await this.state.clear(threadName), buildResetReply())
+              : null;
+      if (slashReply) {
+        this.telemetry.recordTurn({
+          turnId,
+          userId: user.userId,
+          organizationId: user.organizationId,
+          threadKey: threadName,
+          provider: this.claude.provider,
+          toolsCalled: [cmd],
+          tokensIn: 0,
+          tokensOut: 0,
+          costUsd: 0,
+          latencyMs: tracker.elapsedMs(),
+          outcome: 'slash',
+        });
+        return slashReply;
       }
     }
 
@@ -152,6 +223,19 @@ export class GoogleChatAgentService {
           turnId,
         },
         countsAgainstQuota: false,
+      });
+      this.telemetry.recordTurn({
+        turnId,
+        userId: user.userId,
+        organizationId: user.organizationId,
+        threadKey: threadName,
+        provider: this.claude.provider,
+        toolsCalled: [],
+        tokensIn: 0,
+        tokensOut: 0,
+        costUsd: 0,
+        latencyMs: tracker.elapsedMs(),
+        outcome: hasAttachments ? 'attachment_only' : 'empty',
       });
       return hasAttachments
         ? buildAttachmentReply()
@@ -220,6 +304,11 @@ export class GoogleChatAgentService {
     }
 
     // 3. Record the assistant's final reply with aggregated token counts.
+    const costUsd = this.telemetry.costForTurn(
+      this.config.model,
+      result.tokensIn,
+      result.tokensOut,
+    );
     await this.transcripts.recordTurn({
       organizationId: user.organizationId,
       userId: user.userId,
@@ -237,6 +326,7 @@ export class GoogleChatAgentService {
       },
       tokensIn: result.tokensIn,
       tokensOut: result.tokensOut,
+      costUsd,
       countsAgainstQuota: false, // user turn already counted
     });
 
@@ -251,6 +341,23 @@ export class GoogleChatAgentService {
       role: 'assistant',
       content: result.text,
       ts: now,
+    });
+
+    // Telemetry: success turn — captures the actual cost figure used for the
+    // assistant transcript so the log line and the DB row agree.
+    this.telemetry.recordTurn({
+      turnId,
+      userId: user.userId,
+      organizationId: user.organizationId,
+      threadKey: threadName,
+      provider: this.claude.provider,
+      model: this.config.model,
+      toolsCalled: result.toolCalls.map((t) => t.name),
+      tokensIn: result.tokensIn,
+      tokensOut: result.tokensOut,
+      costUsd,
+      latencyMs: tracker.elapsedMs(),
+      outcome: 'success',
     });
 
     // Render last tool output as a card if a renderer exists; otherwise text.
@@ -291,4 +398,36 @@ export class GoogleChatAgentService {
             : JSON.stringify(t.content),
       }));
   }
+}
+
+/**
+ * Resolves the conversation-state key for a Chat event.
+ *
+ * In a 1:1 DM with `spaceThreadingState: THREADED_MESSAGES` (the default
+ * for new bot DMs), every top-level user message gets a fresh `thread.name`.
+ * Keying state on `thread.name` would discard prior context on every new
+ * top-level message — observed bug: turn 1 "set Tuesday 9-5", turn 2 "Yes"
+ * arrived in a different thread.name and the agent had no context to act on.
+ *
+ * Strategy:
+ *   - DM (`space.type === 'DM'` or `singleUserBotDm`): key on `space.name`.
+ *     A 1:1 DM is one logical conversation regardless of Chat's threading.
+ *   - Room (`space.type === 'ROOM'`): key on `thread.name` so independent
+ *     topic threads keep separate state.
+ *
+ * Falls back gracefully if fields are missing.
+ */
+export function resolveConversationKey(
+  event: AgentChatEvent,
+): string | null {
+  const spaceName = event.space?.name ?? null;
+  const threadName = event.message?.thread?.name ?? null;
+
+  const isDm =
+    event.space?.type === 'DM' ||
+    event.space?.singleUserBotDm === true ||
+    event.space?.spaceType === 'DIRECT_MESSAGE';
+
+  if (isDm) return spaceName;
+  return threadName ?? spaceName;
 }

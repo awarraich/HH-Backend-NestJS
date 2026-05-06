@@ -104,7 +104,7 @@ POST /v1/api/google-chat/webhook   (existing — owned by notification integrati
 | M4 | ✅ Tool registry & contracts | Zod-typed tool defs → Claude JSON schemas; central dispatch |
 | M5 | ✅ Read tools — shifts | `listMyShifts`, `getShiftDetails`, `listAvailableShifts` |
 | M6 | ✅ Read tools — availability | `getMyAvailability`, `getMyTimeOffRequests` |
-| M7 | ✅ Write tools — availability (self) | `setAvailabilityRule`, `requestTimeOff`, `cancelTimeOffRequest` |
+| M7 | ✅ Write tools — availability (self) | `setAvailabilityRule`, `setAvailabilityForDate`, `requestTimeOff`, `cancelTimeOffRequest` |
 | M8 | ✅ Webhook MESSAGE branch | Route MESSAGE events into agent pipeline; preserve notif handlers |
 | M9 | ✅ Response rendering (M5 + M6 + M7 surfaces) | Card v2 builders for shifts, availability, time-off; write-confirmation cards for M7 writes; plain text fallback |
 | M10 | RBAC enforcement (self-only) | Single choke point asserting caller == target on every tool dispatch |
@@ -113,12 +113,12 @@ POST /v1/api/google-chat/webhook   (existing — owned by notification integrati
 | M13 | Feature flag & rollout | Per-org enable; allowlist; global kill switch |
 | M14 | Quota & monetization | 50 free messages per employee, then paid tier (impl deferred) |
 | M15 | Model router | Haiku-first triage → Sonnet on tool use |
-| M16 | Observability | Structured logs, Sentry, latency/cost metrics |
+| M16 | ✅ Observability | Structured logs, latency/cost per turn (Sentry/Prometheus deferred) |
 | M17 | Help & discoverability | `/help` slash command + onboarding card |
 
 Status legend: ✅ done · 🚧 in progress · ❌ not started · 💤 deferred.
 
-M1 through M9 + M11 are **✅ Complete** (M1, M2, M3, M4, M5, M6, M7, M8, M9, M11). M14's *implementation* is **💤 Deferred** (data model lands now, billing flow lands later). All other modules (M10, M12, M13, M14, M15, M16, M17): **❌ Not started.**
+M1 through M9 + M11 + M16 are **✅ Complete** (M1, M2, M3, M4, M5, M6, M7, M8, M9, M11, M16). M14's *implementation* is **💤 Deferred** (data model lands now, billing flow lands later). All other modules (M10, M12, M13, M14, M15, M17): **❌ Not started.**
 
 > **LLM provider is now pluggable.** `GOOGLE_CHAT_AGENT_PROVIDER=anthropic|openai` switches between the Anthropic and OpenAI tool-use loops at runtime. Models, tool-payload shapes, and message conventions diverge per provider; the agent service picks the right path. This was added when Anthropic credit balance ran low during dev testing — both paths are first-class.
 
@@ -489,6 +489,16 @@ interface Tool<I, O> {
 - **`upsertWeeklyRuleForUser` replaces multi-slot days.** If a user had a split-shift Tuesday (e.g., 9-12 + 13-17), calling the tool with a single window collapses to one slot. The system prompt should warn the model; today it doesn't explicitly. If this surfaces in testing, tweak the tool description.
 - **Re-running the migration won't fail** — `agent_chat_transcripts` (M11) is the only new table this round of work added; M6/M7 use existing tables (`availability_rules`, `time_off_requests`, `work_preferences`). No new migration needed.
 
+**Follow-up after dev testing — date-specific availability tool added.**
+
+The first DM-test of M7 surfaced a feature gap: the user said *"I will be available for the shift assignment 8th May 2026 from 7AM to 3 PM"* and the bot correctly noted it had no tool for date-specific availability. Plan called for `setAvailabilityRule` (recurring weekly) only. Real usage needs both.
+
+- New tool [`setAvailabilityForDate`](../../../src/models/google-chat-agent/tools/availability/set-availability-for-date.tool.ts) — wraps the existing `AvailabilityRuleService.upsertDateOverride` method (already in the domain layer; just not previously exposed). Day-of-week is derived server-side from the date itself, sidestepping the LLM weekday-arithmetic problem.
+- New card renderer [`availability-for-date.card.ts`](../../../src/models/google-chat-agent/rendering/availability/availability-for-date.card.ts).
+- System prompt updated with: (a) the new tool, (b) explicit "Specific date → setAvailabilityForDate; recurring → setAvailabilityRule" guidance, (c) "do not compute day-of-week in your head" rule, (d) **CONFIRMATION RESPONSES** section telling the model that when the previous turn proposed an action and the user replies with a short affirmative, it should call the proposed tool — not greet or restart. This addresses the "Yes → Hello!" failure mode seen in dev testing.
+
+7 unit tests in [`set-availability-for-date.spec.ts`](../../../src/models/google-chat-agent/tools/availability/set-availability-for-date.spec.ts) cover backdating rejection, equal-time rejection, malformed date rejection, scope forwarding, defensive empty-result handling, and DTO `shift_type` undefined-vs-null handling.
+
 ---
 
 ### M8. Webhook MESSAGE branch ✅
@@ -800,7 +810,7 @@ interface Tool<I, O> {
 
 ---
 
-### M16. Observability ❌
+### M16. Observability ✅
 
 **Goal.** When something feels off, on-call can find out why in under 5 minutes.
 
@@ -821,6 +831,21 @@ interface Tool<I, O> {
 | M16-I1 | integration | Sample turn produces all expected metrics in the test registry |
 
 **Done when:** metrics scrapeable in dev; deliberate error appears in Sentry.
+
+**Done (pragmatic v1):**
+- [`cost-rates.ts`](../../../src/models/google-chat-agent/observability/cost-rates.ts) — per-model rate table (gpt-4o, gpt-4o-mini, claude-sonnet-4-5, claude-haiku-4-5) with safe fallback. `computeCostUsd(model, in, out)` returns USD rounded to 6 decimals (matches the `cost_usd numeric(10,6)` column from M11).
+- [`AgentTelemetryService`](../../../src/models/google-chat-agent/observability/agent-telemetry.service.ts) — `startTurn()` returns a `TurnTracker` (captures `Date.now()`); `costForTurn()` centralises the cost figure so the log line and the transcript row agree; `recordTurn()` emits **one structured JSON log line** per turn with `event: 'agent_turn'` and the full snapshot. Errors route to `Logger.error`, success to `Logger.log`. Always succeeds (try/catch around stringify catches cyclic data).
+- [`GoogleChatAgentService`](../../../src/models/google-chat-agent/services/google-chat-agent.service.ts) wires the tracker through every exit path: disabled / context_missing / unlinked / slash / empty / attachment_only / success / error. Each emits exactly one telemetry record with `latencyMs >= 0`.
+- The success path passes the computed `costUsd` into the assistant transcript row (M11) so the SQL queries in the M11 plan section now return non-null cost data.
+- `AgentTelemetryService` registered + exported in [`GoogleChatAgentModule`](../../../src/models/google-chat-agent/google-chat-agent.module.ts).
+
+**Verified:** 23 unit tests across [`cost-rates.spec.ts`](../../../src/models/google-chat-agent/observability/cost-rates.spec.ts) (rate lookup + cost arithmetic + rounding), [`agent-telemetry.service.spec.ts`](../../../src/models/google-chat-agent/observability/agent-telemetry.service.spec.ts) (tracker timing, structured log shape, error-path routing, M16-U2 latency-on-error, defensive non-throwing emit), and additions to [`google-chat-agent.service.spec.ts`](../../../src/models/google-chat-agent/services/google-chat-agent.service.spec.ts) (telemetry fires on every exit path with correct `outcome`). Total module tests: **169/169** passing; build clean.
+
+**Caveats:**
+- **Sentry / Prometheus deferred.** Plan called for both. Project doesn't have either wired up, and adding them is an org-wide infra decision rather than agent-module work. The single structured log line per turn is the primary signal today; once Sentry exists, the existing error path (already routed via `Logger.error`) is the right hook point. Prometheus would consume the same TurnSnapshot via a registry adapter — F-item.
+- **Cost is approximate.** Public list prices, no cache-discount adjustment. Anthropic prompt caching makes reported cost a slight overestimate when caching kicks in; OpenAI auto-caches but doesn't bill differently in the API response. Acceptable for dashboards; not for billing.
+- **Rate table is hard-coded.** Vendors update pricing periodically. There's a `console.warn` for unknown models — when you see one in logs, add it to `cost-rates.ts`.
+- **No metrics export.** Logs only. To compute "average turn cost last hour" today, query `agent_chat_transcripts` (M11 stores per-row cost). When metrics arrive, the structured log lines are already shaped to feed a metric pipeline.
 
 ---
 
@@ -877,6 +902,25 @@ Built up front during M1:
 - **Mocked Anthropic client** with deterministic fake completions for unit tests (record-replay style; not live).
 - **Live integration suite** behind `RUN_LIVE_AI_TESTS=1` for M1-I1, M15-I1, M9-I1, M14-I1 cases that need a real API call.
 - **Captured Chat webhook fixtures.** `tests/fixtures/chat-message-*.json` — recorded from dev, replayed in tests.
+
+**Scripted-LLM scenario tests (added during M7 follow-up).**
+
+Real Chat dev testing surfaced two bug classes that the per-tool unit tests didn't catch:
+1. The model lost confirmation context across turns ("Yes" treated as a fresh greeting).
+2. Multi-turn flows that depend on conversation state weren't tested at the integration level.
+
+Added [`__test_helpers__/scripted-llm.ts`](../../../src/models/google-chat-agent/services/__test_helpers__/scripted-llm.ts) with:
+
+- `scriptedOpenAI(responses[])` — fake OpenAI client that returns scripted `ChatCompletion` objects in order. **Deep-clones** the `messages` array on every call (the real loop reuses + mutates one array across iterations; reference snapshots would lie).
+- `toolCallResponse([{name, argsJson}], usage?)` — convenience builder for assistant-with-tool_calls completions.
+- `textResponse(text, usage?)` — convenience builder for plain-text completions.
+
+Two scenario spec files exercise the helpers:
+
+- [`tool-use-loop.scenarios.spec.ts`](../../../src/models/google-chat-agent/services/tool-use-loop.scenarios.spec.ts) — 5 tests that verify the `runOpenAILoop` correctly threads prior history into the LLM, captures token usage across multiple LLM calls, surfaces tool errors as `is_error` tool_results without crashing, handles plain-text responses without dispatching, and chains multiple parallel tool calls in one turn.
+- [`google-chat-agent.scenarios.spec.ts`](../../../src/models/google-chat-agent/services/google-chat-agent.scenarios.spec.ts) — 6 tests that exercise the **full pipeline** (real `ConversationStateService` with a `FakeRedis`, real `ToolRegistry`, real renderer registry, scripted LLM). Includes the **confirmation-flow regression test**: turn 1 the model proposes an action, turn 2 the user says "Yes," and we assert the LLM call on turn 2 receives the prior assistant question in its `messages` array. **If conversation state ever stops persisting assistant turns, this test fails — exactly the bug observed in dev.**
+
+These add up to a third type of test alongside unit tests and per-module mocks: **deterministic conversation-flow tests** that catch regressions in cross-turn behavior without the cost or flakiness of real LLM calls.
 
 ---
 

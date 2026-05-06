@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { CardRendererRegistry } from '../renderer.registry';
 import { myAvailabilityCardRenderer } from './my-availability.card';
 import { timeOffListCardRenderer } from './time-off-list.card';
+import { availabilityForDateCardRenderer } from './availability-for-date.card';
 import {
   cancelTimeOffCardRenderer,
   requestTimeOffCardRenderer,
@@ -23,8 +24,9 @@ export class AvailabilityRenderersProvider implements OnModuleInit {
     this.renderers.register(myAvailabilityCardRenderer);
     this.renderers.register(timeOffListCardRenderer);
     this.renderers.register(setAvailabilityCardRenderer);
+    this.renderers.register(availabilityForDateCardRenderer);
     this.renderers.register(requestTimeOffCardRenderer);
     this.renderers.register(cancelTimeOffCardRenderer);
-    this.logger.log('Registered M6+M7 availability card renderers (5)');
+    this.logger.log('Registered M6+M7 availability card renderers (6)');
   }
 }

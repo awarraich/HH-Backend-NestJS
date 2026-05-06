@@ -29,6 +29,14 @@ export const setAvailabilityCardRenderer: CardRenderer<SetAvailabilityRuleOutput
         r.dayOfWeek !== null
           ? DAY_LABEL[r.dayOfWeek] ?? `Day ${r.dayOfWeek}`
           : 'Date override';
+      const range =
+        r.effectiveFrom && r.effectiveUntil
+          ? `${r.effectiveFrom} → ${r.effectiveUntil}`
+          : r.effectiveUntil
+            ? `until ${r.effectiveUntil}`
+            : r.effectiveFrom
+              ? `from ${r.effectiveFrom}`
+              : 'No end date';
       return {
         cardsV2: [
           {
@@ -44,6 +52,10 @@ export const setAvailabilityCardRenderer: CardRenderer<SetAvailabilityRuleOutput
                       topLabel: day,
                       text: `${trimTime(r.startTime)} – ${trimTime(r.endTime)}`,
                       bottomLabel: r.isAvailable ? 'Available' : 'Unavailable',
+                    }),
+                    widget.decoratedText({
+                      topLabel: 'Active range',
+                      text: range,
                     }),
                   ],
                 },

@@ -3,6 +3,7 @@ import type { AvailabilityRuleService } from '../../../employees/availability/se
 import type { Tool } from '../tool.types';
 import {
   AvailabilityRuleOutput,
+  DateOnly,
   DayOfWeek,
   TimeOnly,
 } from './availability.schemas';
@@ -21,6 +22,12 @@ const Input = z.object({
     .nullable()
     .optional()
     .describe('Optional label like "morning", "evening"'),
+  effectiveFrom: DateOnly.optional().describe(
+    'Optional YYYY-MM-DD start bound. Use when the user says "starting next week" or similar.',
+  ),
+  effectiveUntil: DateOnly.optional().describe(
+    'Optional YYYY-MM-DD end bound. Use when the user says "until June 5" or similar — DO NOT drop this constraint silently.',
+  ),
 });
 
 const Output = z.object({
@@ -60,10 +67,19 @@ export function buildSetAvailabilityRuleTool(
         end_time: input.endTime,
         is_available: input.isAvailable ?? true,
         shift_type: input.shiftType ?? null,
+        effective_from: input.effectiveFrom ?? null,
+        effective_until: input.effectiveUntil ?? null,
       });
 
       const dayName = DAY_NAMES[input.dayOfWeek] ?? `day ${input.dayOfWeek}`;
       const verb = (input.isAvailable ?? true) ? 'available' : 'unavailable';
+      const windowSuffix = input.effectiveUntil
+        ? input.effectiveFrom
+          ? ` (from ${input.effectiveFrom} until ${input.effectiveUntil})`
+          : ` (until ${input.effectiveUntil})`
+        : input.effectiveFrom
+          ? ` (starting ${input.effectiveFrom})`
+          : '';
 
       return {
         rule: {
@@ -74,10 +90,14 @@ export function buildSetAvailabilityRuleTool(
           endTime: rule.end_time,
           isAvailable: rule.is_available,
           shiftType: rule.shift_type,
-          effectiveFrom: null,
-          effectiveUntil: null,
+          effectiveFrom: rule.effective_from
+            ? new Date(rule.effective_from).toISOString().slice(0, 10)
+            : null,
+          effectiveUntil: rule.effective_until
+            ? new Date(rule.effective_until).toISOString().slice(0, 10)
+            : null,
         },
-        message: `Saved: ${verb} on ${dayName}s from ${input.startTime} to ${input.endTime}.`,
+        message: `Saved: ${verb} on ${dayName}s from ${input.startTime} to ${input.endTime}${windowSuffix}.`,
       };
     },
   };
