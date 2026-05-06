@@ -34,6 +34,14 @@ export class CompetencyAssignment {
   @Column({ type: 'uuid' })
   supervisor_id: string;
 
+  /**
+   * The employee whose HR File this assignment was created against. Null on
+   * legacy rows created before the role-scoped v2 flow — those continue to
+   * use the single-supervisor model and are listed via `supervisor_id` only.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  employee_user_id: string | null;
+
   @Column({ type: 'varchar', length: 20, default: 'sent' })
   status: string;
 

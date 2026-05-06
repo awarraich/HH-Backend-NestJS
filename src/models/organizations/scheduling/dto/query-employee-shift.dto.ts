@@ -1,4 +1,4 @@
-import { IsOptional, IsUUID, IsString, IsInt, Min, Max } from 'class-validator';
+import { IsOptional, IsUUID, IsString, IsInt, Min, Max, MaxLength } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class QueryEmployeeShiftDto {
@@ -21,6 +21,34 @@ export class QueryEmployeeShiftDto {
   @IsOptional()
   @IsString()
   to_date?: string;
+
+  /**
+   * Optional location filters. Used by the Bed Map flow on the Employee
+   * Scheduling page so the client can fetch only the relevant slice instead
+   * of paging the whole shift roster. Existing callers (Grid view) don't
+   * pass these and behaviour is unchanged.
+   */
+  @IsOptional()
+  @IsUUID('4')
+  station_id?: string;
+
+  @IsOptional()
+  @IsUUID('4')
+  room_id?: string;
+
+  @IsOptional()
+  @IsUUID('4')
+  bed_id?: string;
+
+  @IsOptional()
+  @IsUUID('4')
+  chair_id?: string;
+
+  /** Role code filter (e.g. "RN", "CNA"). Matches `employee_shifts.role`. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  role?: string;
 
   @IsOptional()
   @Type(() => Number)

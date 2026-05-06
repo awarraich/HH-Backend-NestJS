@@ -11,6 +11,7 @@ import { OrganizationStaffCreatedEmailTemplate } from './templates/organization-
 import { GoogleSignInInviteEmailTemplate } from './templates/google-sign-in-invite-email.template';
 import { InterviewInviteEmailTemplate } from './templates/interview-invite-email.template';
 import { OfferLetterEmailTemplate } from './templates/offer-letter-email.template';
+import { CompetencyFillEmailTemplate } from './templates/competency-fill-email.template';
 import { HireWelcomeEmailTemplate } from './templates/hire-welcome-email.template';
 import {
   buildIcs,
@@ -567,6 +568,38 @@ export class EmailService implements OnModuleInit {
     const info = await this.transporter.sendMail(mailOptions);
     this.logger.log(
       `Offer letter email sent to: ${toEmail} MessageId: ${info.messageId}`,
+    );
+  }
+
+  /**
+   * Send "please fill out your portion" email to one role-filler on a
+   * competency assignment. Fired once per `competency_assignment_roles` row
+   * at create time. Pass `orgLogo` to override the default with the org's
+   * uploaded logo (delivered as the same `logo@homehealth.ai` CID).
+   */
+  async sendCompetencyFillEmail(
+    toEmail: string,
+    options: Parameters<typeof CompetencyFillEmailTemplate.generate>[0],
+    orgLogo?: { buffer: Buffer; contentType: string; file_name?: string } | null,
+  ): Promise<void> {
+    const auth = this.emailConfigService.auth;
+    if (!auth.user || !auth.pass) {
+      throw new Error(
+        'Email service not configured. Set EMAIL_USER and EMAIL_PASSWORD to send competency fill emails.',
+      );
+    }
+    const template = CompetencyFillEmailTemplate.generate(options);
+    const mailOptions = {
+      from: `"${this.emailConfigService.fromName}" <${this.emailConfigService.from}>`,
+      to: toEmail,
+      subject: template.subject,
+      html: template.html,
+      text: template.text,
+      attachments: this.buildLogoAttachment(orgLogo),
+    };
+    const info = await this.transporter.sendMail(mailOptions);
+    this.logger.log(
+      `Competency fill email sent to: ${this.maskEmail(toEmail)}. MessageId: ${info.messageId}`,
     );
   }
 
