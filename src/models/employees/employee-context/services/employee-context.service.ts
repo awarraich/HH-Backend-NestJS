@@ -42,11 +42,26 @@ export class EmployeeContextService {
     currentOrganizationId?: string | null,
     userRoles: string[] = [],
   ): Promise<ReturnType<EmployeeContextSerializer['serializeContext']>> {
-    const employee = await this.employeeRepository.findOne({
-      where: { user_id: userId },
-      relations: ['user', 'profile'],
-      order: { created_at: 'ASC' },
-    });
+    // Multi-org users have one Employee row per organization. When the
+    // client tells us which org is active, return the matching row so the
+    // serialized `employee.id` is valid for org-scoped endpoints
+    // (e.g. /organizations/:orgId/employees/:employeeId/documents) — the
+    // EmployeeDocumentAccessGuard verifies that pair belongs together,
+    // and a mismatched id triggers a 403. Fall back to the oldest row
+    // (legacy behavior) when no active org is supplied or the user has
+    // no membership in the requested one.
+    const employee =
+      (currentOrganizationId
+        ? await this.employeeRepository.findOne({
+            where: { user_id: userId, organization_id: currentOrganizationId },
+            relations: ['user', 'profile'],
+          })
+        : null) ??
+      (await this.employeeRepository.findOne({
+        where: { user_id: userId },
+        relations: ['user', 'profile'],
+        order: { created_at: 'ASC' },
+      }));
 
     if (!employee) {
       const user = await this.userRepository.findOne({ where: { id: userId } });
