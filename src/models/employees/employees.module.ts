@@ -7,6 +7,7 @@ import { ProviderRole } from './entities/provider-role.entity';
 import { User } from '../../authentication/entities/user.entity';
 import { OrganizationStaff } from '../organizations/staff-management/entities/organization-staff.entity';
 import { EmployeeShift } from '../organizations/scheduling/entities/employee-shift.entity';
+import { ScheduledTaskAssignment } from '../organizations/scheduling/entities/scheduled-task-assignment.entity';
 import { AuthenticationModule } from '../../authentication/auth.module';
 import { OrganizationsModule } from '../organizations/organizations.module';
 import { AuditLogModule } from '../../common/services/audit/audit-log.module';
@@ -33,6 +34,8 @@ import { EmployeeCalendarController } from './availability/controllers/employee-
 import { MyScheduleController } from './availability/controllers/my-schedule.controller';
 import { MyShiftsController } from './availability/controllers/my-shifts.controller';
 import { MyShiftsService } from './availability/services/my-shifts.service';
+import { MyScheduledWorkController } from './availability/controllers/my-scheduled-work.controller';
+import { MyScheduledWorkService } from './availability/services/my-scheduled-work.service';
 import { AvailabilityCheckController } from './availability/controllers/availability-check.controller';
 
 @Module({
@@ -42,6 +45,7 @@ import { AvailabilityCheckController } from './availability/controllers/availabi
       EmployeeProfile,
       ProviderRole,
       EmployeeShift,
+      ScheduledTaskAssignment,
       CalendarEvent,
       AvailabilityRule,
       TimeOffRequest,
@@ -64,6 +68,7 @@ import { AvailabilityCheckController } from './availability/controllers/availabi
     EmployeeCalendarController,
     MyScheduleController,
     MyShiftsController,
+    MyScheduledWorkController,
     AvailabilityCheckController,
   ],
   providers: [
@@ -77,6 +82,7 @@ import { AvailabilityCheckController } from './availability/controllers/availabi
     WorkPreferenceService,
     SchedulePresetService,
     MyShiftsService,
+    MyScheduledWorkService,
   ],
   exports: [TypeOrmModule, EmployeesService, ProviderRolesService],
 })

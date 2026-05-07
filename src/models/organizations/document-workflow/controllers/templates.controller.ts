@@ -96,6 +96,32 @@ export class TemplatesController {
     return SuccessHelper.createSuccessResponse(data, 'Template updated.');
   }
 
+  /**
+   * POST /v1/api/organizations/:orgId/document-workflow/templates/:id/publish
+   *
+   * Snapshot the current draft (`document_fields`, `roles`, `pdf_*`)
+   * into a new `competency_template_versions` row and bump the
+   * template's `current_version_id` to point at it. Existing
+   * assignments stay pinned to their old version — they keep
+   * rendering against the schema the user originally saw. Only NEW
+   * assignments will freeze on this just-published version.
+   *
+   * Idempotent in a useful sense: calling publish twice produces two
+   * distinct version rows (v2 then v3) so the audit trail captures
+   * each publish event separately.
+   */
+  @Post(':id/publish')
+  @HttpCode(HttpStatus.OK)
+  async publish(
+    @Param('organizationId') orgId: string,
+    @Param('id') id: string,
+    @Req() req: RequestWithUser,
+  ) {
+    const userId = req.user?.userId ?? req.user?.sub ?? null;
+    const version = await this.service.publishVersion(orgId, id, userId);
+    return SuccessHelper.createSuccessResponse(version, 'Template published.');
+  }
+
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
   async delete(

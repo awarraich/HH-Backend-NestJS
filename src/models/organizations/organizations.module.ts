@@ -149,6 +149,7 @@ import { OrganizationDocumentsChatService } from './compliance-documents/service
 import { OrganizationDocumentCategoriesController } from './compliance-documents/controllers/organization-document-categories.controller';
 import { OrganizationDocumentsController } from './compliance-documents/controllers/organization-documents.controller';
 import { CompetencyTemplate } from './document-workflow/entities/competency-template.entity';
+import { CompetencyTemplateVersion } from './document-workflow/entities/competency-template-version.entity';
 import { CompetencyAssignment } from './document-workflow/entities/competency-assignment.entity';
 import { DocumentFieldValue } from '../external-documents/entities/document-field-value.entity';
 import { TemplatesController } from './document-workflow/controllers/templates.controller';
@@ -240,6 +241,7 @@ import { UserAppContextsController } from './staff-management/controllers/user-a
       OrganizationDocument,
       OrganizationDocumentChunk,
       CompetencyTemplate,
+      CompetencyTemplateVersion,
       CompetencyAssignment,
       DocumentFieldValue,
       DocumentWorkflowRole,

@@ -5,6 +5,10 @@ import { User } from '../../../../authentication/entities/user.entity';
 export interface OrganizationContextItem {
   organization_id: string;
   organization_name: string | null;
+  /** Canonical type name from the org's profile (e.g. "CLINIC", "HOME HEALTH").
+   *  Drives org-type-aware vocabulary and views in the employee portal. Null
+   *  when the org has no profile or no type set yet. */
+  organization_type: string | null;
   employee_status: string;
   is_active_context: boolean;
   provider_role?: { id: string; code: string; name: string } | null;
