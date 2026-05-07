@@ -67,6 +67,39 @@ export class AssignmentsService {
     return result;
   }
 
+  /**
+   * Look up which template roles a given user is mapped to, so the caller
+   * (employee or supervisor) only sees fields they're actually authorised
+   * to fill on the assignment they're opening. Powers the client-side
+   * field-editability gate in the PDF filler.
+   */
+  private async getCallerRoleIds(
+    templateId: string,
+    userId: string,
+  ): Promise<string[]> {
+    const rows = await this.templateUserRepo.find({
+      where: { template_id: templateId, user_id: userId },
+    });
+    return rows.map((r) => r.role_id);
+  }
+
+  /**
+   * User-scoped mapping: merges v2 field values AND tags the record with
+   * the caller's role IDs on this assignment's template. Used by every
+   * endpoint where we know who's asking — the frontend only marks fields
+   * as editable when their `assignedRoleId` is in this list, and v2 values
+   * must be merged so employees see their previously-saved progress.
+   */
+  private async mapAssignmentForUser(
+    a: CompetencyAssignment,
+    userId: string,
+  ) {
+    const mapped = await this.mapAssignmentWithV2Values(a);
+    if (!mapped) return mapped;
+    const callerRoleIds = await this.getCallerRoleIds(a.template_id, userId);
+    return { ...mapped, caller_role_ids: callerRoleIds };
+  }
+
   async findAll(orgId: string, filters?: { status?: string; supervisorId?: string }) {
     const qb = this.repo
       .createQueryBuilder('a')
@@ -84,10 +117,12 @@ export class AssignmentsService {
     return Promise.all(assignments.map((a) => this.mapAssignmentWithV2Values(a)));
   }
 
-  async findOne(orgId: string, id: string) {
+  async findOne(orgId: string, id: string, userId?: string) {
     const a = await this.repo.findOne({ where: { id, organization_id: orgId } });
     if (!a) throw new NotFoundException('Assignment not found');
-    return this.mapAssignmentWithV2Values(a);
+    return userId
+      ? this.mapAssignmentForUser(a, userId)
+      : this.mapAssignmentWithV2Values(a);
   }
 
   async create(orgId: string, dto: CreateAssignmentDto, userId: string) {
@@ -125,6 +160,36 @@ export class AssignmentsService {
   }
 
   /**
+   * Server-side guard: drop any field the caller has no role to fill,
+   * so a malicious or buggy client can't smuggle values into the
+   * assignment by hand-crafting the request. Mirrors the editability
+   * rule the UI uses to render the field grid. Empty `callerRoleIds`
+   * means the user has no authority on this template — every field is
+   * stripped.
+   */
+  private filterFieldValuesByCallerRoles(
+    fieldValues: Record<string, string>,
+    templateSnapshot: Record<string, any> | null,
+    callerRoleIds: string[],
+  ): Record<string, string> {
+    if (!templateSnapshot) return {};
+    const docFields: Array<{ id: string; assignedRoleId?: string | null }> =
+      (templateSnapshot.document_fields as any[]) ?? [];
+    const allowedIds = new Set(
+      docFields
+        .filter(
+          (f) => f.assignedRoleId && callerRoleIds.includes(f.assignedRoleId),
+        )
+        .map((f) => f.id),
+    );
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(fieldValues)) {
+      if (allowedIds.has(k)) out[k] = v;
+    }
+    return out;
+  }
+
+  /**
    * User-scoped equivalent of `fill`. Authorises by checking that the
    * caller is either the supervisor on this assignment or has any
    * template-role assignment on the underlying template. Used by the
@@ -134,26 +199,31 @@ export class AssignmentsService {
   async fillForUser(id: string, userId: string, dto: FillAssignmentDto) {
     const a = await this.repo.findOne({ where: { id } });
     if (!a) throw new NotFoundException('Assignment not found');
+    const callerRoleIds = await this.getCallerRoleIds(a.template_id, userId);
     const isSupervisor = a.supervisor_id === userId;
-    if (!isSupervisor) {
-      const roleRow = await this.templateUserRepo.findOne({
-        where: { template_id: a.template_id, user_id: userId },
-      });
-      if (!roleRow) {
-        throw new ForbiddenException(
-          'You are not assigned to fill this document workflow.',
-        );
-      }
+    if (!isSupervisor && callerRoleIds.length === 0) {
+      throw new ForbiddenException(
+        'You are not assigned to fill this document workflow.',
+      );
     }
     if (a.status === 'completed' || a.status === 'voided') {
       throw new ForbiddenException(
         `Assignment is ${a.status} and can no longer be edited.`,
       );
     }
-    a.field_values = { ...a.field_values, ...dto.fieldValues };
+    // Strip values for fields the caller has no role to fill, so an
+    // employee assigned only to the "Employee" role can't drop a value
+    // into a "Manager" field by editing the request payload. The UI
+    // already gates this — the backend enforces it.
+    const allowedValues = this.filterFieldValuesByCallerRoles(
+      dto.fieldValues,
+      a.template_snapshot,
+      callerRoleIds,
+    );
+    a.field_values = { ...a.field_values, ...allowedValues };
     if (a.status === 'sent') a.status = 'in_progress';
     const saved = await this.repo.save(a);
-    return this.mapAssignment(saved);
+    return this.mapAssignmentForUser(saved, userId);
   }
 
   async submit(orgId: string, id: string) {
@@ -181,7 +251,9 @@ export class AssignmentsService {
       where: { supervisor_id: supervisorId, status: In(['sent', 'in_progress', 'completed']) },
       order: { created_at: 'DESC' },
     });
-    return assignments.map(a => this.mapAssignment(a));
+    return Promise.all(
+      assignments.map((a) => this.mapAssignmentForUser(a, supervisorId)),
+    );
   }
 
   /**
@@ -244,10 +316,8 @@ export class AssignmentsService {
     qb.andWhere('a.status != :voidedStatus', { voidedStatus: 'voided' });
 
     const assignments = await qb.getMany();
-    // Merge v2 field values per row so HR-File listings show accurate
-    // filled-state info on the row preview.
     return Promise.all(
-      assignments.map((a) => this.mapAssignmentWithV2Values(a)),
+      assignments.map((a) => this.mapAssignmentForUser(a, userId)),
     );
   }
 

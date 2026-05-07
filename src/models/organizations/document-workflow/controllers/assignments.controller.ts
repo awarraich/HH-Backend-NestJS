@@ -71,8 +71,14 @@ export class AssignmentsController {
   async findOne(
     @Param('organizationId') orgId: string,
     @Param('id') id: string,
+    @Request() req: RequestWithUser,
   ) {
-    const data = await this.service.findOne(orgId, id);
+    const userId = req.user?.userId ?? req.user?.sub;
+    // Pass the caller's user id through so the response can attach
+    // `caller_role_ids` — the supervisor/HR filler uses it to gate which
+    // fields are editable instead of treating every assigned field as
+    // their own to fill.
+    const data = await this.service.findOne(orgId, id, userId);
     return SuccessHelper.createSuccessResponse(data);
   }
 
