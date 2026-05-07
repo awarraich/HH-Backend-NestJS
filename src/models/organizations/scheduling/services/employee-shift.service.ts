@@ -22,6 +22,8 @@ import { CreateEmployeeShiftDto } from '../dto/create-employee-shift.dto';
 import { UpdateEmployeeShiftDto } from '../dto/update-employee-shift.dto';
 import { QueryEmployeeShiftDto } from '../dto/query-employee-shift.dto';
 import { QueryEmployeeShiftsByEmployeeDto } from '../dto/query-employee-shifts-by-employee.dto';
+import { GetBedMapDto } from '../dto/get-bed-map.dto';
+import { BulkClearEmployeeShiftsDto } from '../dto/bulk-clear-employee-shifts.dto';
 
 function formatDateOnly(d: string | Date): string {
   if (typeof d === 'string') return d.slice(0, 10);
@@ -117,6 +119,76 @@ export class EmployeeShiftService {
     if (!org) throw new NotFoundException('Organization not found');
   }
 
+  /**
+   * Reject creating/moving an assignment onto a bed or chair that another
+   * non-cancelled employee already occupies for the same shift+date.
+   *
+   * Mirrors the existing employee-side unique constraint (shift, employee,
+   * date) but on the location side. Only consults rows that are still
+   * "live" — DECLINED/REJECTED/CANCELLED don't claim a tile.
+   *
+   * Called from create() and update() when the caller sets bed_id or
+   * chair_id. Existing callers that don't set those fields are unaffected.
+   */
+  private async assertFurnitureFree(
+    shiftId: string,
+    scheduledDate: string,
+    furniture: { bed_id?: string | null; chair_id?: string | null },
+    excludeEmployeeShiftId?: string,
+  ): Promise<void> {
+    const blockedStatuses = ['DECLINED', 'REJECTED', 'CANCELLED'];
+
+    if (furniture.bed_id) {
+      const qb = this.employeeShiftRepository
+        .createQueryBuilder('es')
+        .leftJoinAndSelect('es.employee', 'employee')
+        .leftJoinAndSelect('employee.user', 'user')
+        .where('es.shift_id = :shiftId', { shiftId })
+        .andWhere('es.scheduled_date = :scheduledDate', { scheduledDate })
+        .andWhere('es.bed_id = :bedId', { bedId: furniture.bed_id })
+        .andWhere('es.status NOT IN (:...blocked)', { blocked: blockedStatuses });
+      if (excludeEmployeeShiftId) {
+        qb.andWhere('es.id != :excludeId', { excludeId: excludeEmployeeShiftId });
+      }
+      const clash = await qb.getOne();
+      if (clash) {
+        const who =
+          [clash.employee?.user?.firstName, clash.employee?.user?.lastName]
+            .filter(Boolean)
+            .join(' ')
+            .trim() || 'another employee';
+        throw new ConflictException(
+          `This bed is already assigned to ${who} on this shift+date.`,
+        );
+      }
+    }
+
+    if (furniture.chair_id) {
+      const qb = this.employeeShiftRepository
+        .createQueryBuilder('es')
+        .leftJoinAndSelect('es.employee', 'employee')
+        .leftJoinAndSelect('employee.user', 'user')
+        .where('es.shift_id = :shiftId', { shiftId })
+        .andWhere('es.scheduled_date = :scheduledDate', { scheduledDate })
+        .andWhere('es.chair_id = :chairId', { chairId: furniture.chair_id })
+        .andWhere('es.status NOT IN (:...blocked)', { blocked: blockedStatuses });
+      if (excludeEmployeeShiftId) {
+        qb.andWhere('es.id != :excludeId', { excludeId: excludeEmployeeShiftId });
+      }
+      const clash = await qb.getOne();
+      if (clash) {
+        const who =
+          [clash.employee?.user?.firstName, clash.employee?.user?.lastName]
+            .filter(Boolean)
+            .join(' ')
+            .trim() || 'another employee';
+        throw new ConflictException(
+          `This chair is already assigned to ${who} on this shift+date.`,
+        );
+      }
+    }
+  }
+
   private async validateLocationInOrg(
     organizationId: string,
     dto: {
@@ -194,7 +266,20 @@ export class EmployeeShiftService {
     });
     if (!shift) throw new NotFoundException('Shift not found');
 
-    const { page = 1, limit = 20, employee_id, status, scheduled_date, from_date, to_date } = query;
+    const {
+      page = 1,
+      limit = 20,
+      employee_id,
+      status,
+      scheduled_date,
+      from_date,
+      to_date,
+      station_id,
+      room_id,
+      bed_id,
+      chair_id,
+      role,
+    } = query;
     const skip = (page - 1) * limit;
 
     const qb = this.employeeShiftRepository
@@ -214,6 +299,11 @@ export class EmployeeShiftService {
     if (scheduled_date) qb.andWhere('es.scheduled_date = :scheduled_date', { scheduled_date });
     if (from_date) qb.andWhere('es.scheduled_date >= :from_date', { from_date });
     if (to_date) qb.andWhere('es.scheduled_date <= :to_date', { to_date });
+    if (station_id) qb.andWhere('es.station_id = :station_id', { station_id });
+    if (room_id) qb.andWhere('es.room_id = :room_id', { room_id });
+    if (bed_id) qb.andWhere('es.bed_id = :bed_id', { bed_id });
+    if (chair_id) qb.andWhere('es.chair_id = :chair_id', { chair_id });
+    if (role) qb.andWhere('es.role = :role', { role });
     qb.orderBy('es.created_at', 'ASC').skip(skip).take(limit);
 
     const [data, total] = await qb.getManyAndCount();
@@ -307,6 +397,11 @@ export class EmployeeShiftService {
       chair_id: dto.chair_id,
     });
 
+    await this.assertFurnitureFree(shiftId, scheduledDate, {
+      bed_id: dto.bed_id,
+      chair_id: dto.chair_id,
+    });
+
     const employeeShift = this.employeeShiftRepository.create({
       shift_id: shiftId,
       employee_id: dto.employee_id,
@@ -357,6 +452,19 @@ export class EmployeeShiftService {
         chair_id: es.chair_id ?? undefined,
       });
     }
+
+    // Only re-check furniture occupancy when the caller actually changes
+    // bed_id or chair_id — otherwise we'd false-positive against the row
+    // we're updating. Exclude the current row from the lookup either way.
+    if (dto.bed_id !== undefined || dto.chair_id !== undefined) {
+      await this.assertFurnitureFree(
+        es.shift_id,
+        es.scheduled_date,
+        { bed_id: es.bed_id ?? null, chair_id: es.chair_id ?? null },
+        es.id,
+      );
+    }
+
     return this.employeeShiftRepository.save(es);
   }
 
@@ -479,5 +587,297 @@ export class EmployeeShiftService {
 
     const [data, total] = await qb.getManyAndCount();
     return { data, total, page, limit };
+  }
+
+  // ─── Bed Map snapshot ────────────────────────────────────────────────
+
+  /**
+   * Single comprehensive endpoint for the Employee Scheduling > Bed Map
+   * view. Bundles the rooms (with their real bed + chair records eager-
+   * loaded) and the live employee_shift rows for a (station, shift, date)
+   * tuple plus pre-computed stats.
+   *
+   * Replaces the legacy 1 + 2N round-trip pattern (1 list-rooms call + 2
+   * list-furniture calls per room) with a single fetch. shift_id +
+   * scheduled_date are optional — when omitted, only the room layout is
+   * returned and assignments + stats are zeroed.
+   */
+  async getBedMap(
+    organizationId: string,
+    query: GetBedMapDto,
+    userId: string,
+  ): Promise<{
+    station: { id: string; name: string };
+    shift: {
+      id: string;
+      name: string | null;
+      shift_type: string | null;
+      start_at: Date;
+      end_at: Date;
+    } | null;
+    rooms: Array<{
+      id: string;
+      name: string;
+      location_or_wing: string | null;
+      floor: string | null;
+      configuration_type: string | null;
+      beds_per_room: number | null;
+      chairs_per_room: number | null;
+      is_active: boolean;
+      sort_order: number | null;
+      beds: Array<{ id: string; bed_number: string; is_active: boolean }>;
+      chairs: Array<{ id: string; chair_number: string; is_active: boolean }>;
+    }>;
+    assignments: Array<{
+      id: string;
+      employee_id: string;
+      scheduled_date: string;
+      status: string;
+      role: string | null;
+      department_id: string | null;
+      station_id: string | null;
+      room_id: string | null;
+      bed_id: string | null;
+      chair_id: string | null;
+      notes: string | null;
+      employee: {
+        id: string;
+        first_name: string;
+        last_name: string;
+        provider_role_code: string | null;
+      } | null;
+    }>;
+    stats: {
+      total_beds: number;
+      total_chairs: number;
+      assigned_beds: number;
+      assigned_chairs: number;
+      vacant: number;
+      coverage_percent: number;
+      by_role: Array<{ code: string; count: number }>;
+    };
+  }> {
+    await this.ensureAccess(organizationId, userId);
+
+    // Validate station belongs to this org via the department chain.
+    const station = await this.stationRepository.findOne({
+      where: { id: query.station_id },
+      relations: ['department'],
+    });
+    if (!station || station.department.organization_id !== organizationId) {
+      throw new BadRequestException('Invalid station for this organization');
+    }
+
+    // Optional shift validation — only when the caller is asking for
+    // assignments on top of the layout.
+    let shiftEntity: Shift | null = null;
+    if (query.shift_id) {
+      shiftEntity = await this.shiftRepository.findOne({
+        where: { id: query.shift_id, organization_id: organizationId },
+      });
+      if (!shiftEntity) throw new NotFoundException('Shift not found');
+      if (!query.scheduled_date) {
+        throw new BadRequestException(
+          'scheduled_date is required when shift_id is provided',
+        );
+      }
+    }
+
+    // Rooms with eager beds + chairs in one query. We deliberately keep
+    // inactive rooms out — managers should fix them in setup, not assign
+    // employees to them.
+    const rawRooms = await this.roomRepository.find({
+      where: { station_id: query.station_id, is_active: true },
+      relations: ['beds', 'chairs'],
+      order: { sort_order: 'ASC', name: 'ASC' },
+    });
+
+    // Natural-sort beds + chairs within each room so "Bed 2" sorts before
+    // "Bed 10" — matches the existing front-end expectation.
+    const naturalCompare = (a: string, b: string) =>
+      a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+
+    const rooms = rawRooms.map((r) => {
+      const activeBeds = (r.beds ?? [])
+        .filter((b) => b.is_active !== false)
+        .sort((a, b) => naturalCompare(a.bed_number, b.bed_number));
+      const activeChairs = (r.chairs ?? [])
+        .filter((c) => c.is_active !== false)
+        .sort((a, b) => naturalCompare(a.chair_number, b.chair_number));
+      return {
+        id: r.id,
+        name: r.name,
+        location_or_wing: r.location_or_wing,
+        floor: r.floor,
+        configuration_type: r.configuration_type,
+        beds_per_room: r.beds_per_room,
+        chairs_per_room: r.chairs_per_room,
+        is_active: r.is_active,
+        sort_order: r.sort_order,
+        beds: activeBeds.map((b) => ({
+          id: b.id,
+          bed_number: b.bed_number,
+          is_active: b.is_active,
+        })),
+        chairs: activeChairs.map((c) => ({
+          id: c.id,
+          chair_number: c.chair_number,
+          is_active: c.is_active,
+        })),
+      };
+    });
+
+    // Assignments: only fetch when both shift_id + scheduled_date are
+    // supplied. We return all rows (incl. DECLINED) so the client can
+    // decide whether to reactivate or display them; stats only count
+    // live (non-cancelled) rows.
+    let assignments: EmployeeShift[] = [];
+    if (shiftEntity && query.scheduled_date) {
+      assignments = await this.employeeShiftRepository
+        .createQueryBuilder('es')
+        .leftJoinAndSelect('es.employee', 'employee')
+        .leftJoinAndSelect('employee.user', 'user')
+        .leftJoinAndSelect('employee.providerRole', 'providerRole')
+        .where('es.shift_id = :shiftId', { shiftId: shiftEntity.id })
+        .andWhere('es.scheduled_date = :scheduledDate', {
+          scheduledDate: query.scheduled_date,
+        })
+        .andWhere('es.station_id = :stationId', { stationId: station.id })
+        .orderBy('es.created_at', 'ASC')
+        .getMany();
+    }
+
+    // Pre-computed stats — keep in lockstep with the front-end. Hidden
+    // statuses (DECLINED/REJECTED/CANCELLED) don't claim a tile and are
+    // excluded from the role + occupancy counters.
+    const blockedStatuses = new Set(['DECLINED', 'REJECTED', 'CANCELLED']);
+    const liveAssignments = assignments.filter(
+      (a) => !blockedStatuses.has((a.status ?? '').toUpperCase()),
+    );
+
+    const totalBeds = rooms.reduce((s, r) => s + r.beds.length, 0);
+    const totalChairs = rooms.reduce((s, r) => s + r.chairs.length, 0);
+    const assignedBeds = liveAssignments.filter((a) => a.bed_id).length;
+    const assignedChairs = liveAssignments.filter((a) => a.chair_id).length;
+    const total = totalBeds + totalChairs;
+    const assigned = assignedBeds + assignedChairs;
+
+    const roleCounts = new Map<string, number>();
+    for (const a of liveAssignments) {
+      const code = (a.role ?? '').trim();
+      if (!code) continue;
+      roleCounts.set(code, (roleCounts.get(code) ?? 0) + 1);
+    }
+
+    return {
+      station: { id: station.id, name: station.name },
+      shift: shiftEntity
+        ? {
+            id: shiftEntity.id,
+            name: shiftEntity.name ?? null,
+            shift_type: shiftEntity.shift_type ?? null,
+            start_at: shiftEntity.start_at,
+            end_at: shiftEntity.end_at,
+          }
+        : null,
+      rooms,
+      assignments: assignments.map((a) => ({
+        id: a.id,
+        employee_id: a.employee_id,
+        scheduled_date:
+          typeof a.scheduled_date === 'string'
+            ? a.scheduled_date
+            : formatDateOnly(a.scheduled_date),
+        status: a.status,
+        role: a.role,
+        department_id: a.department_id,
+        station_id: a.station_id,
+        room_id: a.room_id,
+        bed_id: a.bed_id,
+        chair_id: a.chair_id,
+        notes: a.notes,
+        employee: a.employee
+          ? {
+              id: a.employee.id,
+              first_name: a.employee.user?.firstName ?? '',
+              last_name: a.employee.user?.lastName ?? '',
+              provider_role_code: a.employee.providerRole?.code ?? null,
+            }
+          : null,
+      })),
+      stats: {
+        total_beds: totalBeds,
+        total_chairs: totalChairs,
+        assigned_beds: assignedBeds,
+        assigned_chairs: assignedChairs,
+        vacant: Math.max(total - assigned, 0),
+        coverage_percent: total > 0 ? Math.round((assigned / total) * 100) : 0,
+        by_role: [...roleCounts.entries()]
+          .map(([code, count]) => ({ code, count }))
+          .sort((a, b) => b.count - a.count),
+      },
+    };
+  }
+
+  /**
+   * Atomic bulk-clear. Caller must scope to either a room or a station
+   * (in addition to the required shift_id + scheduled_date) so we never
+   * accidentally wipe an entire shift's roster. Returns the number of
+   * deleted rows for honest UI feedback.
+   */
+  async bulkClear(
+    organizationId: string,
+    dto: BulkClearEmployeeShiftsDto,
+    userId: string,
+  ): Promise<{ deleted: number }> {
+    await this.ensureAccess(organizationId, userId);
+
+    if (!dto.room_id && !dto.station_id) {
+      throw new BadRequestException(
+        'bulk-clear requires either room_id or station_id to scope the deletion',
+      );
+    }
+
+    // Validate shift ownership.
+    const shift = await this.shiftRepository.findOne({
+      where: { id: dto.shift_id, organization_id: organizationId },
+    });
+    if (!shift) throw new NotFoundException('Shift not found');
+
+    // Validate the location scope belongs to this org so cross-tenant
+    // ids can't slip through.
+    if (dto.room_id) {
+      const room = await this.roomRepository.findOne({
+        where: { id: dto.room_id },
+        relations: ['station', 'station.department'],
+      });
+      if (!room || room.station.department.organization_id !== organizationId) {
+        throw new BadRequestException('Invalid room for this organization');
+      }
+    }
+    if (dto.station_id) {
+      const station = await this.stationRepository.findOne({
+        where: { id: dto.station_id },
+        relations: ['department'],
+      });
+      if (!station || station.department.organization_id !== organizationId) {
+        throw new BadRequestException('Invalid station for this organization');
+      }
+    }
+
+    const qb = this.employeeShiftRepository
+      .createQueryBuilder('es')
+      .where('es.shift_id = :shiftId', { shiftId: dto.shift_id })
+      .andWhere('es.scheduled_date = :scheduledDate', {
+        scheduledDate: dto.scheduled_date,
+      });
+    if (dto.room_id) qb.andWhere('es.room_id = :roomId', { roomId: dto.room_id });
+    if (dto.station_id) qb.andWhere('es.station_id = :stationId', { stationId: dto.station_id });
+
+    const targets = await qb.getMany();
+    if (targets.length === 0) return { deleted: 0 };
+
+    await this.employeeShiftRepository.remove(targets);
+    return { deleted: targets.length };
   }
 }

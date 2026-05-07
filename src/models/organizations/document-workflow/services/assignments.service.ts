@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { CompetencyAssignment } from '../entities/competency-assignment.entity';
 import { DocumentTemplateUserAssignment } from '../entities/document-template-user-assignment.entity';
+import { CompetencyAssignmentRole } from '../entities/competency-assignment-role.entity';
+import { CompetencyAssignmentFieldValue } from '../entities/competency-assignment-field-value.entity';
 import { CreateAssignmentDto } from '../dto/create-assignment.dto';
 import { FillAssignmentDto } from '../dto/fill-assignment.dto';
 import { TemplatesService } from './templates.service';
@@ -14,6 +16,10 @@ export class AssignmentsService {
     private readonly repo: Repository<CompetencyAssignment>,
     @InjectRepository(DocumentTemplateUserAssignment)
     private readonly templateUserRepo: Repository<DocumentTemplateUserAssignment>,
+    @InjectRepository(CompetencyAssignmentRole)
+    private readonly competencyRoleRepo: Repository<CompetencyAssignmentRole>,
+    @InjectRepository(CompetencyAssignmentFieldValue)
+    private readonly competencyValueRepo: Repository<CompetencyAssignmentFieldValue>,
     private readonly templatesService: TemplatesService,
   ) {}
 
@@ -26,6 +32,38 @@ export class AssignmentsService {
         pdfUrl: this.templatesService.buildPdfUrl(a.organization_id, result.template_snapshot.id)
       };
     }
+    return result;
+  }
+
+  /**
+   * Merge v2 per-instance field values into the legacy `field_values` JSONB
+   * blob that the legacy filler UI reads from. v2 writes go to a separate
+   * `competency_assignment_field_values` table; without this merge, HR
+   * opening a v2 assignment in the legacy viewer sees blank fields even
+   * after the employee filled them in. Legacy `field_values` always wins
+   * if both exist (kept for back-compat with rows touched before v2 was
+   * deployed).
+   */
+  private async mapAssignmentWithV2Values(a: CompetencyAssignment) {
+    const result = this.mapAssignment(a);
+    if (!result) return result;
+    const v2Values = await this.competencyValueRepo.find({
+      where: { assignment_id: a.id },
+    });
+    if (!v2Values.length) return result;
+    const merged: Record<string, string> = { ...(result.field_values ?? {}) };
+    for (const v of v2Values) {
+      if (merged[v.field_id] != null) continue; // legacy wins on conflict
+      if (v.value_text != null) {
+        merged[v.field_id] = v.value_text;
+      } else if (v.value_json != null) {
+        merged[v.field_id] =
+          typeof v.value_json === 'string'
+            ? v.value_json
+            : JSON.stringify(v.value_json);
+      }
+    }
+    result.field_values = merged;
     return result;
   }
 
@@ -46,16 +84,17 @@ export class AssignmentsService {
   }
 
   /**
-   * Same as `mapAssignment` but tags the returned record with the caller's
-   * role IDs on this assignment's template. Used by every endpoint where
-   * we know who's asking — the frontend only marks fields as editable
-   * when their `assignedRoleId` is in this list.
+   * User-scoped mapping: merges v2 field values AND tags the record with
+   * the caller's role IDs on this assignment's template. Used by every
+   * endpoint where we know who's asking — the frontend only marks fields
+   * as editable when their `assignedRoleId` is in this list, and v2 values
+   * must be merged so employees see their previously-saved progress.
    */
   private async mapAssignmentForUser(
     a: CompetencyAssignment,
     userId: string,
   ) {
-    const mapped = this.mapAssignment(a);
+    const mapped = await this.mapAssignmentWithV2Values(a);
     if (!mapped) return mapped;
     const callerRoleIds = await this.getCallerRoleIds(a.template_id, userId);
     return { ...mapped, caller_role_ids: callerRoleIds };
@@ -75,13 +114,15 @@ export class AssignmentsService {
     }
 
     const assignments = await qb.getMany();
-    return assignments.map(a => this.mapAssignment(a));
+    return Promise.all(assignments.map((a) => this.mapAssignmentWithV2Values(a)));
   }
 
   async findOne(orgId: string, id: string, userId?: string) {
     const a = await this.repo.findOne({ where: { id, organization_id: orgId } });
     if (!a) throw new NotFoundException('Assignment not found');
-    return userId ? this.mapAssignmentForUser(a, userId) : this.mapAssignment(a);
+    return userId
+      ? this.mapAssignmentForUser(a, userId)
+      : this.mapAssignmentWithV2Values(a);
   }
 
   async create(orgId: string, dto: CreateAssignmentDto, userId: string) {
@@ -227,13 +268,27 @@ export class AssignmentsService {
    * This powers the "Document Workflows" panel on the employee HR File.
    */
   async getForEmployee(orgId: string | null | undefined, userId: string) {
-    // Templates this user has any role on (employee, supervisor, etc.).
-    const userTemplateRows = await this.templateUserRepo
-      .createQueryBuilder('ua')
-      .select('DISTINCT ua.template_id', 'template_id')
-      .where('ua.user_id = :userId', { userId })
-      .getRawMany<{ template_id: string }>();
+    // Sources where the user could be linked to an assignment:
+    //   1. Legacy `document_template_user_assignments` (template-scoped binding).
+    //   2. Legacy `competency_assignments.supervisor_id` (single-supervisor row).
+    //   3. v2 `competency_assignments.employee_user_id` (the target employee).
+    //   4. v2 `competency_assignment_roles.user_id` (any role-filler — covers
+    //      multi-supervisor v2 assignments where only one supervisor's id
+    //      ends up in the legacy `supervisor_id` column).
+    const [userTemplateRows, v2RoleRows] = await Promise.all([
+      this.templateUserRepo
+        .createQueryBuilder('ua')
+        .select('DISTINCT ua.template_id', 'template_id')
+        .where('ua.user_id = :userId', { userId })
+        .getRawMany<{ template_id: string }>(),
+      this.competencyRoleRepo
+        .createQueryBuilder('cr')
+        .select('DISTINCT cr.assignment_id', 'assignment_id')
+        .where('cr.user_id = :userId', { userId })
+        .getRawMany<{ assignment_id: string }>(),
+    ]);
     const templateIds = userTemplateRows.map((r) => r.template_id);
+    const v2AssignmentIds = v2RoleRows.map((r) => r.assignment_id);
 
     const qb = this.repo
       .createQueryBuilder('a')
@@ -242,14 +297,23 @@ export class AssignmentsService {
     if (orgId) {
       qb.where('a.organization_id = :orgId', { orgId });
     }
+    const clauses: string[] = [
+      'a.supervisor_id = :userId',
+      'a.employee_user_id = :userId',
+    ];
+    const params: Record<string, unknown> = { userId };
     if (templateIds.length > 0) {
-      qb.andWhere(
-        '(a.supervisor_id = :userId OR a.template_id IN (:...templateIds))',
-        { userId, templateIds },
-      );
-    } else {
-      qb.andWhere('a.supervisor_id = :userId', { userId });
+      clauses.push('a.template_id IN (:...templateIds)');
+      params.templateIds = templateIds;
     }
+    if (v2AssignmentIds.length > 0) {
+      clauses.push('a.id IN (:...v2AssignmentIds)');
+      params.v2AssignmentIds = v2AssignmentIds;
+    }
+    qb.andWhere(`(${clauses.join(' OR ')})`, params);
+    // Hide voided rows so a re-assignment of the same template doesn't keep
+    // surfacing the prior (voided) instance alongside the fresh one.
+    qb.andWhere('a.status != :voidedStatus', { voidedStatus: 'voided' });
 
     const assignments = await qb.getMany();
     return Promise.all(

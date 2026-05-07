@@ -158,6 +158,12 @@ import { WorkflowRolesService } from './document-workflow/services/workflow-role
 import { TemplateAssignmentsService } from './document-workflow/services/template-assignments.service';
 import { WorkflowRolesController } from './document-workflow/controllers/workflow-roles.controller';
 import { FilledDocumentTemplatesController } from './document-workflow/controllers/filled-document-templates.controller';
+import { CompetencyAssignmentRole } from './document-workflow/entities/competency-assignment-role.entity';
+import { CompetencyAssignmentFieldValue } from './document-workflow/entities/competency-assignment-field-value.entity';
+import { CompetencyAssignmentV2Service } from './document-workflow/services/competency-assignment-v2.service';
+import { CompetencyAssignmentsV2Controller } from './document-workflow/controllers/competency-assignments-v2.controller';
+import { MyCompetencyAssignmentsV2Controller } from './document-workflow/controllers/my-competency-assignments-v2.controller';
+import { CompetencyFillController } from './document-workflow/controllers/competency-fill.controller';
 import { Role } from '../../authentication/entities/role.entity';
 import { UserRole } from '../../authentication/entities/user-role.entity';
 import { UserAppContextsController } from './staff-management/controllers/user-app-contexts.controller';
@@ -233,6 +239,8 @@ import { UserAppContextsController } from './staff-management/controllers/user-a
       DocumentFieldValue,
       DocumentWorkflowRole,
       DocumentTemplateUserAssignment,
+      CompetencyAssignmentRole,
+      CompetencyAssignmentFieldValue,
     ]),
     AuthenticationModule,
     EmailModule,
@@ -281,6 +289,9 @@ import { UserAppContextsController } from './staff-management/controllers/user-a
     MyDocumentWorkflowAssignmentsController,
     WorkflowRolesController,
     FilledDocumentTemplatesController,
+    CompetencyAssignmentsV2Controller,
+    MyCompetencyAssignmentsV2Controller,
+    CompetencyFillController,
     UserAppContextsController,
   ],
   providers: [
@@ -332,6 +343,7 @@ import { UserAppContextsController } from './staff-management/controllers/user-a
     PdfStorageService,
     WorkflowRolesService,
     TemplateAssignmentsService,
+    CompetencyAssignmentV2Service,
   ],
   exports: [
     TypeOrmModule,
