@@ -61,10 +61,13 @@ import { InserviceTrainingsController } from './hr-files-setup/controllers/inser
 import { InserviceQuizQuestionsController } from './hr-files-setup/controllers/inservice-quiz-questions.controller';
 import { InserviceQuizQuestionsOrgController } from './hr-files-setup/controllers/inservice-quiz-questions-org.controller';
 import { EmployeeInserviceController } from './hr-files-setup/controllers/employee-inservice.controller';
+import { EmployeeInserviceNotificationController } from './hr-files-setup/controllers/employee-inservice-notification.controller';
 import { EmployeeDocumentTypeService } from './hr-files-setup/services/employee-document-type.service';
 import { InserviceCompletionService } from './hr-files-setup/services/inservice-completion.service';
 import { InserviceTrainingService } from './hr-files-setup/services/inservice-training.service';
 import { InserviceQuizQuestionService } from './hr-files-setup/services/inservice-quiz-question.service';
+import { InserviceNotificationService } from './hr-files-setup/services/inservice-notification.service';
+import { InserviceAiAgentService } from './hr-files-setup/services/inservice-ai-agent.service';
 import { InserviceQuizQuestion } from './hr-files-setup/entities/inservice-quiz-question.entity';
 import { InserviceCompletion } from './hr-files-setup/entities/inservice-completion.entity';
 import { InserviceQuizAttempt } from './hr-files-setup/entities/inservice-quiz-attempt.entity';
@@ -117,6 +120,7 @@ import { FleetVehicleService } from './scheduling/services/fleet-vehicle.service
 import { LabWorkstationService } from './scheduling/services/lab-workstation.service';
 import { DepartmentStaffService } from './scheduling/services/department-staff.service';
 import { ScheduledTaskService } from './scheduling/services/scheduled-task.service';
+import { SchedulingAnalyticsService } from './scheduling/services/scheduling-analytics.service';
 import { DepartmentsController } from './scheduling/controllers/departments.controller';
 import { StationsController } from './scheduling/controllers/stations.controller';
 import { RoomsController } from './scheduling/controllers/rooms.controller';
@@ -134,6 +138,7 @@ import { ClinicAppointmentsController } from './scheduling/controllers/clinic-ap
 import { TransportTripsController } from './scheduling/controllers/transport-trips.controller';
 import { PharmacyPrescriptionsController } from './scheduling/controllers/pharmacy-prescriptions.controller';
 import { FieldVisitsController } from './scheduling/controllers/field-visits.controller';
+import { SchedulingAnalyticsController } from './scheduling/controllers/scheduling-analytics.controller';
 import { OrganizationDocumentCategory } from './compliance-documents/entities/organization-document-category.entity';
 import { OrganizationDocument } from './compliance-documents/entities/organization-document.entity';
 import { OrganizationDocumentChunk } from './compliance-documents/entities/organization-document-chunk.entity';
@@ -264,6 +269,7 @@ import { UserAppContextsController } from './staff-management/controllers/user-a
     InserviceQuizQuestionsController,
     InserviceQuizQuestionsOrgController,
     EmployeeInserviceController,
+    EmployeeInserviceNotificationController,
     OrganizationCompanyProfileController,
     DepartmentsController,
     DepartmentConfigOptionsController,
@@ -282,6 +288,7 @@ import { UserAppContextsController } from './staff-management/controllers/user-a
     TransportTripsController,
     PharmacyPrescriptionsController,
     FieldVisitsController,
+    SchedulingAnalyticsController,
     OrganizationDocumentCategoriesController,
     OrganizationDocumentsController,
     TemplatesController,
@@ -309,6 +316,7 @@ import { UserAppContextsController } from './staff-management/controllers/user-a
     LabWorkstationService,
     DepartmentStaffService,
     ScheduledTaskService,
+    SchedulingAnalyticsService,
     OrganizationsService,
     OrganizationRoleService,
     OrganizationPermissionService,
@@ -321,6 +329,8 @@ import { UserAppContextsController } from './staff-management/controllers/user-a
     InserviceTrainingService,
     InserviceQuizQuestionService,
     InserviceCompletionService,
+    InserviceNotificationService,
+    InserviceAiAgentService,
     RequirementTagService,
     EmployeeRequirementTagService,
     EmployeeDocumentsService,
