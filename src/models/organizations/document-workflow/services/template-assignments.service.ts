@@ -55,6 +55,17 @@ export class TemplateAssignmentsService {
     });
     if (!template) throw new NotFoundException('Template not found');
 
+    // Pin the version this batch of assignments will render against.
+    // `current_version_id` is set by `TemplatesService.publishVersion`;
+    // a missing value means the template hasn't been published yet —
+    // bail rather than silently assigning to a draft, since the
+    // employee would have nothing well-defined to fill.
+    if (!template.current_version_id) {
+      throw new BadRequestException(
+        'This template has no published version yet — publish it before assigning users.',
+      );
+    }
+
     // Collect unique role IDs from the request
     const roleIds = [...new Set(dto.assignments.map((a) => a.roleId))];
 
@@ -102,6 +113,7 @@ export class TemplateAssignmentsService {
           await this.assignmentRepo.save(
             this.assignmentRepo.create({
               template_id: templateId,
+              template_version_id: template.current_version_id!,
               user_id: item.userId,
               role_id: item.roleId,
               assigned_by: assignedBy,

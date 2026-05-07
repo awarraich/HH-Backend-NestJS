@@ -12,13 +12,24 @@ import {
 @Index(['template_id'])
 @Index(['user_id'])
 @Index(['template_id', 'user_id'])
-@Unique(['template_id', 'field_id', 'user_id'])
+@Index(['template_version_id'])
+@Unique(['template_version_id', 'field_id', 'user_id'])
 export class DocumentFieldValue {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
   @Column({ type: 'uuid' })
   template_id: string;
+
+  /**
+   * The template version this value was filled against. Lets the same
+   * user have answers for v1 (e.g. rejected) and v2 (after a republish)
+   * sitting side by side without violating uniqueness. Read paths
+   * scoped to a specific assignment should filter by this column to get
+   * the right history slice.
+   */
+  @Column({ type: 'uuid' })
+  template_version_id: string;
 
   @Column({ type: 'varchar', length: 255 })
   field_id: string;

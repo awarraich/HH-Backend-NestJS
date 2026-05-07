@@ -9,6 +9,7 @@ type DependentRow = {
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { CompetencyTemplate } from '../entities/competency-template.entity';
+import { CompetencyTemplateVersion } from '../entities/competency-template-version.entity';
 import { DocumentFieldValue } from '../../../external-documents/entities/document-field-value.entity';
 import { DocumentWorkflowRole } from '../entities/document-workflow-role.entity';
 import { CreateTemplateDto } from '../dto/create-template.dto';
@@ -21,6 +22,8 @@ export class TemplatesService {
   constructor(
     @InjectRepository(CompetencyTemplate)
     private readonly repo: Repository<CompetencyTemplate>,
+    @InjectRepository(CompetencyTemplateVersion)
+    private readonly versionRepo: Repository<CompetencyTemplateVersion>,
     @InjectRepository(DocumentFieldValue)
     private readonly fieldValueRepo: Repository<DocumentFieldValue>,
     @InjectRepository(DocumentWorkflowRole)
@@ -28,6 +31,51 @@ export class TemplatesService {
     private readonly pdfStorage: PdfStorageService,
     private readonly s3Service: S3Service,
   ) {}
+
+  /**
+   * Snapshot the current draft state of a template into a new
+   * `competency_template_versions` row and bump the template's
+   * `current_version_id` to point at it. Idempotent in a useful sense:
+   * calling publish twice produces two distinct version rows so the
+   * audit trail captures both publish events. New assignments freeze on
+   * `current_version_id` at assign time, so old assignments are
+   * unaffected.
+   *
+   * `version_number` is computed as `MAX(existing) + 1` per template.
+   * The unique constraint (template_id, version_number) catches racing
+   * publishes; we let the second one fail rather than building a real
+   * advisory lock — publish is a low-frequency admin action.
+   */
+  async publishVersion(
+    orgId: string,
+    templateId: string,
+    publishedBy: string | null,
+  ): Promise<CompetencyTemplateVersion> {
+    const template = await this.findOne(orgId, templateId);
+
+    const latest = await this.versionRepo
+      .createQueryBuilder('v')
+      .where('v.template_id = :tid', { tid: templateId })
+      .orderBy('v.version_number', 'DESC')
+      .getOne();
+    const nextVersion = (latest?.version_number ?? 0) + 1;
+
+    const snapshot = await this.versionRepo.save(
+      this.versionRepo.create({
+        template_id: template.id,
+        version_number: nextVersion,
+        document_fields: template.document_fields ?? [],
+        roles: template.roles ?? [],
+        pdf_file_key: template.pdf_file_key,
+        pdf_original_name: template.pdf_original_name,
+        pdf_size_bytes: template.pdf_size_bytes,
+        published_by: publishedBy,
+      }),
+    );
+
+    await this.repo.update(template.id, { current_version_id: snapshot.id });
+    return snapshot;
+  }
 
   async findAll(orgId: string, purpose?: 'document' | 'applicant_form') {
     const where: Record<string, unknown> = { organization_id: orgId };
@@ -197,7 +245,7 @@ export class TemplatesService {
   }
 
   async create(orgId: string, dto: CreateTemplateDto, userId: string) {
-    return this.repo.save(
+    const saved = await this.repo.save(
       this.repo.create({
         organization_id: orgId,
         name: dto.name,
@@ -208,6 +256,14 @@ export class TemplatesService {
         purpose: dto.purpose === 'applicant_form' ? 'applicant_form' : 'document',
       }),
     );
+    // Auto-publish v1 on create so the template is immediately
+    // assignable. Without this, every new template would need a
+    // separate Publish click before the assign modal could pin a
+    // version_id to it. The v1 snapshot captures the initial state.
+    await this.publishVersion(orgId, saved.id, userId);
+    // Re-fetch so callers see the populated `current_version_id`
+    // pointer alongside the rest of the template payload.
+    return this.repo.findOne({ where: { id: saved.id } });
   }
 
   async update(orgId: string, id: string, dto: UpdateTemplateDto) {

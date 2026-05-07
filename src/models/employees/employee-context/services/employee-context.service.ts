@@ -85,7 +85,12 @@ export class EmployeeContextService {
       // same way they do for a directly-hired Employee.
       const staffRows = await this.orgStaffRepository.find({
         where: { user_id: userId },
-        relations: ['organization', 'staffRole'],
+        relations: [
+          'organization',
+          'organization.profile',
+          'organization.profile.organizationType',
+          'staffRole',
+        ],
         order: { created_at: 'ASC' },
       });
 
@@ -95,6 +100,8 @@ export class EmployeeContextService {
           .map((row) => ({
             organization_id: row.organization_id,
             organization_name: row.organization?.organization_name ?? null,
+            organization_type:
+              row.organization?.profile?.organizationType?.name ?? null,
             employee_status: row.status, // 'ACTIVE' | 'INACTIVE' | …
             is_active_context:
               currentOrganizationId != null &&
@@ -140,7 +147,12 @@ export class EmployeeContextService {
 
     const memberships = await this.employeeRepository.find({
       where: { user_id: userId },
-      relations: ['organization', 'providerRole'],
+      relations: [
+        'organization',
+        'organization.profile',
+        'organization.profile.organizationType',
+        'providerRole',
+      ],
       order: { created_at: 'ASC' },
     });
 
@@ -149,6 +161,8 @@ export class EmployeeContextService {
       .map((row) => ({
         organization_id: row.organization_id!,
         organization_name: row.organization?.organization_name ?? null,
+        organization_type:
+          row.organization?.profile?.organizationType?.name ?? null,
         employee_status: row.status,
         is_active_context:
           currentOrganizationId != null && row.organization_id === currentOrganizationId,

@@ -36,6 +36,16 @@ export class ScheduledTaskAssignment {
   @Column({ type: 'boolean', default: true })
   is_primary: boolean;
 
+  /**
+   * Per-assignment response from the employee. Independent of the task's
+   * overall lifecycle status (`scheduled_tasks.status`) so multi-assignee
+   * tasks can have one clinician accept while another declines.
+   * Values: 'PENDING' | 'CONFIRMED' | 'DECLINED' (free-form to match
+   * `employee_shifts.status` conventions; the API normalizes on read).
+   */
+  @Column({ type: 'varchar', length: 32, default: 'PENDING' })
+  status: string;
+
   @CreateDateColumn({ type: 'timestamptz', default: () => 'CURRENT_TIMESTAMP' })
   created_at: Date;
 

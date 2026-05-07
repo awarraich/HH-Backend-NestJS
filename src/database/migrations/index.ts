@@ -98,6 +98,10 @@ import { AddOnboardingTimestampsToEmployeeProfiles20260429100000 } from './20260
 import { AddSignatureAuditToDocumentFieldValues20260429110000 } from './20260429110000-add-signature-audit-to-document-field-values.js';
 import { AddTimezoneToOrganizations20260505100000 } from './20260505100000-add-timezone-to-organizations.js';
 import { CreateCompetencyAssignmentRoles20260507100000 } from './20260507100000-create-competency-assignment-roles.js';
+import { AddStatusToScheduledTaskAssignments20260507110000 } from './20260507110000-add-status-to-scheduled-task-assignments.js';
+import { AddStatusToDocumentTemplateUserAssignments20260507120000 } from './20260507120000-add-status-to-document-template-user-assignments.js';
+import { AddSubmissionLifecycleToDocumentAssignments20260507130000 } from './20260507130000-add-submission-lifecycle-to-document-assignments.js';
+import { AddTemplateVersioning20260507140000 } from './20260507140000-add-template-versioning.js';
 
 type MigrationConstructor = new () => MigrationInterface;
 
@@ -201,4 +205,8 @@ export const migrations: MigrationConstructor[] = [
   AddSignatureAuditToDocumentFieldValues20260429110000,
   AddTimezoneToOrganizations20260505100000,
   CreateCompetencyAssignmentRoles20260507100000,
+  AddStatusToScheduledTaskAssignments20260507110000,
+  AddStatusToDocumentTemplateUserAssignments20260507120000,
+  AddSubmissionLifecycleToDocumentAssignments20260507130000,
+  AddTemplateVersioning20260507140000,
 ];
